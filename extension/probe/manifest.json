@@ -1,0 +1,16 @@
+{
+  "manifest_version": 3,
+  "name": "ContextFlow 探针",
+  "version": "1.0",
+  "description": "一次性探针：判定 MV3 ISOLATED world 里 CSS.highlights 能否真的绘制。验证完可卸载。",
+  "permissions": ["storage"],
+  "host_permissions": ["http://127.0.0.1:7317/*"],
+  "background": { "service_worker": "sw.js" },
+  "content_scripts": [
+    {
+      "matches": ["http://*/*", "https://*/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}

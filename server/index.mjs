@@ -13,6 +13,7 @@ import { listModels } from './llm.mjs';
 import { listNotebooks, listPaths } from './siyuan.mjs';
 import { syncAll, describe, BACKENDS } from './sync.mjs';
 import * as jobs from './jobs.mjs';
+import { originAllowed, EXT_ORIGIN_RE } from './origin.mjs';
 import { detect as detectAgents } from './agent.mjs';
 import { detectVaults, listFolders } from './obsidian.mjs';
 
@@ -25,35 +26,12 @@ const json = (res, code, obj) => {
   res.end(body);
 };
 
-const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-
-// 合法 Origin 只可能是 scheme://host[:port] —— 没有路径、没有 query、没有 fragment。
-// 先按形状卡一道，从结构上堵死 'https://evil.com#.github.io' 这类混淆匹配。
-const ORIGIN_RE = /^https?:\/\/[a-z0-9._-]+(:\d{1,5})?$/i;
-
-/**
- * 白名单匹配。`*` 只代表**单个 host 段**（不含 . / :），因此
- *   'https://*.github.io'  匹配 https://lph.github.io
- *                          不匹配 https://a.b.github.io（多段）
- *                          不匹配 https://evil.com#.github.io（形状校验已拦）
- * 这也让 'https://*' 无法再充当「放开全网」的暗门 —— 那件事必须显式设 allowAnyOrigin。
- */
-function originAllowed(origin) {
-  if (cfg.allowAnyOrigin) return true;
-  if (!ORIGIN_RE.test(origin)) return false;
-  return cfg.allowedOrigins.some((p) => {
-    if (p === origin) return true;
-    if (!p.includes('*')) return false;
-    return new RegExp(`^${p.split('*').map(escapeRe).join('[^./:]*')}$`).test(origin);
-  });
-}
-
 const rejected = new Set();   // 同一 origin 只提示一次，避免刷屏
 
 function applyCors(req, res) {
   const origin = req.headers.origin;
   if (!origin) return true;                       // 无 Origin：curl / 同源，放行
-  if (!originAllowed(origin)) {
+  if (!originAllowed(cfg, origin)) {
     if (!rejected.has(origin)) {
       rejected.add(origin);
       console.warn(`[cors] 拒绝 ${origin}\n`
@@ -236,6 +214,8 @@ server.listen(cfg.port, '127.0.0.1', () => {
   console.log(`  翻译 ${cfg.translate.provider} · ${cfg.translate.model}`
     + ` · ${cfg.translate.apiKey ? 'key 已配置' : '⚠ 无 key，/translate 返回 503'}`);
   console.log(`  同步 ${describe(cfg)}`);
+  const exts = cfg.allowedOrigins.filter((o) => EXT_ORIGIN_RE.test(o));
+  if (exts.length) console.log(`  扩展 ${exts.join(', ')}`);
   console.log(cfg.allowAnyOrigin
     ? `  来源 所有 origin（allowAnyOrigin=true）· token 校验${cfg.requireToken ? '已开启' : ' ⚠ 未开启：任何网页都可读写'}`
     : `  来源 白名单 ${cfg.allowedOrigins.join(', ')}`);

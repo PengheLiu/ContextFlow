@@ -8,16 +8,16 @@
 
 两种载体都已实测可行，各有取舍：
 
-| | userscript（页面 MAIN world） | MV3 扩展 |
+| | userscript（页面 MAIN world） | MV3 扩展（ISOLATED world） |
 |---|---|---|
 | 迭代速度 | **粘贴即跑，无构建** | 改完需 reload |
-| 存储 | `localStorage`，按 origin 隔离 | `chrome.storage`，全局共享 |
-| CORS 白名单 | 各站点 origin | 仅 `chrome-extension://<id>` |
-| token 安全 | 与页面共享 JS 堆，可被 hook | 在 service worker 里，页面拿不到 |
+| 存储 | `localStorage`，按 origin 隔离 | 同上（content script 访问页面 origin 的存储） |
+| token | 编译进产物，与页面共享 JS 堆 | **只在 service worker 里，页面碰不到** |
+| CORS 白名单 | 各站点 origin，实际只能开 allowAnyOrigin | 仅 `chrome-extension://<id>` |
 
 `anchor.js` 是本项目最高风险处（三层降级要在真实页面上稳定），userscript「粘贴即跑」
-正适合调它。所以核心逻辑写成零依赖 ESM，用 esbuild 出单文件 IIFE（`dist/skill.js`）
-供 userscript 使用，同一份源码也能打成扩展 bundle —— 锚定逻辑是纯 DOM 操作，跨载体无差异。
+正适合调它。所以核心逻辑写成零依赖 ESM，用 esbuild 出两个产物 —— `dist/skill.js`
+（单文件 IIFE）与 `extension/dist/`。两者共用同一份 `src/`，唯一差别是传输层。
 
 ### 已实测：页面 origin → 本地服务完全可行
 
@@ -34,11 +34,7 @@
 1. **PNA 不构成障碍。** `Access-Control-Request-Private-Network` 请求头出现 **0 次** ——
    Chromium 把 `127.0.0.1` 视为 potentially-trustworthy origin，public→localhost
    不走 Private Network Access 拦截。
-2. HTTPS 页面 fetch `http://127.0.0.1` **不触发 mixed-content 阻断**（同上，localhost 属可信来源）。
-
-userscript 侧实测跑在页面 **MAIN world**：`chrome.runtime` / `chrome.storage` 都拿不到，
-等价于经典 userscript 的 `@grant none`。DOM、选区、CSS Custom Highlight、Shadow DOM、
-fetch 本地服务全部可用。
+2. HTTPS 页面 fetch `http://127.0.0.1` **不触发 mixed-content 阻断**（同上）。
 
 ### 安全设计：两种档位，按「要在多少站点上用」取舍
 
@@ -48,33 +44,73 @@ fetch 本地服务全部可用。
 | 手段 | 作用 | 失效条件 |
 |---|---|---|
 | **Origin 白名单** | 非白名单站点拿不到 `Access-Control-Allow-Origin`，读不到响应 | 一旦放开为「所有 origin」即完全失效 |
-| **强制自定义头 `X-ContextFlow: 1`** | 任何跨源请求都必须预检，预检失败则请求根本不发出。**必需** —— 否则 `Content-Type: text/plain` 的简单 POST 不预检，能绕过 CORS 往库里塞垃圾 | 依附于白名单：白名单放开后预检对谁都通过，这条随之失效 |
-| **Bearer token** | 请求须携带 `~/.contextflow/config.json` 里的 token；由 `tools/build.mjs` 在构建时注入产物 | MAIN world 与页面共享 JS 堆，**恶意页面可在我方脚本前 hook `fetch` 窃取** |
+| **强制自定义头 `X-ContextFlow: 1`** | 任何跨源请求都必须预检，预检失败则请求根本不发出。**必需** —— 否则 `Content-Type: text/plain` 的简单 POST 不预检，能绕过 CORS 往库里塞垃圾 | 依附于白名单：白名单放开后预检对谁都通过 |
+| **Bearer token** | 请求须携带 `~/.contextflow/config.json` 里的 token，由构建注入 | userscript 载体下与页面共享 JS 堆，**恶意页面可在我方脚本前 hook `fetch` 窃取** |
 
-**档位 A（代码默认值）**：白名单 + 强制预检，`requireToken` 关。防线最强，
-代价是每个新站点要手动加 origin（支持 `*` 单段通配）。
+**userscript 档**：要在任意站点即开即用只能 `allowAnyOrigin: true` + `requireToken: true`。
+前两道防线此时**同时失效**，token 成为唯一防线 —— 所以这两个开关必须**成对**打开，
+只开 `allowAnyOrigin` 等于对全网敞开数据库。残余风险：一个**主动针对本工具**的恶意页面
+可以 hook `fetch` 偷到 token（是隐私泄露，不是 RCE）。
 
-**档位 B**：`allowAnyOrigin: true` + `requireToken: true`。要在任意博客上即开即用只能走这档。
-关键：前两道防线此时**同时失效**，token 成为唯一防线 —— 所以这两个开关必须**成对**打开，
-只开 `allowAnyOrigin` 等于对全网敞开数据库。
-
-残余风险：一个**主动针对本工具**的恶意页面可以 hook `fetch` 偷到 token，
-从而读写你的全部阅读记录（是隐私泄露，不是 RCE）。普通站点不会这么做。
+**扩展档（推荐）**：fetch 发生在 service worker，页面拿不到 token、也看不见
+`chrome.runtime` 通道，于是可以 `allowAnyOrigin: false` + 只白名单
+`chrome-extension://<id>` —— 「所有站点可用」与「白名单最强」同时成立。
 
 通配符实现上踩过一个真漏洞：用 `[^/]*` 展开 `*` 时，`https://*.github.io` 会匹配
 `https://evil.com#.github.io`。现已改为 `*` 只匹配单个 host 段 `[^./:]*`，
 并加一道 Origin 形状校验（合法 Origin 只能是 `scheme://host[:port]`）。
-回归用例见 `test/origin.test.mjs`。
-
-**扩展路线在这一点上严格更优**：fetch 发生在 service worker（`chrome-extension://` origin），
-token 从不进入页面 JS 堆、无法被 hook；服务端只放行单个扩展 id，
-即可同时拿到「所有站点可用」与「白名单最强」。
+扩展 origin 另有一条：必须**精确匹配**、不参与通配，否则 `chrome-extension://*`
+就是放行任意扩展的暗门。实现与回归用例都在 `server/origin.mjs` / `test/origin.test.mjs`。
 
 **已知边界**：arxiv `/pdf/` 页走浏览器内置 PDF viewer，脚本注入不进去 → 该页无法标注。
-本方案覆盖 HTML 页（blog、arxiv `/abs/`、arxiv `/html/`），但锚点模型设计成 PDF 可扩展。
+覆盖范围是 HTML 页（blog、arxiv `/abs/`、`/html/`），锚点模型设计成 PDF 可扩展。
 
----
+### MV3 扩展的实现要点
 
+#### 关键实测：ISOLATED world 里的 CSS.highlights 会正常绘制
+
+MV3 content script 默认跑在 ISOLATED world（页面 JS 碰不到），但那里注册的
+`CSS.highlights` 会不会真的画出来，文档没写、也**无法用 JS 观测**
+（没有 `getComputedStyle(el, '::highlight(x)')` 这种 API）。而这决定了架构：
+
+- 会 → 单个 ISOLATED 脚本 + service worker。没有跨 world 的桥
+- 不会 → UI 必须跑 MAIN world，另加 ISOLATED 中继做 `postMessage` 桥接，
+  而 MAIN 与页面共享一切，页面就能伪造"保存事件"往库里写垃圾
+
+也无法自动化验证：品牌版 Chrome 拒绝命令行装未打包扩展
+（`--load-extension is not allowed in Google Chrome, ignoring.`）。
+于是做了个探针扩展（`extension/probe/`），面板里放两句一模一样的话 ——
+一句用 ISOLATED 注册的 `::highlight()` 上色，一句用普通 `<mark>` 对照，肉眼比对。
+
+**结论：两句视觉一致，ISOLATED 可行。** 所以：
+
+```
+content_scripts: [{ js: ["app.js"] }]        // 不写 world → 默认 ISOLATED
+background:      { service_worker: "sw.js" }
+```
+
+#### 唯一的代码改动是一个传输 seam
+
+所有网络访问早就收敛在 `src/core/api.js` 的 `call()` 一个函数上：
+
+```js
+let transport = async (path, init) => { /* 直接 fetch，带编译进来的 token */ };
+export function setTransport(fn) { transport = fn; }
+```
+
+扩展入口 `src/ext/app.js` 把它换成 `chrome.runtime.sendMessage`，请求转给 service
+worker，**token 只存在于 `sw.js`**。`localStorage`（镜像 / outbox / 界面偏好）
+无需改动 —— content script 在任何 world 都访问页面 origin 的存储，换载体不丢数据。
+
+`main.js` 的启动也从"模块加载即跑"改成显式 `boot()`：否则扩展入口的 `setTransport`
+永远来不及生效（import 求值先于入口代码）。
+
+manifest 必须写死 `key`（`extension/key.pub`，公钥）。不写的话扩展 id 由目录路径派生，
+移动目录或换机器 id 就变，服务端白名单立刻失效。
+
+两条测试守着这层：`test/extbuild.test.mjs` 断言 **token 只在 `sw.js`、绝不在 `app.js`**
+（这件事从界面上完全看不出来）；`test/transport.test.mjs` 断言 seam 换掉后请求确实走新
+通道、`status 0` 按不可达处理（于是 outbox 逻辑不必为扩展另写一套）。
 ## 1. 架构
 
 ```
@@ -581,9 +617,12 @@ ContextFlow/
 
 ## 9. 加载方式
 
-**userscript**：`npm run build:skill` 出 `dist/skill.js`（单文件 IIFE），
-粘进任意支持 userscript 的宿主（Tampermonkey / Violentmonkey / 浏览器自带的脚本机制），
-绑定目标页面即可。构建时会把本地服务的 bearer token 注入产物，所以 **`dist/` 不进版本库**。
+**userscript**：`npm run build:skill` 出 `dist/skill.js`（单文件 IIFE），粘进任意
+userscript 宿主（Tampermonkey / Violentmonkey 等），绑定目标页面。构建会把本地服务的
+bearer token 注入产物，所以 **`dist/` 不进版本库**。
 
-**扩展**：`chrome://extensions` → 开发者模式 → 加载已解压的扩展程序 → 选 `extension/dist`。
-同一份产物可装进 Chrome / Edge / Arc。
+**扩展**：`npm run build:ext` → `chrome://extensions` → 开发者模式 → 加载已解压的
+扩展程序 → 选 `extension/dist`。构建会打印扩展 id，把
+`"chrome-extension://<id>"` 加进 `~/.contextflow/config.json` 的 `allowedOrigins`，
+然后就可以把 `allowAnyOrigin` 关掉。同一份产物可装进 Chrome / Edge / Arc。
+`extension/dist/` 同样不入库（`sw.js` 里编译了 token）。

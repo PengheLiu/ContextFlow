@@ -11,3 +11,5 @@ probe/probe.log
 .DS_Store
 .idea/
 .vscode/
+# 扩展产物：sw.js 里编译进了本地服务的 token
+extension/dist/

@@ -19,7 +19,7 @@ const OUTBOX = 'contextflow:outbox';
 // 构建时由 tools/build.mjs 从 ~/.contextflow/config.json 注入。
 // allowAnyOrigin 打开后 X-ContextFlow 已拦不住任何 origin，token 是唯一防线。
 // 注意：MAIN world 与页面共享 JS 堆，恶意页面理论上可在我方脚本前 hook fetch 窃取它 ——
-// 这是 userscript 载体的固有弱点，迁到扩展后 fetch 发生在 service worker，页面碰不到。
+// 这是userscript 载体的固有弱点，迁到扩展后 fetch 发生在 service worker，页面碰不到。
 const TOKEN = typeof __CONTEXTFLOW_TOKEN__ === 'string' ? __CONTEXTFLOW_TOKEN__ : '';
 
 const HEADERS = {
@@ -27,6 +27,24 @@ const HEADERS = {
   'X-ContextFlow': '1',
   ...(TOKEN ? { Authorization: `Bearer ${TOKEN}` } : {}),
 };
+
+/**
+ * 传输层。整个客户端的网络访问都收敛在这一个函数上，所以换载体只需换它。
+ *
+ * 默认实现直接 fetch —— userscript 用这条，token 编译进产物、和页面共享 JS 堆。
+ * 扩展载体调 setTransport() 换成"转发给 service worker"：token 只存在于 SW 里，
+ * 页面完全碰不到，于是服务端可以关掉 allowAnyOrigin、只白名单一个扩展 id。
+ *
+ * @returns {Promise<{status:number, body:object}>} 不抛网络错误，由 call() 统一判定
+ */
+let transport = async (path, init = {}) => {
+  const res = await fetch(BASE + path, {
+    ...init, headers: { ...HEADERS, ...(init.headers || {}) },
+  });
+  return { status: res.status, body: await res.json().catch(() => ({})) };
+};
+
+export function setTransport(fn) { transport = fn; }
 
 const readOutbox = () => {
   try { return JSON.parse(localStorage.getItem(OUTBOX) || '[]'); } catch { return []; }
@@ -36,10 +54,11 @@ const writeOutbox = (list) => {
 };
 
 async function call(path, init = {}) {
-  const res = await fetch(BASE + path, { ...init, headers: { ...HEADERS, ...(init.headers || {}) } });
-  const body = await res.json().catch(() => ({}));
-  if (!res.ok) throw Object.assign(new Error(body.error || `HTTP ${res.status}`), { status: res.status, code: body.code });
-  return body;
+  const { status, body } = await transport(path, init);
+  if (status < 200 || status >= 300) {
+    throw Object.assign(new Error(body?.error || `HTTP ${status}`), { status, code: body?.code });
+  }
+  return body ?? {};
 }
 
 export async function health() { return call('/health'); }

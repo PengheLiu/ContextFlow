@@ -700,20 +700,34 @@ class App {
 /**
  * 防重复注入。
  *
- * 脚本可能被注入两次（手动再运行一次、或自动运行与手动触发叠加）。shadowHost 每次
- * 都新建宿主，于是会出现**两套完整 UI**：两个工具条都响应 mousedown、两个浮层叠在
- * 一起，你看到的是上面那个而事件可能绑在下面那个上 —— 表现就是"点了没反应"。
+ * 脚本可能被注入两次（userscript 手动再运行一次；扩展重载后旧 content script 仍在）。
+ * shadowHost 每次都新建宿主，于是会出现**两套完整 UI**：两个工具条都响应 mousedown、
+ * 两个浮层叠在一起，你看到的是上面那个而事件可能绑在下面那个上 —— 表现就是"点了没反应"。
  * 用 documentElement 上的标记做闸，第二次注入直接退出并说明原因。
  */
 const MARK = 'contextflowLoaded';
-const boot = () => {
+
+/**
+ * 显式启动，**不在模块加载时自动跑**。
+ *
+ * 两个载体都要在启动前先把传输层配好（扩展入口要 setTransport 换成走 service worker），
+ * 若在 import 时就自动启动，那一步永远来不及。
+ *
+ * @returns {App|null} 已在运行则返回 null
+ */
+export function boot() {
   if (document.documentElement.dataset[MARK]) {
     console.warn('[ContextFlow] 本页已在运行，忽略这次重复注入'
       + '（重复注入会产生两套 UI，点击可能落到不可见的那一套上）。刷新页面可重置。');
-    return;
+    return null;
   }
   document.documentElement.dataset[MARK] = '1';
-  new App().start();
-};
-if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot, { once: true });
-else boot();
+  const app = new App();
+  // start 是异步的（要对账、上传正文），但调用方需要立刻拿到实例
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => app.start(), { once: true });
+  } else {
+    app.start();
+  }
+  return app;
+}

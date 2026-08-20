@@ -28,8 +28,9 @@
 
 两条硬规则：
 
-1. **所有密钥只在本地服务。** 浏览器侧脚本跑在页面 MAIN world，页面 JS 能读到它持有的一切。
-   `GET /config` 永不回传密钥明文，只回 `apiKeySet` 这类布尔位。
+1. **所有密钥只在本地服务。** `GET /config` 永不回传密钥明文，只回 `apiKeySet` 这类布尔位。
+   userscript 载体跑在页面 MAIN world，页面 JS 能读到它持有的一切；扩展载体把 fetch
+   放进 service worker，token 不进页面 —— 这是推荐用扩展的原因。
 2. **SQLite 是唯一事实源。** 浏览器侧只做 UI + 离线镜像。
 
 ## 依赖
@@ -52,6 +53,19 @@ npm run build:skill     # 产出 dist/skill.js
 把 `dist/skill.js` 粘进任意 userscript 宿主（Tampermonkey / Violentmonkey 等），
 绑定你想标注的页面。**注意 `dist/` 不进版本库** —— 构建会把本地服务的 bearer token
 注入产物。
+
+### 或者装成 Chrome 扩展（推荐）
+
+```bash
+npm run build:ext       # 会打印扩展 id
+```
+
+`chrome://extensions` → 开发者模式 → 加载已解压的扩展程序 → 选 `extension/dist`。
+
+**扩展比 userscript 严格更安全**：fetch 发生在 service worker，token 不进页面 JS 堆。
+把构建打印的 `"chrome-extension://<id>"` 加进 `~/.contextflow/config.json` 的
+`allowedOrigins`，就可以把 `allowAnyOrigin` 关掉 —— 「所有站点可用」与「白名单最强」
+同时成立。
 
 然后在页面右侧面板点「配置」，填 LLM 的 Base URL / API key / 模型（有「获取可选模型」
 按钮），以及笔记库位置。
