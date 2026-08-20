@@ -1,0 +1,13 @@
+node_modules/
+
+# 构建产物含机器专属的本地服务 token（tools/build.mjs 从 ~/.context_it/config.json 注入），
+# 不能入库 —— 换机器请自行 npm run build:skill 重新生成。
+dist/
+
+# 运行日志
+*.log
+probe/probe.log
+
+.DS_Store
+.idea/
+.vscode/

@@ -1,0 +1,81 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>contextflow 锚定对抗测试页</title>
+<style>
+  body { font: 16px/1.7 -apple-system, "PingFang SC", sans-serif; max-width: 46em;
+         margin: 3em auto; padding: 0 1em; color: #222; }
+  h2 { margin-top: 2.2em; font-size: 1.05em; color: #06c; }
+  .box { border-left: 3px solid #ddd; padding-left: 1em; }
+  button { font: inherit; padding: .3em .8em; margin: .4em .4em 0 0; }
+  code { background: #f4f4f4; padding: 0 .3em; }
+</style>
+
+<h1>锚定对抗测试</h1>
+<p>把 <code>dist/skill.js</code> 粘进控制台执行。每节针对一种会让朴素实现翻车的情况。
+在每节里划词高亮，然后 <b>刷新页面</b>，检查是否原位重现、以及右上角状态条报的是哪一层。</p>
+
+<h2>1. 重复文本 —— 考验第 2 层的上下文打分</h2>
+<div class="box">
+  <p>The model achieves state of the art results on the benchmark.</p>
+  <p>Some unrelated text sits in between these two paragraphs here.</p>
+  <p>The model achieves state of the art results on the benchmark.</p>
+</div>
+<p>高亮<b>第二处</b>那句。刷新后必须仍然落在第二处 —— 若跳到第一处，说明上下文打分失效。</p>
+
+<h2>2. 跨行内元素的选区 —— 考验偏移映射</h2>
+<div class="box">
+  <p>Attention is <b>all</b> you <i>need</i> for <span><b>sequence</b> transduction</span> models.</p>
+</div>
+<p>从 <code>is</code> 一直划到 <code>transduction</code>（跨 4 个行内标签）。</p>
+
+<h2>3. 空白密集的排版 —— 考验空白折叠与偏移回映射</h2>
+<div class="box">
+  <p>
+      This     sentence   has
+             irregular      whitespace
+      throughout    its     body.
+  </p>
+</div>
+<p>划中间几个词。归一化后应表现为单空格，<code>exact</code> 里不该出现连续空白或换行。</p>
+
+<h2>4. 动态插入内容 —— 考验 MutationObserver 重锚</h2>
+<div class="box" id="dyn"><p>初始段落：baseline paragraph for dynamic test.</p></div>
+<button onclick="prepend()">在上方插入一段（推挤后续偏移）</button>
+<p>先在「初始段落」里高亮，再点按钮往<b>前面</b>插内容。位置偏移会失效，
+必须由第 2 层引文搜索救回 —— 状态条应从 <code>pos</code> 变成 <code>quote</code>。</p>
+
+<h2>5. 原文被轻微改动 —— 考验第 3 层与失锚上报</h2>
+<div class="box"><p id="mut">Multi head attention allows the model to jointly attend to information.</p></div>
+<button onclick="mutateSoft()">A：只改大小写与空白</button>
+<button onclick="mutateHard()">B：再改标点（加连字符）</button>
+<p>先高亮这句，然后二选一：</p>
+<ul>
+  <li><b>A</b> 应被第 3 层救回 —— 状态条出现 <code>fuzzy</code> 计数。第 3 层只归一化大小写与空白。</li>
+  <li><b>B</b> <b>预期失锚</b> —— 第 3 层不处理标点差异。这一项检验的是<b>优雅降级</b>：
+      必须在状态条显示 <code>失锚 1</code>，而不是静默丢弃或抛异常。</li>
+</ul>
+
+<h2>6. 应被跳过的内容 —— 不该进入索引</h2>
+<div class="box">
+  <p>正文可见文字。</p>
+  <textarea rows="2">textarea 里的文字不应计入索引</textarea>
+  <noscript>noscript 内容也不应计入</noscript>
+</div>
+
+<script>
+  let n = 0;
+  function prepend() {
+    const p = document.createElement('p');
+    p.textContent = `插入的第 ${++n} 段，用来把后续文本的字符偏移整体推后。`;
+    document.getElementById('dyn').prepend(p);
+  }
+  const MUT = 'Multi head attention allows the model to jointly attend to information.';
+  function mutateSoft() {   // 仅大小写 + 空白 → 第 3 层应救回
+    document.getElementById('mut').textContent =
+      'Multi   HEAD    Attention allows the model to jointly attend to information.';
+  }
+  function mutateHard() {   // 追加标点差异 → 预期失锚
+    document.getElementById('mut').textContent =
+      'Multi-head attention allows the model to jointly attend to information.';
+  }
+</script>
