@@ -71,6 +71,7 @@ class App {
     this.wire();
     await this.sync();
     this.resumePending();          // 接上刷新前没跑完的解释
+    if (this.panel.open) this.autoSummarize();   // 面板记忆为展开：这也算"打开插件"
     console.log('[ContextFlow] 就绪', { key: this.key, n: this.items.length, online: this.online });
   }
 
@@ -94,6 +95,8 @@ class App {
       // 只做筛选，排序统一交给 panel 的 byPosition（见 core/order.js）
       getLookups: (kind) => this.items.filter((e) => e.action === kind && !e.deletedAt),
       onDeleteLookup: (id) => this.deleteLookup(id),
+      onOpen: () => this.autoSummarize(),
+      onSummarize: (fresh) => this.autoSummarize(fresh),
       onRetryLookup: (id) => this.retryLookup(id),
       onSync: async () => {
         const r = await api.sync();
@@ -586,6 +589,58 @@ class App {
       if (live()) pop.body(`解释失败：${e.message}`, 'bad').foot(this.hintFor(e));
     } finally {
       if (this.watching === id) this.watching = null;
+    }
+  }
+
+  /**
+   * 速览：打开面板时给一段全文概述，让人先知道这篇在讲什么。
+   *
+   * **每篇只做一次。** 结果落库（action='summary'，id 由 urlKey 派生），
+   * 再打开同一篇直接读缓存。走 agent 时一次要几十秒且花钱，所以绝不能每次
+   * 展开面板都重跑 —— this.briefBusy 挡住同一页内的重复触发，服务端的本地缓存
+   * 挡住跨页面/跨会话的重复。
+   *
+   * @param {boolean} [fresh] 点「重新生成」时跳过缓存
+   */
+  async autoSummarize(fresh = false) {
+    if (this.briefBusy) return;
+    const has = this.items.find((e) => e.action === 'summary' && !e.deletedAt && e.value);
+    if (has && !fresh) {
+      this.panel.renderBrief({ state: 'ok', text: has.value, retry: true });
+      return;
+    }
+    // 正文太短的页面不值得总结（搜索结果页、仓库首页、列表页）
+    const text = this.index?.text || '';
+    if (text.length < 1200) { this.panel.renderBrief(null); return; }
+
+    this.briefBusy = true;
+    const t0 = performance.now();
+    this.panel.renderBrief({ state: 'run', text: '正在生成速览…' });
+    try {
+      await this.uploadArticle();
+      const r = await api.summarize({
+        urlKey: this.key, fresh,
+        onProgress: (job) => this.panel.renderBrief({
+          state: 'run',
+          text: job.queuedAhead ? `排队中（前面 ${job.queuedAhead} 个）`
+            : (job.progress || '正在生成速览…'),
+        }),
+      });
+      const ms = (performance.now() - t0).toFixed(0);
+      // 落库：速览要作为这条对话的第一轮，后面的解释才接得上
+      this.saveLookup('summary', { text: '', value: r.summary, anchor: null, extra: {} });
+      this.panel.renderBrief({
+        state: 'ok', text: r.summary, retry: true,
+        meta: [this.meta({ ...r, ms }), r.degraded].filter(Boolean).join(' · '),
+      });
+    } catch (e) {
+      this.panel.renderBrief({
+        state: 'err', retry: true,
+        text: `速览失败：${e.message}`,
+        meta: this.hintFor(e),
+      });
+    } finally {
+      this.briefBusy = false;
     }
   }
 

@@ -140,6 +140,7 @@ await t('每种事件都只渲染成一个块（真机回归）', () => {
     ev({ action: 'note', value: '第一段\n\n第二段\n\n第三段' }),
     ev({ action: 'translate', text: 'src', value: '译文' }),
     ev({ action: 'explain', text: 'src', value: '答案\n\n第二段答案', extra: { question: 'Q' } }),
+    ev({ action: 'summary', text: '', value: '这篇讲 X。\n\n结论是 Y。' }),
   ];
   for (const c of cases) {
     const md = render(c);

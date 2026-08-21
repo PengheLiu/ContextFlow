@@ -60,6 +60,9 @@ const DEFAULTS = {
     // 长文一次全塞会让第一次查询等整篇的 prefill；选区仍在已加载区域内时不追加。
     // **0 表示不带正文上下文** —— 这一个数值同时充当开关，不再另设布尔位。
     chunkChars: 5000,
+    // 首段额外附上文章结尾的一小段。速览要判断"结论是什么"，只看开头往往抓不到；
+    // 而全塞进去就回到"第一次查询要等整篇 prefill"的老问题。0 = 不附。
+    tailChars: 1000,
   },
 
   // 解释的后端：'llm' 走上面那套；'agent' 走本机已装的编码 agent（异步作业）
@@ -177,6 +180,7 @@ export function publicView(cfg) {
       target: cfg.translate.target,
       thinking: !!cfg.translate.thinking,
       chunkChars: cfg.translate.chunkChars ?? 5000,
+      tailChars: cfg.translate.tailChars ?? 1000,
       apiKeySet: !!cfg.translate.apiKey,
       apiKeyFromEnv: !cfg.translate.apiKey ? false
         : cfg.translate.apiKey === process.env.ANTHROPIC_API_KEY,

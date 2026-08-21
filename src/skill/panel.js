@@ -127,8 +127,24 @@ ${Object.entries(MARKS).map(([k, m]) =>
        white-space:pre-wrap;overflow-wrap:anywhere}
   .tools .muted{margin-right:auto;font-variant-numeric:tabular-nums}
 
+  /* ---- 速览（机器生成，排在你自己写的总结之上）---- */
+  .brief{margin-bottom:10px;padding:10px 11px;border:1px solid ${T.line};
+         border-left:3px solid ${T.accent};border-radius:${T.radius};
+         background:${T.sunk};font:12.5px/1.7 ${T.sans};color:${T.ink};
+         white-space:pre-wrap;overflow-wrap:anywhere}
+  .brief:empty{display:none}
+  .brief .hd2{display:flex;align-items:center;justify-content:space-between;
+              margin-bottom:6px;font-size:11px;letter-spacing:.06em;color:${T.quote}}
+  .brief .hd2 button{font-size:11px;padding:2px 7px}
+  .brief .txt{white-space:pre-wrap}
+  .brief .ft{margin-top:6px;font-size:11px;color:${T.quote};
+             font-variant-numeric:tabular-nums}
+  .brief.run .txt{color:${T.quote}}
+  .brief.err{border-left-color:#b3261e}
+  .brief.err .txt{color:#b3261e}
+
   /* ---- 总结 ---- */
-  .note{width:100%;height:calc(100vh - 190px);border:1px solid ${T.line};
+  .note{width:100%;height:calc(100vh - 260px);border:1px solid ${T.line};
         border-radius:${T.radius};background:${T.paper};padding:11px 12px;
         font:13.5px/1.75 ${T.sans};color:${T.ink};resize:none;outline:none}
   .note:focus{border-color:#d7cfbe;box-shadow:0 0 0 3px rgba(180,83,9,.07)}
@@ -206,7 +222,10 @@ export class Panel {
         </header>
         <div class="body">
           ${TABS.map((t) => `<div class="pane" id="p-${t.key}">${t.key === 'note'
-            ? '<textarea class="note" id="note"'
+            // 速览（机器生成）摆在你自己写的总结**上面**：打开面板先看它，
+            // 想补充再往下写。两者刻意分开，免得分不清谁的想法。
+            ? '<div class="brief" id="brief"></div>'
+              + '<textarea class="note" id="note"'
               + ' placeholder="这篇文章的整体理解、与其他工作的关系、待验证的问题…"></textarea>'
             : ''}</div>`).join('')}
           <div class="set" id="p-set"></div>
@@ -368,6 +387,7 @@ export class Panel {
   }
 
   toggle(open = !this.open) {
+    const was = this.open;
     this.open = open;
     this.ui.open = open;
     this.$('wrap').classList.toggle('open', open);
@@ -375,6 +395,8 @@ export class Panel {
     this.applyLayout();
     saveUI(this.ui);
     if (open) this.render();
+    // 从收起变为展开时才通知 —— 这是"打开插件"的时刻
+    if (open && !was) this.h.onOpen?.();
   }
 
   select(tab) {
@@ -414,6 +436,23 @@ export class Panel {
     this._hitTimer = setTimeout(() => el.classList.remove('hit'), 1200);
   }
 
+  /**
+   * 速览区。
+   * @param {{state:'run'|'ok'|'err', text:string, meta?:string, retry?:boolean}} o
+   */
+  renderBrief(o) {
+    const el = this.$('brief');
+    if (!el) return;
+    if (!o) { el.className = 'brief'; el.innerHTML = ''; return; }
+    el.className = `brief ${o.state === 'ok' ? '' : o.state}`;
+    el.innerHTML = `<div class="hd2"><span>速览</span>`
+      + `${o.retry ? '<button data-act="rebrief">重新生成</button>' : ''}</div>`
+      + `<div class="txt">${esc(o.text || '')}</div>`
+      + `${o.meta ? `<div class="ft">${esc(o.meta)}</div>` : ''}`;
+    const b = el.querySelector('[data-act=rebrief]');
+    if (b) b.onclick = this.guard(() => this.h.onSummarize?.(true));
+  }
+
   renderStatus() {
     const s = this.h.getStats(), n = this.h.getItems().length;
     const ok = s.position + s.quote + s.fuzzy;
@@ -427,8 +466,10 @@ export class Panel {
       + '</span>';
     this.$('gn').textContent = n ? String(n) : '';
     this.$('b-comments').textContent = String(n);
-    // 总结没有"条数"，只标有无内容
-    this.$('b-note').textContent = (this.h.getNote() || '').trim() ? '·' : '';
+    // 总结没有"条数"，只标有无内容。速览也算 —— 否则面板停在别的 tab 上时，
+    // 速览已经生成了却完全看不出来。
+    const hasBrief = this.h.getLookups('summary').some((e) => e.value);
+    this.$('b-note').textContent = ((this.h.getNote() || '').trim() || hasBrief) ? '·' : '';
     const ex = this.h.getLookups('explain');
     const running = ex.filter((e) => !e.value && e.extra?.status !== 'error').length;
     // 浮层关掉后，角标是"还有几个在跑"的唯一入口

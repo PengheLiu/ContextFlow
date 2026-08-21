@@ -122,8 +122,11 @@ const server = createServer(async (req, res) => {
 
     if (path === '/explain' && req.method === 'POST') {
       const { text, question, urlKey, offset, fresh } = await readBody(req);
-      if (lookup.explainMode(cfg) === 'sync') {
-        return json(res, 200, await lookup.explainViaLLM({ text, question, urlKey, offset, fresh, cfg }));
+      // plan() 含降级：配了 agent 但本机找不到时退回 LLM，并把原因带回去
+      const { mode, degraded } = await lookup.plan(cfg);
+      if (mode === 'sync') {
+        const r = await lookup.explainViaLLM({ text, question, urlKey, offset, fresh, cfg });
+        return json(res, 200, { ...r, ...(degraded ? { degraded } : {}) });
       }
       // agent 路径实测 10 轮 / 32 秒，不能同步等在 HTTP 上：立刻回 jobId，前端轮询
       const job = jobs.submit({
@@ -132,6 +135,22 @@ const server = createServer(async (req, res) => {
         task: (api) => lookup.explainViaAgent({
           text, question, urlKey, offset, fresh, cfg, onProgress: api.progress,
         }),
+      });
+      return json(res, 202, { job, mode: 'job' });
+    }
+
+    // 速览：打开面板时给一段全文概述。与解释同一条对话，所以后面提问能接上。
+    if (path === '/summary' && req.method === 'POST') {
+      const { urlKey, fresh } = await readBody(req);
+      const { mode, degraded } = await lookup.plan(cfg);
+      if (mode === 'sync') {
+        const r = await lookup.summarize({ urlKey, fresh, cfg });
+        return json(res, 200, { ...r, ...(degraded ? { degraded } : {}) });
+      }
+      const job = jobs.submit({
+        kind: 'summary',
+        label: '速览',
+        task: (api) => lookup.summarize({ urlKey, fresh, cfg, onProgress: api.progress }),
       });
       return json(res, 202, { job, mode: 'job' });
     }
@@ -195,7 +214,7 @@ const server = createServer(async (req, res) => {
 
     return json(res, 404, { error: `无此路由 ${req.method} ${path}` });
   } catch (e) {
-    const map = { NO_AGENT: 503, AGENT_SPAWN: 503, AGENT_TIMEOUT: 504,
+    const map = { NEED_TEXT: 409, NO_AGENT: 503, AGENT_SPAWN: 503, AGENT_TIMEOUT: 504,
                   AGENT_EMPTY: 502, AGENT_ERROR: 502, AGENT_PARSE: 502, BAD_AGENT: 400,
                   NO_API_KEY: 503, TOO_LONG: 413, BAD_INPUT: 400, BAD_JSON: 400,
                   TOO_LARGE: 413, SIYUAN_DOWN: 503, SIYUAN_AUTH: 503, SIYUAN: 502,

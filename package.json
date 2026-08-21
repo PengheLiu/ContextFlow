@@ -5,7 +5,7 @@
   "version": "0.1.0",
   "description": "浏览器阅读过程 context 采集与笔记库同步",
   "scripts": {
-    "test": "node test/hygiene.test.mjs && node test/anchor.test.mjs && node test/index.test.mjs && node test/highlight.test.mjs && node test/order.test.mjs && node test/reconcile.test.mjs && node test/lookupkey.test.mjs && node test/layout.test.mjs && node test/convo.test.mjs && node test/agent.test.mjs && node test/jobs.test.mjs && node test/popover.test.mjs && node test/transport.test.mjs && node test/db.test.mjs && node test/mdfile.test.mjs && node test/siyuan.test.mjs && node test/origin.test.mjs && node test/extbuild.test.mjs",
+    "test": "node test/hygiene.test.mjs && node test/anchor.test.mjs && node test/index.test.mjs && node test/highlight.test.mjs && node test/order.test.mjs && node test/reconcile.test.mjs && node test/lookupkey.test.mjs && node test/layout.test.mjs && node test/convo.test.mjs && node test/summary.test.mjs && node test/agent.test.mjs && node test/jobs.test.mjs && node test/popover.test.mjs && node test/transport.test.mjs && node test/db.test.mjs && node test/mdfile.test.mjs && node test/siyuan.test.mjs && node test/origin.test.mjs && node test/extbuild.test.mjs",
     "build:skill": "node tools/build.mjs",
     "watch:skill": "node tools/build.mjs --watch",
     "fixtures": "python3 -m http.server 7318 --bind 127.0.0.1 --directory test",

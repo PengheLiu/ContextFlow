@@ -41,6 +41,9 @@ export function estimateTokens(s) {
 const norm = (s) => String(s ?? '').replace(/\s+/g, ' ').trim();
 
 export const DEFAULT_CHUNK = 5000;
+// 首段额外附上文章**结尾**的一小段。总结要判断"这篇在讲什么、结论是什么"，
+// 只看开头往往抓不到结论；而全塞进去又回到"第一次查询要等整篇 prefill"的老问题。
+export const DEFAULT_TAIL = 1000;
 
 /** 全文切成 n 段。切点只按字符数，不做语义切分 —— 段与段在同一个对话里是连续的。 */
 export function chunkCount(len, chunkChars = DEFAULT_CHUNK) {
@@ -60,9 +63,17 @@ export function chunksNeeded(endOffset, chunkChars = DEFAULT_CHUNK) {
  * 刻意标注清楚这是**资料**而不是指令 —— 网页正文是不可信输入，
  * 里面可能藏着"忽略之前的指令"这类注入。
  */
-export function articleMessage({ title, url, text }, i = 1, total = 1, chunkChars = DEFAULT_CHUNK) {
+export function articleMessage(
+  { title, url, text }, i = 1, total = 1, chunkChars = DEFAULT_CHUNK, tailChars = DEFAULT_TAIL,
+) {
   const body = String(text ?? '');
   const seg = body.slice((i - 1) * chunkChars, i * chunkChars);
+
+  // 首段附结尾节选：只在开头与结尾之间确实还有没给过的内容时才附，
+  // 否则下一段就把结尾覆盖了，白发一遍。
+  const gap = body.length > chunkChars + tailChars;
+  const tail = i === 1 && tailChars > 0 && gap ? body.slice(-tailChars) : '';
+
   const head = i === 1
     ? [
       '下面是我正在读的这篇文章的正文，供你后续回答时参考。',
@@ -74,6 +85,7 @@ export function articleMessage({ title, url, text }, i = 1, total = 1, chunkChar
       '',
     ].filter((x) => x !== null)
     : [];
+
   return {
     role: 'user',
     content: [
@@ -81,6 +93,9 @@ export function articleMessage({ title, url, text }, i = 1, total = 1, chunkChar
       `<article part="${i}/${total}">`,
       seg,
       '</article>',
+      // 结尾节选单独标注来源，别让模型以为它紧接在开头之后
+      ...(tail ? ['', '<article-tail note="文章结尾节选，供你先把握全文走向；中间部分稍后给">',
+        tail, '</article-tail>'] : []),
       '',
       i >= total ? '正文到此结束。' : '收到后不用回复内容，等我提问或继续给下一段。',
     ].join('\n'),
@@ -97,6 +112,13 @@ export function endOffsetOf(ev) {
 
 /** 一次查询的 user 消息 */
 export function turnMessage(ev) {
+  if (ev.action === 'summary') {
+    return {
+      role: 'user',
+      content: '请用 200 字以内概述这篇文章：它在讲什么、核心结论是什么、'
+        + '有什么值得注意的地方。直接写结论，不要"这篇文章讲述了"这类开场。',
+    };
+  }
   const sel = norm(ev.text);
   if (ev.action === 'explain') {
     const q = norm(ev.extra?.question);
@@ -122,7 +144,8 @@ export function turnMessage(ev) {
  * @returns {{messages: Array, dropped: number, tokens: number, hasArticle: boolean}}
  */
 export function buildMessages({
-  article, history = [], current, budget = 120000, chunkChars = DEFAULT_CHUNK,
+  article, history = [], current, budget = 120000,
+  chunkChars = DEFAULT_CHUNK, tailChars = DEFAULT_TAIL,
 }) {
   const body = article?.text || '';
   const total = body ? chunkCount(body.length, chunkChars) : 0;
@@ -134,14 +157,19 @@ export function buildMessages({
   const feedTo = (need) => {
     const want = Math.min(need, total);
     for (let i = loaded + 1; i <= want; i++) {
-      const m = articleMessage(article, i, total, chunkChars);
+      const m = articleMessage(article, i, total, chunkChars, tailChars);
       blocks.push({ tokens: estimateTokens(m.content), msgs: [m], chunk: true });
     }
     loaded = Math.max(loaded, want);
   };
 
   for (const e of history) {
-    if (!e.value || !e.text) continue;      // 半成品不进对话
+    // 半成品（还没拿到结果）不进对话。
+    // 只要求 value —— **不能同时要求 text**：速览是"整篇一条"，按设计没有选区，
+    // text 是空的。之前把它一并要求，结果速览永远进不了对话，
+    // 而这正是"总结与解释共享历史"要达成的事（测试抓到的）。
+    if (!e.value) continue;
+    if (e.action !== 'summary' && !e.text) continue;
     if (total) feedTo(chunksNeeded(endOffsetOf(e), chunkChars));
     const q = turnMessage(e);
     blocks.push({
@@ -199,7 +227,9 @@ export function buildMessages({
  * @param {number} loaded 该会话已经收到过几段
  * @returns {{prompt, chunks}} chunks = 发完之后累计已加载的段数
  */
-export function agentPrompt({ article, current, loaded = 0, chunkChars = DEFAULT_CHUNK }) {
+export function agentPrompt({
+  article, current, loaded = 0, chunkChars = DEFAULT_CHUNK, tailChars = DEFAULT_TAIL,
+}) {
   const turn = turnMessage(current).content;
   const body = article?.text || '';
   if (!body) return { prompt: turn, chunks: 0 };
@@ -210,7 +240,7 @@ export function agentPrompt({ article, current, loaded = 0, chunkChars = DEFAULT
 
   const segs = [];
   for (let i = loaded + 1; i <= need; i++) {
-    segs.push(articleMessage(article, i, total, chunkChars).content);
+    segs.push(articleMessage(article, i, total, chunkChars, tailChars).content);
   }
   return { prompt: `${segs.join('\n\n')}\n\n---\n\n${turn}`, chunks: need };
 }

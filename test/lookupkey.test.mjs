@@ -84,4 +84,28 @@ t('相邻字段边界不得碰撞 —— translate', () =>
 t('正文含分隔符也无法伪造字段边界', () =>
   assert.ok(!same(ex('A\u001fBC', ''), ex('A', 'BC'))));
 
+// ---- 速览：整篇一条 ----
+
+t('同一篇的速览恒定合并（无选区、无问题）', () => {
+  const a = { action: 'summary', text: '', extra: {} };
+  const b = { action: 'summary', text: '随便什么', extra: { question: 'x' } };
+  assert.ok(same(a, b), '速览应当整篇只有一条');
+});
+
+t('不同文章的速览是两条', () =>
+  assert.notEqual(
+    lookupId('art:1', { action: 'summary' }),
+    lookupId('art:2', { action: 'summary' })));
+
+// id 会出现在笔记的标记注释里（<!-- cf:sm:xxx -->），
+// 把速览标成 tr: 是误导
+t('速览的 id 前缀是 sm，不是 tr', () =>
+  assert.match(lookupId('art:1', { action: 'summary' }), /^sm:/));
+
+t('速览不会和空文本的翻译撞成一条', () => {
+  const sm = lookupId('art:1', { action: 'summary', text: '', extra: {} });
+  const tr = lookupId('art:1', { action: 'translate', text: '', extra: { target: '' } });
+  assert.notEqual(sm, tr);
+});
+
 console.log(`\n${pass} 项通过`);

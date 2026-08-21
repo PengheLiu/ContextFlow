@@ -387,11 +387,20 @@ export function findLookup(urlKey, draft) {
     .find((e) => lookupKey(e) === key) ?? null;
 }
 
-/** 该文章此前的查询记录，按时间升序 —— 连续对话的历史轮次由此重建 */
-export function lookupHistory(urlKey, action) {
+/**
+ * 该文章此前的查询记录，按时间升序 —— 连续对话的历史轮次由此重建。
+ *
+ * @param {string|string[]} actions **同一个后端上的对话是共享的**，所以这里收一组
+ *   action：走 agent 时是 ['summary','explain']，纯 LLM 时是
+ *   ['summary','explain','translate']（翻译始终走 LLM，见 lookup.mjs 的 convoActions）。
+ */
+export function lookupHistory(urlKey, actions) {
+  const list = Array.isArray(actions) ? actions : [actions];
+  if (!list.length) return [];
+  const holes = list.map(() => '?').join(',');
   return open().prepare(`SELECT * FROM events
-    WHERE urlKey = ? AND action = ? AND deletedAt IS NULL AND value IS NOT NULL
-    ORDER BY createdAt`).all(urlKey, action).map(rowToEvent);
+    WHERE urlKey = ? AND action IN (${holes}) AND deletedAt IS NULL AND value IS NOT NULL
+    ORDER BY createdAt`).all(urlKey, ...list).map(rowToEvent);
 }
 
 // ---- artdoc：文章 → 唯一目标文档 ----

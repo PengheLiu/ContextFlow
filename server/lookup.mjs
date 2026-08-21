@@ -88,7 +88,7 @@ Output ONLY the translation — no explanation, no quotes, no romanization, no p
 Preserve inline code, LaTeX/math, URLs, and proper nouns verbatim.
 If the text is already in ${target}, output it unchanged.`;
 
-export async function translate({ text, target, urlKey, offset, fresh = false, cfg }) {
+export async function translate({ text, target, urlKey, offset, fresh = false, cfg, ...opts }) {
   const src = checkText(text);
   const t = cfg.translate;
   const lang = target || t.target;
@@ -107,7 +107,10 @@ export async function translate({ text, target, urlKey, offset, fresh = false, c
   const chunkChars = t.chunkChars ?? 5000;
   const withCtx = chunkChars > 0;
   const article = withCtx && urlKey ? articleOf(urlKey) : null;
-  const history = withCtx && urlKey ? db.lookupHistory(urlKey, 'translate') : [];
+  // 翻译始终走 LLM。历史取"LLM 那条对话"里的全部轮次 —— 纯 LLM 模式下它也包含
+  // 总结与解释，前缀更长、缓存复用更充分。
+  const history = withCtx && urlKey
+    ? db.lookupHistory(urlKey, convoActions(!!opts.viaAgent, false)) : [];
 
   const draft = { action: 'translate', text: src, offset, extra: { target: lang } };
   const { messages, tokens, dropped, hasArticle, chunks, totalChunks } = buildMessages({
@@ -172,7 +175,7 @@ export async function explainViaLLM({ text, question, urlKey, offset, fresh = fa
 
   const chunkChars = t.chunkChars ?? 5000;
   const article = chunkChars > 0 && urlKey ? articleOf(urlKey) : null;
-  const history = urlKey ? db.lookupHistory(urlKey, 'explain') : [];
+  const history = urlKey ? db.lookupHistory(urlKey, convoActions(false, false)) : [];
   const draft = { action: 'explain', text: src, offset, extra: { question: q } };
   const { messages, tokens, dropped, hasArticle, chunks, totalChunks } = buildMessages({
     article, history, current: draft,
@@ -196,49 +199,45 @@ export async function explainViaLLM({ text, question, urlKey, offset, fresh = fa
 }
 
 /**
- * 解释走本地 agent。**耗时几十秒**，由调用方放进 jobs 队列，不要同步等。
- * @param {(s:string)=>void} [onProgress]
+ * 把一次提问交给本地 agent。总结与解释共用这一段 —— 会话续接、分段补差、
+ * 进度过滤这些逻辑复制两份必然走形。
+ *
+ * **耗时几十秒**，由调用方放进 jobs 队列，不要同步等。
+ *
+ * @param {object} o
+ * @param {object} o.draft   {action, text, offset, extra} —— 本次提问
+ * @param {string} o.system  首轮附的系统提示（续接时不重复发）
+ * @param {(s:string)=>void} [o.onProgress]
  */
-export async function explainViaAgent({ text, question, urlKey, offset, fresh = false, cfg, onProgress }) {
-  const src = checkText(text);
-  const q = String(question ?? '').trim().slice(0, MAX_QUESTION);
-
-  // 先查本地。agent 一次几十秒，重复问同一句话再等一遍毫无道理。
-  const prior = urlKey && !fresh
-    ? db.findLookup(urlKey, { action: 'explain', text: src, extra: { question: q } }) : null;
-  if (prior) {
-    onProgress?.('本地已有答案，直接返回');
-    return { answer: prior.value, question: q, cached: 'local', via: 'local-cache',
-      model: '本地缓存', ctx: { hasArticle: true, turns: 0, dropped: 0, tokens: 0,
-        cachedAt: prior.createdAt } };
-  }
+async function askAgent({ urlKey, draft, system, cfg, onProgress }) {
   const a = cfg.agent || {};
   const id = a.id;
   if (!agent.AGENT_IDS.includes(id)) {
-    throw err(`未选择本地 agent（在面板「配置」里选一个并点检测）`, 'NO_AGENT');
+    throw err('未选择本地 agent（在面板「配置」里选一个并点检测）', 'NO_AGENT');
   }
 
-  const article = (cfg.translate?.chunkChars ?? 5000) > 0 && urlKey ? articleOf(urlKey) : null;
-  const sess = urlKey ? db.getAgentSession(urlKey, id) : null;
-
   const chunkChars = cfg.translate?.chunkChars ?? 5000;
-  const draft = { action: 'explain', text: src, offset, extra: { question: q } };
+  const tailChars = cfg.translate?.tailChars ?? 1000;
+  const article = chunkChars > 0 && urlKey ? articleOf(urlKey) : null;
+  const sess = urlKey ? db.getAgentSession(urlKey, id) : null;
   const canResume = agent.AGENTS[id].resumable && !!sess;
 
   let prompt, chunks, note, turnsIncluded = sess?.turns || 0;
   if (canResume) {
     // 会话在 agent 那边，只补差量：本次选区需要的段落里尚未发过的那些
-    const r0 = agentPrompt({ article, current: draft, loaded: sess.loadedChunks || 0, chunkChars });
+    const r0 = agentPrompt({
+      article, current: draft, loaded: sess.loadedChunks || 0, chunkChars, tailChars,
+    });
     prompt = r0.prompt; chunks = r0.chunks;
     const added = chunks - (sess.loadedChunks || 0);
     note = added > 0 ? `选区超出已加载范围，补 ${added} 段正文…` : '续接会话…';
   } else {
     // 不能续接（agent 不支持，或还没有会话）→ 发完整对话。
     // 只发增量会让没有记忆的 agent 在缺上下文的情况下作答。
-    const history = urlKey ? db.lookupHistory(urlKey, 'explain') : [];
+    const history = urlKey ? db.lookupHistory(urlKey, convoActions(true, true)) : [];
     const built = buildMessages({
       article, history, current: draft,
-      budget: cfg.translate?.contextBudget || 60000, chunkChars,
+      budget: cfg.translate?.contextBudget || 60000, chunkChars, tailChars,
     });
     prompt = flatten(built.messages);
     chunks = built.chunks;
@@ -246,7 +245,7 @@ export async function explainViaAgent({ text, question, urlKey, offset, fresh = 
     note = agent.AGENTS[id].resumable ? '首次提问：交出正文与历史…'
       : `${agent.AGENTS[id].label} 不支持会话续接，每次发完整对话…`;
   }
-  prompt = `${canResume ? '' : `${AGENT_SYSTEM}\n\n---\n\n`}${prompt}`;
+  prompt = `${canResume ? '' : `${system}\n\n---\n\n`}${prompt}`;
   onProgress?.(note);
 
   const r = await agent.run({
@@ -260,8 +259,8 @@ export async function explainViaAgent({ text, question, urlKey, offset, fresh = 
     env: a.env || {},
     // stderr 里混着上游的警告与调试行，它们不是"进度"。只放行看起来像
     // 工具活动的行，否则浮层上会一直挂着一句无关的 warning。
-    onProgress: (s) => {
-      const line = String(s).split('\n').map((x) => x.trim())
+    onProgress: (sErr) => {
+      const line = String(sErr).split('\n').map((x) => x.trim())
         .filter((x) => x && !/^(warning|warn|deprecat|permission deny rule)/i.test(x))
         .pop();
       if (line) onProgress?.(line.slice(0, 120));
@@ -278,12 +277,10 @@ export async function explainViaAgent({ text, question, urlKey, offset, fresh = 
     ? { in: 0, out: 0, cacheRead: r.cacheRead ?? 0, cacheWrite: r.cacheWrite ?? 0 }
     : undefined;
   return {
-    answer: r.answer, question: q, cached: false, via: `agent:${id}`,
-    model: agent.AGENTS[id].label,
+    answer: r.answer, via: `agent:${id}`, model: agent.AGENTS[id].label,
     ...(usage ? { usage } : {}),
     agentMeta: {
-      turns: r.turns, ms: r.ms, costUsd: r.costUsd, denials: r.denials,
-      resumed: canResume,
+      turns: r.turns, ms: r.ms, costUsd: r.costUsd, denials: r.denials, resumed: canResume,
     },
     ctx: {
       hasArticle: !!article, turns: turnsIncluded, dropped: 0, tokens: 0,
@@ -293,9 +290,157 @@ export async function explainViaAgent({ text, question, urlKey, offset, fresh = 
   };
 }
 
-/** 解释的统一入口：按配置分派。返回 {mode:'sync'|'job'} 供路由决定怎么回应。 */
-export function explainMode(cfg) {
-  return cfg.explain?.backend === 'agent' ? 'job' : 'sync';
+/** 解释走本地 agent。 */
+export async function explainViaAgent({ text, question, urlKey, offset, fresh = false, cfg, onProgress }) {
+  const src = checkText(text);
+  const q = String(question ?? '').trim().slice(0, MAX_QUESTION);
+
+  // 先查本地。agent 一次几十秒，重复问同一句话再等一遍毫无道理。
+  const prior = urlKey && !fresh
+    ? db.findLookup(urlKey, { action: 'explain', text: src, extra: { question: q } }) : null;
+  if (prior) {
+    onProgress?.('本地已有答案，直接返回');
+    return {
+      answer: prior.value, question: q, cached: 'local', via: 'local-cache',
+      model: '本地缓存',
+      ctx: { hasArticle: true, turns: 0, dropped: 0, tokens: 0, cachedAt: prior.createdAt },
+    };
+  }
+
+  const r = await askAgent({
+    urlKey, cfg, onProgress, system: AGENT_SYSTEM,
+    draft: { action: 'explain', text: src, offset, extra: { question: q } },
+  });
+  return { ...r, question: q, cached: false };
 }
 
-export const LOOKUP_LIMITS = { MAX_INPUT, MAX_QUESTION, MAX_ARTICLE };
+// ---------------- 速览（全文总结） ----------------
+
+const SUMMARY_SYSTEM = `你是阅读助手。用户刚打开一篇文章，想先知道它大概在讲什么。
+
+硬要求：
+- **最多 4 句话、合计不超过 200 字**。句数是硬约束，宁可少写也不要超
+- 中文，直接给结论：这篇在讲什么、核心论点/结果、有什么值得注意的前提或局限
+- 不要"本文介绍了…"这类开场，也不要罗列小节标题
+- 只依据给到你的正文作答。**不要提"哪些部分还没给"**——
+  那是工具的实现细节，读者不关心，写出来只是占字数
+- 不要提用户的笔记库，也不要说"未找到相关记录"。这一段只讲这篇文章`;
+
+// 速览刻意**不**让 agent 去翻笔记库：
+//   · 它的职责是"这篇在讲什么"，笔记关联是解释那一步的价值
+//   · 实测里它会主动汇报"笔记库中未找到相关记录"，白占字数（200 字很紧）
+// 所以两条路用同一份提示词，只有解释那边才带上笔记库的说明。
+const SUMMARY_AGENT_SYSTEM = SUMMARY_SYSTEM;
+
+const SUMMARY_MAX = 200;
+// 给 30% 余量再裁：模型对"字数"这种约束天生不擅长（实测反复稳定在 290 字左右，
+// 换成句数约束也只是好一点）。所以留一道零成本的兜底 —— 但**按句边界裁**，
+// 拦腰切断比多几十个字难受得多。再调一次让它缩写要多花一次钱和几十秒，不值。
+const SUMMARY_HARD = Math.round(SUMMARY_MAX * 1.3);
+
+/** @returns {{text:string, trimmed:boolean}} */
+function clampSummary(raw) {
+  const text = String(raw ?? '').trim();
+  if ([...text].length <= SUMMARY_HARD) return { text, trimmed: false };
+  const chars = [...text];
+  const head = chars.slice(0, SUMMARY_HARD).join('');
+  // 中英句末标点都算
+  const cut = Math.max(head.lastIndexOf('。'), head.lastIndexOf('！'),
+    head.lastIndexOf('？'), head.lastIndexOf('. '), head.lastIndexOf('\n'));
+  // 找不到靠后的句边界就整段留着 —— 拦腰切断不如不裁
+  if (cut < SUMMARY_HARD * 0.5) return { text, trimmed: false };
+  return { text: head.slice(0, cut + 1).trim(), trimmed: true };
+}
+
+/**
+ * 速览：打开面板时给一段全文概述。
+ *
+ * 每篇只做一次 —— 结果按 `summary:<urlKey>` 落库，再打开同一篇直接读缓存。
+ * 首段刻意是「开头 5k + 结尾 1k」（见 convo.articleMessage）：只看开头往往抓不到
+ * 结论，而全塞进去就回到"第一次查询要等整篇 prefill"的老问题。
+ */
+export async function summarize({ urlKey, cfg, fresh = false, onProgress }) {
+  if (!urlKey) throw err('缺少 urlKey', 'BAD_INPUT');
+
+  const prior = fresh ? null : db.findLookup(urlKey, { action: 'summary', text: '', extra: {} });
+  if (prior) {
+    return {
+      summary: prior.value, cached: 'local', via: 'local-cache', model: '本地缓存',
+      ctx: { hasArticle: true, turns: 0, cachedAt: prior.createdAt },
+    };
+  }
+
+  const article = articleOf(urlKey);
+  if (!article) throw err('还没有这篇文章的正文', 'NEED_TEXT');
+
+  const draft = { action: 'summary', text: '', extra: {} };
+  const { viaAgent } = await plan(cfg);
+
+  if (viaAgent) {
+    const r = await askAgent({ urlKey, draft, cfg, onProgress, system: SUMMARY_AGENT_SYSTEM });
+    const { text, trimmed } = clampSummary(r.answer);
+    return { summary: text, cached: false, via: r.via, model: r.model,
+      usage: r.usage, agentMeta: r.agentMeta, ctx: { ...r.ctx, trimmed } };
+  }
+
+  const t = cfg.translate;
+  const chunkChars = t.chunkChars ?? 5000;
+  const history = db.lookupHistory(urlKey, convoActions(false, false));
+  const { messages, tokens, dropped, hasArticle, chunks, totalChunks } = buildMessages({
+    article, history, current: draft,
+    budget: t.contextBudget || 60000,
+    chunkChars: chunkChars || 5000, tailChars: t.tailChars ?? 1000,
+  });
+
+  onProgress?.('生成速览…');
+  const r = await chat({ cfg, system: SUMMARY_SYSTEM, messages, maxTokens: 800 });
+  const { text, trimmed } = clampSummary(r.out);
+  return {
+    summary: text, cached: false, via: 'llm', model: r.model,
+    usage: r.usage, truncated: r.truncated, thinking: r.thinking,
+    ctx: { hasArticle, turns: history.length, dropped, tokens, chunks, totalChunks, trimmed },
+  };
+}
+
+/**
+ * 同一个后端上的对话是共享的 —— 所以历史要按"走了哪个后端"来收，而不是按 action。
+ *
+ * 走 agent 时：总结 + 解释在 agent 会话里；翻译始终走 LLM，于是 LLM 那条对话
+ * 只有翻译。纯 LLM 时：三类都在同一条对话里，前缀恒定、缓存复用最充分。
+ *
+ * @param {boolean} viaAgent 总结/解释是否走 agent
+ * @param {boolean} forAgent 要取的是 agent 那条对话还是 LLM 那条
+ */
+export function convoActions(viaAgent, forAgent) {
+  if (!viaAgent) return ['summary', 'explain', 'translate'];
+  return forAgent ? ['summary', 'explain'] : ['translate'];
+}
+
+/**
+ * 决定总结/解释走哪条路，**含降级**。
+ *
+ * 配了 agent 不等于装了 agent —— 换台机器、卸掉 CLI、PATH 变了都会让它消失。
+ * 那时候不该报错让功能整个不可用，而应该退回 LLM 并把这件事说出来。
+ *
+ * @returns {{mode:'sync'|'job', viaAgent:boolean, degraded:string}}
+ */
+export async function plan(cfg) {
+  if ((cfg.explain?.backend || 'llm') !== 'agent') {
+    return { mode: 'sync', viaAgent: false, degraded: '' };
+  }
+  const id = cfg.agent?.id;
+  if (!agent.AGENT_IDS.includes(id)) {
+    return { mode: 'sync', viaAgent: false, degraded: '未选择本地 agent，已改用 LLM' };
+  }
+  const found = (await agent.detect()).find((a) => a.id === id);
+  if (!found?.available) {
+    return {
+      mode: 'sync', viaAgent: false,
+      degraded: `本机找不到 ${agent.AGENTS[id].label}，已改用 LLM`,
+    };
+  }
+  return { mode: 'job', viaAgent: true, degraded: '' };
+}
+
+export const LOOKUP_LIMITS = { MAX_INPUT, MAX_QUESTION, MAX_ARTICLE, SUMMARY_MAX, SUMMARY_HARD };
+export { clampSummary as _clampSummary };

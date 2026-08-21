@@ -76,6 +76,30 @@ await t('首次同步：按标题建文件，四类各一个标题', async () =>
   }
 });
 
+// 速览是机器生成的，笔记里给它独立标题 —— 和用户自己写的「总结」摆在同一个
+// 标题下会分不清谁的想法
+await t('速览落在独立的「速览」标题下，且排在最前', async () => {
+  db.upsertEvents([ev({
+    id: 'sm1', action: 'summary', text: '', anchor: null,
+    value: '这篇讲一种通过公开 API 反推推理痕迹的攻击。',
+  })]);
+  const r = await syncAll(CFG);
+  assert.ok(r.inserted >= 1);
+  const md = read(ART);
+  assert.ok(md.includes('## 速览'), '没有速览标题');
+  const seg = md.slice(md.indexOf('## 速览'), md.indexOf('## 翻译'));
+  assert.ok(seg.includes('反推推理痕迹'), '速览没落在自己的标题下');
+  assert.ok(md.indexOf('## 速览') < md.indexOf('## 总结'), '速览应排在总结之前');
+});
+
+await t('速览与用户自己写的总结互不干扰', () => {
+  const md = read(ART);
+  const brief = md.slice(md.indexOf('## 速览'), md.indexOf('## 翻译'));
+  const note = md.slice(md.indexOf('## 总结'));
+  assert.ok(!brief.includes('重写：只剩一句'), '用户的总结混进了速览');
+  assert.ok(!note.includes('反推推理痕迹'), '速览混进了用户的总结');
+});
+
 await t('四个标题的顺序是 翻译 解释 批注 总结', () => {
   const md = read(ART);
   const at = (h) => md.indexOf(h);

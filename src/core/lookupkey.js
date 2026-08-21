@@ -7,6 +7,7 @@
 //   translate —— 原文 + 目标语言。同一段反复翻译只留一条
 //   explain   —— 原文 + 你提的问题。同一段问**不同**问题是两条不同记录，
 //                不该合并；重复问同一个问题才合并（答案会被刷新）
+//   summary   —— 整篇一条（没有选区、没有问题），所以键里只有 action
 //
 // 归一化口径（只作用于**键**，展示的原文保持用户实际选中的样子）：
 //   · 折叠空白
@@ -32,6 +33,10 @@ const norm = (s) => {
 /** 从事件或待保存的载荷里取出去重口径 */
 export function lookupKey(ev) {
   const text = norm(ev.text);
+  // 速览是"整篇一条"，没有选区也没有问题 —— 键里只有 action。
+  // 不让它落进翻译那条分支：那样 id 会带 tr: 前缀，而这个 id 会出现在笔记的
+  // 标记注释里（<!-- cf:tr:xxx -->），把速览标成翻译是误导。
+  if (ev.action === 'summary') return `sm${SEP}`;
   if (ev.action === 'explain') return `ex${SEP}${text}${SEP}${norm(ev.extra?.question)}`;
   return `tr${SEP}${text}${SEP}${norm(ev.extra?.target)}`;
 }
@@ -54,6 +59,6 @@ export function hashKey(str) {
 
 /** 稳定 id：同一篇文章内同一次查询恒定 */
 export function lookupId(urlKey, ev) {
-  const prefix = ev.action === 'explain' ? 'ex' : 'tr';
+  const prefix = { summary: 'sm', explain: 'ex' }[ev.action] || 'tr';
   return `${prefix}:${hashKey(`${urlKey}${SEP}${lookupKey(ev)}`)}`;
 }

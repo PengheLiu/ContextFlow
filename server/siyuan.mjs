@@ -319,6 +319,10 @@ export function render(ev) {
   switch (ev.action) {
     case 'highlight': return `> ${src}`;
     case 'comment': return v ? `💬 ${v}` : '';
+    // 速览用行内标签而**不用引用块**：思源里 `>` 加多行会被切成两块
+    // （一次 insertBlock 只返回一个 id，多出来的块拿不到 id —— 见文件头注释）。
+    // 纯文本多行是安全的，translate 也是这么做的。
+    case 'summary': return v ? `**速览** ${v}` : '';
     case 'note': return v;
     case 'translate': return v ? `*${src}*\n${v}` : '';
     case 'explain': {
