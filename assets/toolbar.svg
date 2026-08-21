@@ -1,0 +1,11 @@
+<!-- ContextFlow 工具栏图标（几何见上方 mark，勿手改） -->
+<svg width="24" height="24" viewBox="0 0 24 24" fill="none"
+     xmlns="http://www.w3.org/2000/svg" role="img" aria-label="ContextFlow">
+  <g transform="translate(-2.25 -2.43) scale(1.2022)">
+    <path d="M4 6.5h12"  stroke="#918a7c" stroke-width="2.2" stroke-linecap="round"/>
+    <path d="M4 17.5h9"  stroke="#918a7c" stroke-width="2.2" stroke-linecap="round"/>
+    <path d="M4 12h13.5" stroke="#b45309" stroke-width="2.6" stroke-linecap="round"/>
+    <path d="M16.3 9.2 19.8 12l-3.5 2.8" stroke="#b45309" stroke-width="2.4"
+          stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+</svg>

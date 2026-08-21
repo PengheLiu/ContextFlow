@@ -78,8 +78,20 @@ async function buildExtension() {
     permissions: ['storage'],
     host_permissions: ['http://127.0.0.1:7317/*'],
     background: { service_worker: 'sw.js', type: 'module' },
-    action: { default_title: 'ContextFlow：开合面板' },
-    icons: { 128: 'icon-512.png' },
+    action: {
+      default_title: 'ContextFlow：开合面板',
+      // 工具栏图标用紧贴边界的那套（assets/toolbar-*.png）。
+      // icon-512 是给应用/扩展管理页的构图：有圆角底和大留白，塞进工具栏 16px
+      // 的格子里墨迹只占 31% 高度、底色又接近白色，实测就是"又小又淡"。
+      // 多尺寸是必需的：Chrome 按 DPI 挑，只给大图会被降采样糊掉。
+      default_icon: {
+        16: 'toolbar-16.png',
+        32: 'toolbar-32.png',
+        48: 'toolbar-48.png',
+        128: 'toolbar-128.png',
+      },
+    },
+    icons: { 48: 'toolbar-48.png', 128: 'icon-512.png' },
     content_scripts: [{
       matches: ['http://*/*', 'https://*/*'],
       // 不写 world → 默认 ISOLATED。已实测那里的 CSS.highlights 能正常绘制，
@@ -90,7 +102,11 @@ async function buildExtension() {
     }],
   }, null, 2)}\n`);
 
-  if (existsSync('assets/icon-512.png')) copyFileSync('assets/icon-512.png', 'extension/dist/icon-512.png');
+  for (const f of ['icon-512.png', 'toolbar-16.png', 'toolbar-32.png',
+    'toolbar-48.png', 'toolbar-128.png']) {
+    if (existsSync(`assets/${f}`)) copyFileSync(`assets/${f}`, `extension/dist/${f}`);
+    else console.warn(`  ⚠ 缺 assets/${f} —— 先跑 node tools/gen-assets.mjs --png`);
+  }
 
   const kb = (b) => `${(b / 1024).toFixed(1)} KB`;
   console.log(`extension/dist/app.js  ${kb(ui.metafile.outputs['extension/dist/app.js'].bytes)}`);

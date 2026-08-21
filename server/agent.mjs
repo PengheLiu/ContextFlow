@@ -74,7 +74,24 @@ export const AGENT_IDS = Object.keys(AGENTS);
  * 用 `which` 解析真实可执行文件，不依赖 shell 别名 —— 用户的 `claude` 很可能是
  * 一个带代理环境变量的 alias，Node 起进程时不走别名。
  */
-export async function detect() {
+// 探测结果缓存。起 4 个进程取版本要 600~900ms —— 对"打开面板就自动探测"来说
+// 每次都跑太浪费，而 agent 的安装状态几乎不变（装/卸 CLI 才会变）。
+// 缓存让面板能在每个页面上都自动显示真实的 agent 名，而不是"未检测"。
+let cached = null;
+let cachedAt = 0;
+const TTL = 10 * 60 * 1000;
+
+/**
+ * @param {boolean} [fresh] 用户手动点「检测」时绕过缓存 —— 他刚装了新 agent 就指望这个
+ */
+export async function detect(fresh = false) {
+  if (!fresh && cached && Date.now() - cachedAt < TTL) return cached;
+  const r = await probe();
+  cached = r; cachedAt = Date.now();
+  return r;
+}
+
+async function probe() {
   const out = [];
   for (const [id, a] of Object.entries(AGENTS)) {
     const row = { id, label: a.label, verified: !!a.verified, available: false, path: '', version: '' };

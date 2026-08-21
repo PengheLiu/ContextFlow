@@ -146,7 +146,9 @@ const server = createServer(async (req, res) => {
     }
 
     if (path === '/agents/detect' && req.method === 'GET') {
-      return json(res, 200, { agents: await detectAgents(), jobs: jobs.stats() });
+      // fresh=1：手动点「检测」时绕过缓存
+      const fresh = new URL(req.url, 'http://x').searchParams.get('fresh') === '1';
+      return json(res, 200, { agents: await detectAgents(fresh), jobs: jobs.stats() });
     }
 
     // ---- 配置界面 ----

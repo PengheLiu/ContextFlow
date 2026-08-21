@@ -117,6 +117,46 @@ if (built) {
   t('content script 匹配 http/https 而不是 file://（file 需单独授权，且没意义）', () => {
     assert.deepEqual(mf().content_scripts[0].matches, ['http://*/*', 'https://*/*']);
   });
+
+  // ---- 图标 ----
+  //
+  // manifest 引用了却没拷进 dist 的话，Chrome 只会显示默认的拼图占位图 ——
+  // 不报错、不提示，很容易一直没人注意。
+
+  t('manifest 引用的每个图标都真的在 dist 里', () => {
+    const m = mf();
+    const refs = [...Object.values(m.action?.default_icon || {}), ...Object.values(m.icons || {})];
+    assert.ok(refs.length >= 4, `只引用了 ${refs.length} 个图标`);
+    for (const f of new Set(refs)) {
+      assert.ok(existsSync(join('extension/dist', f)), `manifest 引用了 ${f} 但没拷进 dist`);
+    }
+  });
+
+  // Chrome 按 DPI 与位置挑尺寸；只给一个大图会被降采样糊掉
+  t('工具栏图标给了多个尺寸', () => {
+    const sizes = Object.keys(mf().action?.default_icon || {}).map(Number).sort((a, b) => a - b);
+    assert.deepEqual(sizes, [16, 32, 48, 128]);
+  });
+
+  t('每个图标的实际像素尺寸与声明的键一致（不一致会被缩放糊掉）', () => {
+    for (const [key, f] of Object.entries(mf().action.default_icon)) {
+      const b = readFileSync(join('extension/dist', f));
+      // PNG 的 IHDR 紧跟 8 字节签名 + 4 长度 + 4 类型
+      const w = b.readUInt32BE(16), h = b.readUInt32BE(20);
+      assert.equal(w, Number(key), `${f} 宽 ${w}，声明 ${key}`);
+      assert.equal(h, Number(key), `${f} 高 ${h}，声明 ${key}`);
+    }
+  });
+
+  // 这才是"图标看起来太小"的根因：icon-512 有圆角底和大留白，墨迹只占 31% 高度，
+  // 且底色接近白、在工具栏上等于透明。工具栏那套是紧贴边界的构图。
+  t('工具栏图标不是 icon-512 的副本（构图不同，不能复用）', () => {
+    const a = readFileSync(join('extension/dist', 'toolbar-128.png'));
+    const b = readFileSync(join('extension/dist', 'icon-512.png'));
+    assert.ok(!a.equals(b), '工具栏图标直接用了 icon-512');
+    assert.ok(!Object.values(mf().action.default_icon).includes('icon-512.png'),
+      'action.default_icon 里出现了 icon-512.png —— 那个构图在工具栏上会显得又小又淡');
+  });
 }
 
 rmSync(HOME, { recursive: true, force: true });

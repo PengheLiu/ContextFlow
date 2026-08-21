@@ -349,6 +349,10 @@ export class Settings {
       this.wantAgent = c.agent?.id || '';
       this.syncAgentSel();
       this.toggleAgentBox();
+      // 自动探测：服务端有缓存（10 分钟），所以这在每个页面上都近乎免费。
+      // 不这么做的话，配置早就存好了，界面上却永远显示"未检测"——
+      // 用户会以为换个页面就得重新配一次。不 await，别拖慢面板显示。
+      if ((c.explain?.backend || 'llm') === 'agent' && !this.agents) this.detectAgents(false);
       this.$('s-apiKey').value = '';
       this.$('s-apiKey').placeholder = c.translate.apiKeySet
         ? (c.translate.apiKeyFromEnv ? '来自环境变量（留空不改）' : '已配置（留空不改）')
@@ -413,12 +417,16 @@ export class Settings {
    * 探测本机可用的 agent。
    * @param {boolean} verbose 手动点「检测」时给反馈；自动探测时保持安静
    */
+  /**
+   * @param {boolean} verbose 手动点「检测」：给反馈，并绕过服务端缓存
+   *   （用户刚装了新 agent 就指望这个）。自动探测时保持安静并吃缓存。
+   */
   async detectAgents(verbose) {
     const btn = this.$('s-detectAgent');
     const old = btn.textContent;
-    btn.textContent = '检测中…';
+    if (verbose) btn.textContent = '检测中…';
     try {
-      const { agents } = await this.api.detectAgents();
+      const { agents } = await this.api.detectAgents(verbose);
       this.agents = agents;
       this.syncAgentSel();
       const ok = agents.filter((a) => a.available);
@@ -428,7 +436,8 @@ export class Settings {
           : '没找到已安装的 agent（claude / codex / dsh / gemini）', !ok.length);
       }
     } catch (e) {
-      this.msg(`检测失败：${e.message}`, true);
+      // 自动探测失败不该弹提示：服务没起时面板本来就会显示"离线"
+      if (verbose) this.msg(`检测失败：${e.message}`, true);
     }
     btn.textContent = old;
   }
@@ -438,9 +447,11 @@ export class Settings {
     const sel = this.$('s-agent');
     const list = this.agents || [];
     if (!list.length) {
-      // 还没探测过：至少把已配置的值留住，别在保存时被清空
+      // 还没探测过：至少把已配置的值留住，别在保存时被清空。
+      // 措辞刻意用"读取中"而不是"未检测"—— 配置是存着的，说"未检测"会让人
+      // 以为换页面就得重配一次（那正是这一版要修的误解）。
       sel.innerHTML = this.wantAgent
-        ? `<option value="${esc(this.wantAgent)}">${esc(this.wantAgent)}（未检测）</option>`
+        ? `<option value="${esc(this.wantAgent)}">${esc(this.wantAgent)}（读取中…）</option>`
         : '<option value="">（点检测）</option>';
       sel.value = this.wantAgent || '';
       return;

@@ -141,7 +141,10 @@ export async function cancelJob(id) {
   catch { return false; }
 }
 
-export async function detectAgents() { return call('/agents/detect'); }
+/** @param {boolean} [fresh] 手动点「检测」时绕过服务端缓存 */
+export async function detectAgents(fresh = false) {
+  return call(`/agents/detect${fresh ? '?fresh=1' : ''}`);
+}
 
 /**
  * 解释。后端可能是 LLM（同步返回结果）或本地 agent（返回作业，需轮询）。
