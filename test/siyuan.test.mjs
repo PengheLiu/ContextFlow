@@ -175,8 +175,8 @@ await t('首次同步：建 1 个文章文档 + 1 个日报文档', async () => 
   assert.equal(K.count('/api/filetree/createDocWithMd'), 2, '文档数不对');
 });
 
-await t('文章文档建在 /阅读/<标题> 下', () =>
-  assert.ok(K.docs.has('/阅读/Stealing Traces'), [...K.docs.keys()].join()));
+await t('文章文档建在 /阅读/<首次阅读日>/<标题> 下', () =>
+  assert.ok(K.docs.has('/阅读/2026-08-19/Stealing Traces'), [...K.docs.keys()].join()));
 
 await t('日报文档按最早那天命名，不是同步当天', () =>
   assert.ok(K.docs.has('/阅读/2026-08-19'), [...K.docs.keys()].join()));
@@ -185,12 +185,12 @@ await t('四个分类标题齐全且顺序为 翻译 解释 批注 总结', () =
   assert.deepEqual(heads(K), ['## 翻译', '## 解释', '## 批注', '## 总结']));
 
 await t('文档打了 urlkey 属性（本地库丢了能反查）', () => {
-  const docId = K.docs.get('/阅读/Stealing Traces');
+  const docId = K.docs.get('/阅读/2026-08-19/Stealing Traces');
   assert.equal(K.attrs.get(docId)?.['custom-contextflow-urlkey'], 'arxiv:1');
 });
 
 await t('日报里是指向文章文档的链接，不是正文', () => {
-  const docId = K.docs.get('/阅读/Stealing Traces');
+  const docId = K.docs.get('/阅读/2026-08-19/Stealing Traces');
   const link = K.order.map((i) => K.mdOf(i)).find((m) => m?.includes('siyuan://blocks/'));
   assert.ok(link?.includes(docId), `link=${link}`);
   assert.ok(!K.order.some((i) => K.mdOf(i)?.includes('威胁模型') && K.mdOf(i).startsWith('- ')));
@@ -218,6 +218,10 @@ await t('第二天的新记录进**同一个文档**，不新建文章文档', a
   const r = await syncAll(CFG, { call: K.call });
   assert.equal(r.inserted, 1);
   assert.equal(K.count('/api/filetree/createDocWithMd'), before, '为第二天又建了文档');
+  assert.ok(K.docs.has('/阅读/2026-08-19/Stealing Traces'),
+    '跨天继续读后文章被搬离首次阅读日目录');
+  assert.ok(!K.docs.has('/阅读/2026-08-20/Stealing Traces'),
+    '第二天新建了另一份文章文档');
 });
 
 await t('追加内容没有重复建「解释」标题', () =>
@@ -293,9 +297,11 @@ await t('同名不同文章不会挤进同一个文档', async () => {
     createdAt: DAY(21),
   })]);
   await syncAll(CFG, { call: K.call });
-  const paths = [...K.docs.keys()].filter((p) => p.startsWith('/阅读/Stealing Traces'));
+  const paths = [...K.docs.keys()].filter((p) => p.includes('/Stealing Traces'));
   assert.equal(paths.length, 2, `同名文档没被区分：${paths.join(' | ')}`);
-  assert.match(paths.find((p) => p !== '/阅读/Stealing Traces'), /\([0-9a-f]{8}\)$/);
+  assert.ok(paths.some((p) => p.startsWith('/阅读/2026-08-19/')));
+  assert.ok(paths.some((p) => p.startsWith('/阅读/2026-08-21/')),
+    `第二篇应归 08-21：${paths.join(' | ')}`);
 });
 
 // ---- 未配置 ----

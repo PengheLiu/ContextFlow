@@ -162,7 +162,9 @@ async function syncArticle(call, { art, notebookId, docPathPrefix }) {
 }
 
 /**
- * 文章文档：artdoc 表 → 块属性反查 → 新建。三级回落缺一不可 ——
+ * 文章文档：artdoc 表 → 块属性反查 → 新建。路径为
+ * `${docPathPrefix}/${firstDay}/${标题}`，即按首次阅读日归档。
+ * 三级回落缺一不可 ——
  * 少了属性反查，换机/删库后会给同一篇文章重复建文档。
  */
 async function ensureArticleDoc(call, { art, notebookId, docPathPrefix }) {
@@ -189,13 +191,15 @@ async function ensureArticleDoc(call, { art, notebookId, docPathPrefix }) {
     const occupied = async (n) => {
       const r = await call('/api/query/sql', {
         stmt: `SELECT id FROM blocks WHERE type='d' AND box='${sqlLit(notebookId)}'`
-          + ` AND hpath='${sqlLit(`${docPathPrefix}/${n}`)}' LIMIT 1`,
+          + ` AND hpath='${sqlLit(`${docPathPrefix}/${art.firstDay}/${n}`)}' LIMIT 1`,
       });
       return !!r?.[0]?.id;
     };
     let name = docName(art.title, art.urlKey);
     if (await occupied(name)) name = docName(art.title, art.urlKey, () => true);
-    const hpath = `${docPathPrefix}/${name}`;
+    // 文章归到**首次阅读日**：跨天继续读仍追加到同一个 docId，不搬家、不改链接。
+    // 日期文档同时是目录节点（下面可挂子文档）与当天的索引页。
+    const hpath = `${docPathPrefix}/${art.firstDay}/${name}`;
     id = await call('/api/filetree/createDocWithMd',
       { notebook: notebookId, path: hpath, markdown: '' });
     if (!id) throw new SiYuanError(`创建文档失败：${art.urlKey}`);

@@ -507,9 +507,12 @@ agent 一次几十秒，同步等在 HTTP 上浏览器和浮层都会挂住。`s
 改为：**一篇文章一个文档，四类记录各一个标题，日报只留索引链接。**
 
 ```
-/阅读记录/Stealing Reasoning Traces from Proprietary LLM APIs   ← 正文
-/阅读记录/2026-08-19                                            ← 索引
+/阅读记录/2026-08-19/Stealing Reasoning Traces from Proprietary LLM APIs   ← 正文
+/阅读记录/2026-08-19                                                       ← 当天索引 + 目录
 ```
+
+文章按**首次阅读日**归档。后续跨天继续读仍追加到同一个 docId，不搬家、不改链接 ——
+既保住「一文一档」，目录树也自然按日期组织。日期文档同时是目录节点与当天索引页。
 
 正文文档内四个标题，顺序与面板 tab 一致（`server/layout.mjs` 的 `CATEGORIES`）：
 
