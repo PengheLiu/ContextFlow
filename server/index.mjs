@@ -110,7 +110,12 @@ const server = createServer(async (req, res) => {
 
     if (path === '/translate' && req.method === 'POST') {
       const { text, target, urlKey, offset, fresh } = await readBody(req);
-      return json(res, 200, await lookup.translate({ text, target, urlKey, offset, fresh, cfg }));
+      // 翻译始终走 LLM，但它要知道总结/解释是否走 agent，才能决定历史是
+      // "只有翻译"还是"总结+解释+翻译共享"。上一版没传，默认 false，
+      // 导致 agent 明明在用，LLM 翻译对话里仍混进了 agent 的总结/解释。
+      const { viaAgent } = await lookup.plan(cfg);
+      return json(res, 200,
+        await lookup.translate({ text, target, urlKey, offset, fresh, cfg, viaAgent }));
     }
 
     // 前端上传正文，供连续对话作首条消息。浏览器手里本来就有正文，

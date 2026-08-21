@@ -6,6 +6,7 @@
 //   · 速览没缓存 → 每次展开面板都起一次 agent（几十秒、花钱）
 // 所以必须有东西守着。
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -42,6 +43,17 @@ await t('走 agent 时：LLM 那条对话只有翻译（翻译始终走 LLM）',
 await t('纯 LLM 时：三类共享一条对话（前缀最长、缓存复用最充分）', () => {
   assert.deepEqual(lookup.convoActions(false, false), ['summary', 'explain', 'translate']);
   assert.deepEqual(lookup.convoActions(false, true), ['summary', 'explain', 'translate']);
+});
+
+// 翻译路由必须把 plan().viaAgent 传给 lookup.translate。若没传，默认 false，
+// agent 明明在用，LLM 翻译对话里却会混进 agent 的总结/解释 —— 缓存前缀和上下文都错。
+await t('服务端翻译路由把 viaAgent 传给 lookup.translate（回归）', () => {
+  const src = readFileSync('server/index.mjs', 'utf8');
+  const route = src.slice(src.indexOf("path === '/translate'"), src.indexOf("path === '/article'"));
+  assert.match(route, /const \{ viaAgent \} = await lookup\.plan\(cfg\)/,
+    'translate 路由没有先 plan(cfg)');
+  assert.match(route, /lookup\.translate\(\{[^}]*viaAgent/s,
+    'translate 路由没有把 viaAgent 传下去');
 });
 
 await t('lookupHistory 收多个 action，按时间升序', () => {
@@ -170,15 +182,18 @@ await t('英文句号也认', () => {
   assert.ok(/\.$/.test(r.text));
 });
 
-// 宁可留着超限的全文，也不要砍掉大半 —— 后者是"修复"变成"破坏"
-await t('句边界太靠前时不裁（避免砍掉大半内容）', () => {
+await t('句边界太靠前时硬截并加省略号，仍保证 <=200', () => {
   const r = _clampSummary(`开头。${'字'.repeat(400)}`);
-  assert.equal(r.trimmed, false, '为了凑字数把大半内容砍了');
+  assert.equal(r.trimmed, true);
+  assert.ok([...r.text].length <= 200);
+  assert.ok(r.text.endsWith('…'));
 });
 
-await t('完全没有句末标点时不裁（拦腰切断更难受）', () => {
+await t('完全没有句末标点也硬截，仍保证 <=200', () => {
   const r = _clampSummary('字'.repeat(400));
-  assert.equal(r.trimmed, false);
+  assert.equal(r.trimmed, true);
+  assert.equal([...r.text].length, 200);
+  assert.ok(r.text.endsWith('…'));
 });
 
 await t('空值不抛', () => {

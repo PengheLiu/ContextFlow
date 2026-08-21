@@ -5,6 +5,7 @@
 // 脚本跑在页面 MAIN world，回读明文等于交给页面 JS。
 
 import { T } from './theme.js';
+import { guarded, describeError } from './guard.js';
 
 export const SETTINGS_CSS = `
   .set{display:none} .set.on{display:block}
@@ -235,24 +236,11 @@ export class Settings {
     catch (e) { this.msg(`保存失败：${e.message}`, true); }
   }
 
-  /**
-   * 包一层，把 handler 里的异常摊到界面上。
-   * 同步抛出与 Promise reject 都要接 —— 这些 handler 大多是 async。
-   */
-  guard(fn) {
-    return (...args) => {
-      try {
-        const r = fn(...args);
-        if (r && typeof r.catch === 'function') r.catch((e) => this.onHandlerError(e));
-        return r;
-      } catch (e) { this.onHandlerError(e); return undefined; }
-    };
-  }
+  /** 把 handler 里的异常摊到消息条上（实现见 guard.js） */
+  guard(fn) { return guarded(fn, (e) => this.onHandlerError(e)); }
 
   onHandlerError(e) {
-    // 代码缺陷（TypeError 之类）要说清是缺陷，别伪装成"网络不好"
-    const bug = e instanceof TypeError || e instanceof ReferenceError;
-    this.msg(bug ? `界面代码出错：${e.message}` : (e?.message || String(e)), true);
+    this.msg(describeError(e), true);
     console.error('[ContextFlow] 配置面板出错：', e);
   }
 

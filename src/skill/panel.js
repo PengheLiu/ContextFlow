@@ -12,6 +12,7 @@
 // 「从上往下读」，按时间排会让同一段的记录散落在列表各处，回看时对不上原文。
 
 import { T, shadowHost } from './theme.js';
+import { guarded, describeError } from './guard.js';
 import { MARKS } from '../core/highlight.js';
 import { byPosition } from '../core/order.js';
 import { Settings, SETTINGS_CSS } from './settings.js';
@@ -139,7 +140,9 @@ ${Object.entries(MARKS).map(([k, m]) =>
   .brief .txt{white-space:pre-wrap}
   .brief .ft{margin-top:6px;font-size:11px;color:${T.quote};
              font-variant-numeric:tabular-nums}
-  .brief.run .txt{color:${T.quote}}
+  .brief.run .txt{color:${T.quote};display:flex;align-items:baseline;gap:7px}
+  .brief.run .dot2{width:6px;height:6px;border-radius:50%;background:${T.accent};
+       flex:0 0 auto;position:relative;top:-1px;animation:cfpulse 1.1s ease-in-out infinite}
   .brief.err{border-left-color:#b3261e}
   .brief.err .txt{color:#b3261e}
 
@@ -437,6 +440,18 @@ export class Panel {
   }
 
   /**
+   * 把 handler 里的异常摊到界面上（实现见 guard.js）。
+   * 之前这里写了 this.guard(...) 却没有实现 —— 那次它发生在速览的成功路径上，
+   * 把一次跑成的速览显示成了 "速览失败：this.guard is not a function"。
+   */
+  guard(fn) { return guarded(fn, (e) => this.onHandlerError(e)); }
+
+  onHandlerError(e) {
+    this.syncMsg(describeError(e), 'bad');
+    console.error('[ContextFlow] 面板出错：', e);
+  }
+
+  /**
    * 速览区。
    * @param {{state:'run'|'ok'|'err', text:string, meta?:string, retry?:boolean}} o
    */
@@ -445,9 +460,12 @@ export class Panel {
     if (!el) return;
     if (!o) { el.className = 'brief'; el.innerHTML = ''; return; }
     el.className = `brief ${o.state === 'ok' ? '' : o.state}`;
+    // 运行态给一个脉动点：否则进度文字（"…不支持会话续接，每次发完整对话…"）
+    // 读起来像最终结果，看不出还在跑
+    const dot = o.state === 'run' ? '<span class="dot2"></span>' : '';
     el.innerHTML = `<div class="hd2"><span>速览</span>`
       + `${o.retry ? '<button data-act="rebrief">重新生成</button>' : ''}</div>`
-      + `<div class="txt">${esc(o.text || '')}</div>`
+      + `<div class="txt">${dot}${esc(o.text || '')}</div>`
       + `${o.meta ? `<div class="ft">${esc(o.meta)}</div>` : ''}`;
     const b = el.querySelector('[data-act=rebrief]');
     if (b) b.onclick = this.guard(() => this.h.onSummarize?.(true));

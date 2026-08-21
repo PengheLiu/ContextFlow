@@ -88,7 +88,7 @@ Output ONLY the translation — no explanation, no quotes, no romanization, no p
 Preserve inline code, LaTeX/math, URLs, and proper nouns verbatim.
 If the text is already in ${target}, output it unchanged.`;
 
-export async function translate({ text, target, urlKey, offset, fresh = false, cfg, ...opts }) {
+export async function translate({ text, target, urlKey, offset, fresh = false, cfg, viaAgent = false }) {
   const src = checkText(text);
   const t = cfg.translate;
   const lang = target || t.target;
@@ -110,7 +110,7 @@ export async function translate({ text, target, urlKey, offset, fresh = false, c
   // 翻译始终走 LLM。历史取"LLM 那条对话"里的全部轮次 —— 纯 LLM 模式下它也包含
   // 总结与解释，前缀更长、缓存复用更充分。
   const history = withCtx && urlKey
-    ? db.lookupHistory(urlKey, convoActions(!!opts.viaAgent, false)) : [];
+    ? db.lookupHistory(urlKey, convoActions(viaAgent, false)) : [];
 
   const draft = { action: 'translate', text: src, offset, extra: { target: lang } };
   const { messages, tokens, dropped, hasArticle, chunks, totalChunks } = buildMessages({
@@ -333,10 +333,11 @@ const SUMMARY_SYSTEM = `你是阅读助手。用户刚打开一篇文章，想�
 const SUMMARY_AGENT_SYSTEM = SUMMARY_SYSTEM;
 
 const SUMMARY_MAX = 200;
-// 给 30% 余量再裁：模型对"字数"这种约束天生不擅长（实测反复稳定在 290 字左右，
-// 换成句数约束也只是好一点）。所以留一道零成本的兜底 —— 但**按句边界裁**，
-// 拦腰切断比多几十个字难受得多。再调一次让它缩写要多花一次钱和几十秒，不值。
-const SUMMARY_HARD = Math.round(SUMMARY_MAX * 1.3);
+// 模型对"字数"这种约束天生不擅长（实测反复稳定在 290 字左右，换成句数约束
+// 仍会到 208）。用户要求是**200 字以内**，这里就是硬上限：优先按句边界裁；
+// 若找不到足够靠后的句末，退而截到 199 字 + 省略号。再调一次让模型缩写要多花
+// 一次钱和几十秒，不值。
+const SUMMARY_HARD = SUMMARY_MAX;
 
 /** @returns {{text:string, trimmed:boolean}} */
 function clampSummary(raw) {
@@ -347,9 +348,11 @@ function clampSummary(raw) {
   // 中英句末标点都算
   const cut = Math.max(head.lastIndexOf('。'), head.lastIndexOf('！'),
     head.lastIndexOf('？'), head.lastIndexOf('. '), head.lastIndexOf('\n'));
-  // 找不到靠后的句边界就整段留着 —— 拦腰切断不如不裁
-  if (cut < SUMMARY_HARD * 0.5) return { text, trimmed: false };
-  return { text: head.slice(0, cut + 1).trim(), trimmed: true };
+  // 优先在后半段找句末；没有就硬截并加省略号，仍保证 <= 200
+  if (cut >= SUMMARY_HARD * 0.5) {
+    return { text: head.slice(0, cut + 1).trim(), trimmed: true };
+  }
+  return { text: `${chars.slice(0, SUMMARY_HARD - 1).join('').trimEnd()}…`, trimmed: true };
 }
 
 /**
