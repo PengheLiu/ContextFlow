@@ -170,9 +170,66 @@ export function snapToWords(text, start, end) {
  * 把 Range 序列化为锚点。返回 null 表示选区不落在索引覆盖的正文里。
  * @param {object} [opts] snap=false 可关闭词边界吸附
  */
+/**
+ * 把任意 DOM 边界 `(node, offset)` 归一成索引里的字符偏移。
+ *
+ * 文本节点走 charOffsetOf 的查表路径。**元素节点必须另算** ——
+ * nodeSegs 只以文本节点为键，而拖选到段尾时 range.endContainer 往往是 `<p>`
+ * 而不是文本节点（三击选段、跨段拖选也一样）。查表拿不到就返回 null，
+ * 于是整个锚点作废：实测表现为一整段的翻译记录 anchor=null，
+ * 原文上没有标记、面板里也点不动。
+ *
+ * 元素边界的 DOM 语义是「位于第 offset 个子节点之前」（offset 等于子节点数时
+ * 位于最后一个之后）。这种边界永远落在两个子节点之间，不会切开某个 seg，
+ * 所以只需在按文档顺序排列的 segs 里二分出分界点：
+ *   起点 → 取其后第一个 seg 的开头
+ *   终点 → 取其前最后一个 seg 的末尾
+ *
+ * @param {'start'|'end'} side 元素边界向哪一侧收
+ */
+export function boundaryOffset(index, node, offset, side = 'start') {
+  if (!node) return null;
+  // 先查表再看 nodeType：能在 nodeSegs 里查到的，按构造就是文本节点。
+  // 这样既省一次 nodeType 判断，也让本函数在没有 document 的环境里仍能工作
+  // （合成索引的单元测试就是这种情况）。
+  if (index.nodeSegs?.has(node)) return charOffsetOf(index, node, offset);
+  if (node.nodeType === 3) return charOffsetOf(index, node, offset);
+
+  const { segs } = index;
+  if (!segs?.length) return null;
+
+  let probe;
+  try {
+    probe = document.createRange();
+    probe.setStart(node, offset);
+    probe.collapse(true);
+  } catch { return null; }
+
+  // segs 按文档顺序 → 二分。lo = 最后一个「起点 ≤ 边界」的下标
+  let lo = -1, hi = segs.length;
+  while (hi - lo > 1) {
+    const mid = (lo + hi) >> 1;
+    let cmp;
+    try {
+      cmp = probe.comparePoint(segs[mid].node, segs[mid].nodeStart);
+    } catch {
+      cmp = -1;         // 不可比（已脱离文档等）：当作在边界之前
+    }
+    if (cmp <= 0) lo = mid; else hi = mid;
+  }
+
+  if (side === 'end') {
+    if (lo < 0) return null;
+    const s = segs[lo];
+    return s.textStart + s.len;
+  }
+  if (hi >= segs.length) return null;
+  return segs[hi].textStart;
+}
+
 export function serializeRange(range, index, opts = {}) {
-  let start = charOffsetOf(index, range.startContainer, range.startOffset);
-  let end = charOffsetOf(index, range.endContainer, range.endOffset);
+  let start = boundaryOffset(index, range.startContainer, range.startOffset, 'start');
+  let end = boundaryOffset(index, range.endContainer, range.endOffset, 'end');
   if (start == null || end == null || end <= start) return null;
   const { text } = index;
   if (opts.snap !== false) ({ start, end } = snapToWords(text, start, end));

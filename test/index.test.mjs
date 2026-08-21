@@ -8,7 +8,8 @@
 // 在空白归一化后的结果。差一个字符就是错。
 import assert from 'node:assert/strict';
 import { JSDOM } from 'jsdom';
-import { buildTextIndex, serializeRange, resolveAnchor, charOffsetOf } from '../src/core/anchor.js';
+import { buildTextIndex, serializeRange, resolveAnchor, charOffsetOf, boundaryOffset }
+  from '../src/core/anchor.js';
 
 let pass = 0;
 const t = (name, fn) => {
@@ -209,6 +210,113 @@ t('吸附后仍能往返解析', () => {
   const res = resolveAnchor(a, index);
   assert.ok(res, '解析失败');
   assert.equal(norm(String(res.range)), 'encoded reasoning');
+});
+
+// ---- 元素边界（真实拖选会大量产生）----
+//
+// 这一组的由来：一条整段的翻译记录 anchor 存成了 null，症状是原文上没有标记、
+// 面板里也点不动。根因是 nodeSegs 只以**文本节点**为键，而拖选到段尾时
+// range.endContainer 往往是 <p> 而不是文本节点 —— 查表拿不到就整条作废。
+// 之前所有用例的两端都恰好落在文本节点上，所以一直没暴露。
+
+const PARA = `
+  <p id="a">Live credentials, internal hostnames, and specific indicators have been
+     redacted or genericized, while the techniques are described exactly as observed
+     by <em>Hugging Face</em>.</p>
+  <p id="b">Below is an interactive replay of the intrusion.</p>`;
+
+t('三击选段：两端都是元素容器', () => {
+  const doc = mount(PARA);
+  const index = buildTextIndex(doc.body);
+  const p = doc.getElementById('a');
+  const r = doc.createRange();
+  r.selectNodeContents(p);              // start=(p,0) end=(p,childNodes.length)
+  const a = serializeRange(r, index);
+  assert.ok(a, 'anchor 是 null —— 整段选区又失效了');
+  assert.equal(norm(a.exact), norm(String(r)));
+});
+
+t('拖到段尾：终点是元素容器', () => {
+  const doc = mount(PARA);
+  const index = buildTextIndex(doc.body);
+  const p = doc.getElementById('a');
+  const first = p.firstChild;                       // 文本节点
+  const at = first.nodeValue.indexOf('Live');
+  const r = doc.createRange();
+  r.setStart(first, at);
+  r.setEnd(p, p.childNodes.length);                 // ← 元素边界
+  const a = serializeRange(r, index);
+  assert.ok(a, 'anchor 是 null');
+  assert.equal(norm(a.exact), norm(String(r)));
+  assert.ok(a.exact.includes('Hugging Face'), '没覆盖到段末的行内元素');
+});
+
+t('从段首起拖：起点是元素容器', () => {
+  const doc = mount(PARA);
+  const index = buildTextIndex(doc.body);
+  const p = doc.getElementById('a');
+  const r = doc.createRange();
+  r.setStart(p, 0);                                 // ← 元素边界
+  const txt = p.firstChild;
+  r.setEnd(txt, txt.nodeValue.indexOf('hostnames') + 'hostnames'.length);
+  const a = serializeRange(r, index);
+  assert.ok(a);
+  assert.equal(norm(a.exact), norm(String(r)));
+});
+
+t('跨段选择：终点落在下一段的元素边界上', () => {
+  const doc = mount(PARA);
+  const index = buildTextIndex(doc.body);
+  const pa = doc.getElementById('a');
+  const pb = doc.getElementById('b');
+  const r = doc.createRange();
+  r.setStart(pa.firstChild, pa.firstChild.nodeValue.indexOf('Live'));
+  r.setEnd(pb, pb.childNodes.length);
+  const a = serializeRange(r, index);
+  assert.ok(a);
+  assert.ok(a.exact.includes('Live credentials'));
+  assert.ok(a.exact.includes('interactive replay'), '没覆盖到第二段');
+});
+
+t('整段锚点能解析回原位（原文才会有标记）', () => {
+  const doc = mount(PARA);
+  const index = buildTextIndex(doc.body);
+  const p = doc.getElementById('a');
+  const r = doc.createRange();
+  r.selectNodeContents(p);
+  const a = serializeRange(r, index);
+  const res = resolveAnchor(a, buildTextIndex(doc.body));
+  assert.ok(res, '解析失败 —— 面板里点不动、原文没标记');
+  assert.equal(norm(String(res.range)), norm(a.exact));
+});
+
+t('boundaryOffset：元素起点取其后第一个字符，终点取其前最后一个', () => {
+  const doc = mount(PARA);
+  const index = buildTextIndex(doc.body);
+  const p = doc.getElementById('a');
+  const start = boundaryOffset(index, p, 0, 'start');
+  const end = boundaryOffset(index, p, p.childNodes.length, 'end');
+  assert.equal(index.text.slice(start, start + 4), 'Live');
+  assert.equal(index.text.slice(end - 1, end), '.');
+});
+
+t('文本节点仍走原路径（与 charOffsetOf 一致）', () => {
+  const doc = mount(PARA);
+  const index = buildTextIndex(doc.body);
+  const n = doc.getElementById('a').firstChild;
+  for (const off of [0, 5, 20]) {
+    assert.equal(boundaryOffset(index, n, off, 'start'), charOffsetOf(index, n, off));
+  }
+});
+
+t('空元素 / 越界不抛异常，返回 null 或合理值', () => {
+  const doc = mount('<p id="a">text</p><div id="e"></div>');
+  const index = buildTextIndex(doc.body);
+  const e = doc.getElementById('e');
+  assert.doesNotThrow(() => boundaryOffset(index, e, 0, 'start'));
+  assert.doesNotThrow(() => boundaryOffset(index, e, 0, 'end'));
+  assert.doesNotThrow(() => boundaryOffset(index, null, 0, 'start'));
+  assert.equal(boundaryOffset(index, null, 0, 'start'), null);
 });
 
 console.log(`\n${pass} 项通过`);

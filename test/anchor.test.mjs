@@ -18,7 +18,9 @@ globalThis.document = {
 
 /** 合成一个「整段文本映射到单个节点」的索引 */
 function fakeIndex(text) {
-  const node = { nodeValue: text };
+  // nodeType: 3 —— 合成数据也要像真的文本节点，否则会掩盖只在真实 DOM 下
+  // 才走到的分支（boundaryOffset 的元素边界处理就是这么被漏测的）
+  const node = { nodeType: 3, nodeValue: text };
   const seg = { node, nodeStart: 0, textStart: 0, len: text.length };
   return { text, segs: [seg], nodeSegs: new Map([[node, [seg]]]) };
 }

@@ -11,7 +11,8 @@
 // API，零 DOM 侵入；点标记跳面板、点面板条目跳原文，双向定位。
 // 锚点解析的分层统计显示在面板底栏 —— 那是验证三层降级是否真在工作的唯一手段，别去掉。
 
-import { buildTextIndex, serializeRange, resolveAnchor, charOffsetOf } from '../core/anchor.js';
+import { buildTextIndex, serializeRange, resolveAnchor, charOffsetOf, boundaryOffset }
+  from '../core/anchor.js';
 import { Highlighter, COLORS, MARKS, supported } from '../core/highlight.js';
 import * as api from '../core/api.js';
 import { T, FLOAT, shadowHost } from './theme.js';
@@ -109,7 +110,6 @@ class App {
       this.online = true;
       const flushed = await api.flushOutbox();
       if (flushed) console.log(`[ContextFlow] 补发 ${flushed} 条积压`);
-      this.uploadArticle();          // 连续对话的首条消息，不阻塞对账
       // 取数据前先记下本地都有哪些 id：await 期间用户可能又划了一条，
       // 那条服务端还没有，不能被当成"服务端已删"抹掉。
       const localBefore = new Set(this.items.map((e) => e.id));
@@ -128,10 +128,15 @@ class App {
   /**
    * 把正文交给服务端，作为该文章连续对话的首条消息。
    *
+   * **按需上传**，不在页面加载时做。原先是每次加载都传，结果库里堆了一堆
+   * Google 搜索页、GitHub、Reddit 的全文 —— 那些页面用户一个字都没标注，
+   * 正文却已经存进去了。既浪费，也存了用户没要求存的内容。
+   * 现在只在真的要翻译/解释时才传。
+   *
    * 直接复用 reanchor 建好的归一化索引 —— 那本来就是"整篇正文的纯文本"，
    * 没必要再写一套抽取逻辑（也不会和锚定用的文本口径不一致）。
-   * 服务端按内容哈希去重，所以每次页面加载都调是廉价的；懒加载补齐后
-   * 哈希会变，对话自然重开。
+   * 本地按内容指纹去重，所以重复调用只有第一次走网络；懒加载补齐后
+   * 指纹会变，正文自然重传、对话重开。
    */
   async uploadArticle() {
     const text = this.index?.text;
@@ -404,7 +409,9 @@ class App {
     let anchor = null, offset;
     try { anchor = serializeRange(range, this.index); } catch { /* 选区不在索引内 */ }
     try {
-      offset = charOffsetOf(this.index, range.startContainer, range.startOffset) ?? undefined;
+      // 用 boundaryOffset 而不是 charOffsetOf：选区起点也可能是元素节点
+      offset = boundaryOffset(this.index, range.startContainer, range.startOffset, 'start')
+        ?? undefined;
     } catch { /* 同上 */ }
     if (offset === undefined && Number.isInteger(anchor?.start)) offset = anchor.start;
     if (!anchor) console.warn('[ContextFlow] 选区不在正文索引内，该条将没有原文标记');
@@ -419,6 +426,7 @@ class App {
     pop.open(range.getBoundingClientRect()).foot('');
     const tk = ticker(pop, '翻译中');
     try {
+      await this.uploadArticle();      // 按需：只为真正查过的页面存正文
       const { translation, cached, usage, model, truncated, target, ctx } =
         await api.translate(text, undefined, this.key, offset);
       if (target) this.target = target;
@@ -456,6 +464,7 @@ class App {
       pop.body('选区已丢失，请重新划选后再提问。', 'bad').foot('');
       return;
     }
+    await this.uploadArticle();        // 按需：只为真正查过的页面存正文
     const draft = { text: ctx.text, question, anchor: ctx.anchor, offset: ctx.offset };
     // 提交即落一条"进行中"记录：原文立刻有标记、面板立刻有条目。
     // 这样不必守着浮层等 —— agent 一次几十秒，原地等是最糟的交互。
