@@ -4,7 +4,8 @@
 </p>
 
 <p align="center">
-  <b>Reading leaves more behind than a few highlights. Keep it.</b><br>
+  <b>Turn reading into reusable context.</b><br>
+  <sub>What you understand today should become context for what you think tomorrow.</sub><br>
   <sub><a href="./README.md">中文</a></sub>
 </p>
 
@@ -26,7 +27,12 @@ What's worth keeping isn't only the sentences you highlighted. It's what confuse
 what you asked, what convinced you, what you doubted. That's what actually happened
 between you and that paper.
 
-ContextFlow keeps it — and puts it in **your own notes**.
+ContextFlow structures that trail of understanding — source text, questions, answers,
+judgments, and summaries — into **your own notes**, then makes it reusable by the local
+agents you already work with.
+
+It is not another reader, and not another chat box. It is context infrastructure connecting
+**reading, personal knowledge, and local intelligence**.
 
 ---
 
@@ -38,7 +44,7 @@ Select text and a toolbar appears:
 |---|---|
 | 🎨 **Highlight & annotate** | Four colors, your thought next to it |
 | 🌐 **Translate** | Terminology follows the whole article, so one term doesn't get two translations |
-| ❓ **Explain** | Select a passage, ask what you actually want to know — optionally via an AI agent on your machine |
+| ❓ **Explain** | Open the panel for a 200-character brief; select a passage and ask what you actually want to know |
 | 📝 **Summarize** | A few lines when you're done, stored alongside the rest |
 
 Reload the page and highlights land back where they were. Click a mark in the article to
@@ -76,10 +82,13 @@ it to the paper's assumption.
 
 ## It lands in your own notes
 
-One click to sync. **One document per article**, one heading per kind of record:
+One click to sync. **One document per article**, with a brief and each kind of reading record under its own heading:
 
 ```markdown
 # Stealing Reasoning Traces from Proprietary LLM APIs
+
+## Brief
+A black-box attack recovers hidden reasoning traces through a public API by reusing encrypted reasoning blocks across sessions.
 
 ## Translation
 > Threat model

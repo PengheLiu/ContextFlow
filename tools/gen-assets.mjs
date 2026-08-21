@@ -81,15 +81,15 @@ const files = {
 
 function logo(quiet, accent, ink, sub, variant) {
   return `<!-- ContextFlow 横版标志 · ${variant}（勿手改，见 tools/gen-assets.mjs） -->
-<svg width="360" height="84" viewBox="0 0 360 84" fill="none"
-     xmlns="http://www.w3.org/2000/svg" role="img" aria-label="ContextFlow — 让阅读留下痕迹">
+<svg width="500" height="84" viewBox="0 0 500 84" fill="none"
+     xmlns="http://www.w3.org/2000/svg" role="img" aria-label="ContextFlow — 把阅读，变成可复用的上下文">
   <g transform="translate(12 20) scale(1.85)">${mark({ quiet, accent })}
   </g>
   <text x="72" y="46" font-family="${SANS}" font-size="31" font-weight="600" letter-spacing="-0.4">
     <tspan fill="${ink}">Context</tspan><tspan fill="${accent}">Flow</tspan>
   </text>
   <text x="73" y="67" font-family="${SANS_CJK}" font-size="13.5"
-        fill="${sub}" letter-spacing="1">让阅读留下痕迹</text>
+        fill="${sub}" letter-spacing="0.7">把阅读，变成可复用的上下文</text>
 </svg>
 `;
 }
@@ -110,7 +110,7 @@ function cover({ bg, quiet, accent, ink, sub, hint }) {
   const SHIFT = -46;   // 内容块中心 → 画布中心 y=540
   return `<!-- ContextFlow 参赛封面 16:9（勿手改，见 tools/gen-assets.mjs） -->
 <svg width="1920" height="1080" viewBox="0 0 1920 1080" fill="none"
-     xmlns="http://www.w3.org/2000/svg" role="img" aria-label="ContextFlow — 让阅读留下痕迹">
+     xmlns="http://www.w3.org/2000/svg" role="img" aria-label="ContextFlow — 把阅读，变成可复用的上下文">
   <rect width="1920" height="1080" fill="${bg}"/>
   <g transform="translate(0 ${SHIFT})">
     <g transform="translate(468 404) scale(11.4)">${mark({ quiet, accent })}
@@ -120,9 +120,9 @@ function cover({ bg, quiet, accent, ink, sub, hint }) {
       <tspan fill="${ink}">Context</tspan><tspan fill="${accent}">Flow</tspan>
     </text>
     <text x="776" y="622" font-family="${SANS_CJK}" font-size="52"
-          fill="${sub}" letter-spacing="6">让阅读留下痕迹</text>
+          fill="${sub}" letter-spacing="6">把阅读，变成可复用的上下文</text>
     <text x="960" y="754" text-anchor="middle" font-family="${SANS_CJK}"
-          font-size="34" fill="${hint}" letter-spacing="1.5">划词翻译 · 高亮 · 批注 → 你自己的笔记库 → 交给 Agent 加工</text>
+          font-size="34" fill="${hint}" letter-spacing="1.5">捕捉理解过程 · 沉淀个人知识 · 成为 Agent 的长期上下文</text>
   </g>
 </svg>
 `;
@@ -156,8 +156,8 @@ if (!CHROME) {
 const shots = [
   ['cover.svg', 'cover.png', 1920, 1080, 1],
   ['cover-light.svg', 'cover-light.png', 1920, 1080, 1],
-  ['logo.svg', 'logo.png', 360, 84, 3],
-  ['logo-dark.svg', 'logo-dark.png', 360, 84, 3],
+  ['logo.svg', 'logo.png', 500, 84, 3],
+  ['logo-dark.svg', 'logo-dark.png', 500, 84, 3],
   ['icon.svg', 'icon-512.png', 512, 512, 1],
   ['mark.svg', 'mark-240.png', 24, 24, 10],
   // 工具栏图标要多尺寸：Chrome 按 DPI 与位置挑，只给一个大图会被降采样糊掉

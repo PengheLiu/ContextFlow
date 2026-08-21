@@ -1,6 +1,6 @@
 <!-- ContextFlow 横版标志 · 深色底（勿手改，见 tools/gen-assets.mjs） -->
-<svg width="360" height="84" viewBox="0 0 360 84" fill="none"
-     xmlns="http://www.w3.org/2000/svg" role="img" aria-label="ContextFlow — 让阅读留下痕迹">
+<svg width="500" height="84" viewBox="0 0 500 84" fill="none"
+     xmlns="http://www.w3.org/2000/svg" role="img" aria-label="ContextFlow — 把阅读，变成可复用的上下文">
   <g transform="translate(12 20) scale(1.85)">
     <path d="M4 6.5h12"  stroke="#7d766a" stroke-width="2.2" stroke-linecap="round"/>
     <path d="M4 17.5h9"  stroke="#7d766a" stroke-width="2.2" stroke-linecap="round"/>
@@ -12,5 +12,5 @@
     <tspan fill="#eae4d8">Context</tspan><tspan fill="#e08b2f">Flow</tspan>
   </text>
   <text x="73" y="67" font-family="-apple-system, BlinkMacSystemFont, 'PingFang SC', 'Segoe UI', sans-serif" font-size="13.5"
-        fill="#a89f8d" letter-spacing="1">让阅读留下痕迹</text>
+        fill="#a89f8d" letter-spacing="0.7">把阅读，变成可复用的上下文</text>
 </svg>
