@@ -118,6 +118,42 @@ if (built) {
     assert.deepEqual(mf().content_scripts[0].matches, ['http://*/*', 'https://*/*']);
   });
 
+  // ---- service worker 的路径白名单 ----
+  //
+  // 这是扩展独有的一层：sw.js 只放行本项目的路径，避免那条通道变成任意 URL 的代理。
+  // 代价是**加服务端路由时必须同步它** —— 漏了就报 "路径不被放行：/xxx"（400），
+  // 而 userscript 直接 fetch、没有这层，所以只在扩展上炸。/summary 就这么漏过一次。
+  // 与其指望下次记得，不如让测试从 index.mjs 里把路由抽出来对账。
+
+  t('sw 的白名单覆盖服务端所有路由', () => {
+    const server = readFileSync('server/index.mjs', 'utf8');
+    // path === '/x'  与  path.startsWith('/x/')  两种写法
+    const routes = new Set();
+    for (const m of server.matchAll(/path === '\/([a-z][a-z-]*)/g)) routes.add(m[1]);
+    for (const m of server.matchAll(/path\.startsWith\('\/([a-z][a-z-]*)\//g)) routes.add(m[1]);
+    assert.ok(routes.size >= 8, `只抽到 ${routes.size} 个路由，抽取逻辑可能失效了`);
+
+    const sw = readFileSync('extension/dist/sw.js', 'utf8');
+    const m = sw.match(/\^\\\/\(([a-z|]+)\)/);
+    assert.ok(m, 'sw.js 里找不到路径白名单');
+    const allowed = new Set(m[1].split('|'));
+
+    const missing = [...routes].filter((r) => !allowed.has(r));
+    assert.deepEqual(missing, [],
+      `这些服务端路由没进 sw.js 的白名单，扩展上会 400：${missing.join(', ')}`);
+  });
+
+  t('白名单里没有多余项（多了等于白放行）', () => {
+    const server = readFileSync('server/index.mjs', 'utf8');
+    const routes = new Set();
+    for (const m of server.matchAll(/path === '\/([a-z][a-z-]*)/g)) routes.add(m[1]);
+    for (const m of server.matchAll(/path\.startsWith\('\/([a-z][a-z-]*)\//g)) routes.add(m[1]);
+    const sw = readFileSync('extension/dist/sw.js', 'utf8');
+    const allowed = sw.match(/\^\\\/\(([a-z|]+)\)/)[1].split('|');
+    const extra = allowed.filter((a) => !routes.has(a));
+    assert.deepEqual(extra, [], `白名单里有服务端并不存在的路径：${extra.join(', ')}`);
+  });
+
   // ---- 图标 ----
   //
   // manifest 引用了却没拷进 dist 的话，Chrome 只会显示默认的拼图占位图 ——

@@ -26,8 +26,15 @@ const HEADERS = {
   ...(TOKEN ? { Authorization: `Bearer ${TOKEN}` } : {}),
 };
 
-/** 只放行本项目自己的路径，避免这条通道被当成任意 URL 的代理 */
-const OK_PATH = /^\/(health|events|article|translate|explain|jobs|config|llm|agents|obsidian|fs|siyuan|sync)(\/|\?|$)/;
+/**
+ * 只放行本项目自己的路径，避免这条通道被当成任意 URL 的代理。
+ *
+ * **加服务端路由时必须同步这里。** 漏了的表现是扩展报
+ * "路径不被放行：/xxx"（400）—— 而 userscript 那条路直接 fetch、没有这层，
+ * 所以只在扩展上炸，很容易漏（/summary 就漏过一次）。
+ * test/extbuild.test.mjs 会拿 server/index.mjs 里的路由与这份名单对账。
+ */
+const OK_PATH = /^\/(health|events|article|translate|explain|summary|jobs|config|llm|agents|obsidian|fs|siyuan|sync)(\/|\?|$)/;
 
 async function forward({ path, init }) {
   if (typeof path !== 'string' || !OK_PATH.test(path)) {
