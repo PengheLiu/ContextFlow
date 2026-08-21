@@ -18,6 +18,7 @@ import * as api from '../core/api.js';
 import { T, FLOAT, shadowHost } from './theme.js';
 import { Panel } from './panel.js';
 import { Popover, ticker } from './popover.js';
+import { MarkDeleteControl } from './mark-delete.js';
 import { lookupKey, lookupId } from '../core/lookupkey.js';
 import { reconcile } from '../core/reconcile.js';
 
@@ -51,7 +52,7 @@ const TOOLBAR_CSS = `${FLOAT}
   .txt{font-size:12.5px;padding:5px 8px}
 `;
 
-class App {
+export class App {
   constructor() {
     this.key = urlKey();
     this.items = mGet(this.key);
@@ -61,11 +62,15 @@ class App {
     this.stats = { position: 0, quote: 0, fuzzy: 0, orphan: 0 };
     this.online = false;
     this.timer = null;
+    // lookup id → 当前轮询的 AbortController。删除 pending 记录时用它中止轮询，
+    // 也防止已经晚到的结果把已删除记录用稳定 id "复活"。
+    this.lookupRuns = new Map();
   }
 
   async start() {
     if (!supported()) return console.error('[ContextFlow] 浏览器不支持 CSS Custom Highlight API');
     this.buildToolbar();
+    this.markDelete = new MarkDeleteControl((id) => this.deleteMarked(id));
     this.panel = new Panel(this.handlers());
     this.reanchor();
     this.wire();
@@ -174,6 +179,7 @@ class App {
 
   // ---------- 锚定 ----------
   reanchor() {
+    this.markDelete?.hide();        // range 即将全部重建，旧坐标失效
     this.index = buildTextIndex(document.body);
     this.stats = { position: 0, quote: 0, fuzzy: 0, orphan: 0 };
     this.hl.items.clear();
@@ -261,15 +267,27 @@ class App {
 
     document.addEventListener('click', (e) => {
       if (e.target?.closest?.('[data-contextflow]')) return;
-      if (!getSelection()?.isCollapsed) return;
+      if (!getSelection()?.isCollapsed) { this.markDelete?.hide(); return; }
       const id = this.hl.hitTest(e.clientX, e.clientY);
-      if (!id) return;
+      if (!id) { this.markDelete?.hide(); return; }
       this.hl.flash(id, 600);
       // 命中的可能是高亮，也可能是解释/翻译标记 —— 后者得切到对应 tab，
       // 否则跳去批注 tab 而那里根本没有这一条，表现为"点了没反应"
-      const act = this.items.find((x) => x.id === id)?.action;
+      const it = this.items.find((x) => x.id === id);
+      const act = it?.action;
       if (MARKED.has(act)) this.panel.focusLookup(act, id);
       else this.panel.focusItem(id);
+
+      // 打开 push 模式面板会挤窄正文并触发换行；必须等下一帧再量最后一个视觉碎片，
+      // 否则 × 会停在重排前的旧坐标。
+      requestAnimationFrame(() => {
+        if (!this.hl.has(id) || !this.items.some((x) => x.id === id)) return;
+        const rect = this.hl.endRectOf(id);
+        if (!rect) return this.markDelete?.hide();
+        const label = act === 'highlight' ? '删除此高亮'
+          : act === 'translate' ? '删除此翻译记录' : '删除此解释记录';
+        this.markDelete?.show(id, rect, label);
+      });
     });
 
     new MutationObserver((muts) => {
@@ -344,7 +362,16 @@ class App {
     if (c.deletedAt) this.items = this.items.filter((e) => e.id !== c.id);
   }
 
+  /** 原文上的 × 统一分派到已有删除路径，不复制状态/API 逻辑 */
+  deleteMarked(id) {
+    const it = this.items.find((e) => e.id === id);
+    if (!it) return;
+    if (it.action === 'highlight') this.deleteHighlight(id);
+    else if (MARKED.has(it.action)) this.deleteLookup(id);
+  }
+
   deleteHighlight(id) {
+    this.markDelete?.hide();
     const c = this.commentFor(id);
     this.items = this.items.filter((e) => e.id !== id && e.id !== c?.id);
     mSet(this.key, this.items);
@@ -354,9 +381,17 @@ class App {
   }
 
   deleteLookup(id) {
+    this.markDelete?.hide();
+    const ev = this.items.find((e) => e.id === id);
+    const jobId = ev?.extra?.jobId;
+    // 中止浏览器侧的轮询；服务端作业也 best-effort 取消，别让已删除的问题继续耗额度
+    this.lookupRuns.get(id)?.abort();
+    this.lookupRuns.delete(id);
+    if (jobId) api.cancelJob(jobId);
     this.items = this.items.filter((e) => e.id !== id);
     mSet(this.key, this.items);
     api.deleteEvent(id);
+    if (this.watching === id) this.tipFor('explain').close();
     this.reanchor();          // 顺带抹掉原文上的标记
   }
 
@@ -523,12 +558,17 @@ class App {
    */
   async pollExplain(id, draft, { fresh = false, pop = null, tk = null } = {}) {
     const live = () => pop && pop.open$ && this.watching === id;
+    const ctl = new AbortController();
+    this.lookupRuns.get(id)?.abort();
+    this.lookupRuns.set(id, ctl);
+    const alive = () => !ctl.signal.aborted && this.items.some((e) => e.id === id);
     this.watching = id;
     try {
       const r = await api.explain({
         text: draft.text, question: draft.question, urlKey: this.key,
-        offset: draft.offset, fresh,
+        offset: draft.offset, fresh, signal: ctl.signal,
         onProgress: (job) => {
+          if (!alive()) return;
           const note = job.queuedAhead
             ? `排队中（前面 ${job.queuedAhead} 个）`
             : (job.progress || '本地 agent 思考中');
@@ -537,6 +577,7 @@ class App {
           if (live()) tk?.label(note);
         },
       });
+      if (!alive()) { tk?.stop(); return; }       // 删除/abort 后，晚到结果不得复活记录
       const ms = tk?.stop() ?? 0;
       this.saveLookup('explain', {
         text: draft.text, value: r.answer, anchor: draft.anchor,
@@ -547,10 +588,12 @@ class App {
       }
     } catch (e) {
       tk?.stop();
+      if (ctl.signal.aborted || e.code === 'ABORTED' || !this.items.some((x) => x.id === id)) return;
       // 失败也留痕：条目上显示原因并给「重试」，而不是悄悄消失
       this.patchLookup(id, { status: 'error', error: e.message, progress: '' });
       if (live()) pop.body(`解释失败：${e.message}`, 'bad').foot(this.hintFor(e));
     } finally {
+      if (this.lookupRuns.get(id) === ctl) this.lookupRuns.delete(id);
       if (this.watching === id) this.watching = null;
     }
   }
@@ -561,10 +604,16 @@ class App {
    */
   async followJob(id, jobId, draft, { pop = null, tk = null } = {}) {
     const live = () => pop && pop.open$ && this.watching === id;
+    const ctl = new AbortController();
+    this.lookupRuns.get(id)?.abort();
+    this.lookupRuns.set(id, ctl);
+    const alive = () => !ctl.signal.aborted && this.items.some((e) => e.id === id);
     this.watching = id;
     try {
       for (;;) {
+        if (!alive()) return;
         const job = await api.getJob(jobId);
+        if (!alive()) return;
         if (job.status === 'done') {
           const ms = tk?.stop() ?? 0;
           this.saveLookup('explain', {
@@ -585,9 +634,11 @@ class App {
       }
     } catch (e) {
       tk?.stop();
+      if (ctl.signal.aborted || !this.items.some((x) => x.id === id)) return;
       this.patchLookup(id, { status: 'error', error: e.message, progress: '' });
       if (live()) pop.body(`解释失败：${e.message}`, 'bad').foot(this.hintFor(e));
     } finally {
+      if (this.lookupRuns.get(id) === ctl) this.lookupRuns.delete(id);
       if (this.watching === id) this.watching = null;
     }
   }

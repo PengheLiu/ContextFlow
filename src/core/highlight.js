@@ -150,11 +150,31 @@ export class Highlighter {
   /** 已解析出 Range 的 id 集合 —— 未出现的即为失锚 */
   has(id) { return this.items.has(id); }
 
-  /** 用于浮层定位 */
+  /** 用于面板 → 原文的滚动定位：返回整个 Range 的 union rect */
   rectOf(id) {
     const it = this.items.get(id);
     if (!it) return null;
-    const r = it.range.getBoundingClientRect();
-    return r && (r.width || r.height) ? r : null;
+    try {
+      const r = it.range.getBoundingClientRect();
+      return r && (r.width || r.height) ? r : null;
+    } catch { return null; }
+  }
+
+  /**
+   * 用于原文上的删除按钮：返回选区**最后一个视觉片段**。
+   *
+   * 多行 Range 的 getBoundingClientRect() 是所有行的 union，right/top 并不代表
+   * 选区结尾；按钮会飘到第一行以外很远。getClientRects() 按绘制顺序给出各碎片，
+   * 最后一个非空 rect 才是「区域结尾的右上角」。
+   */
+  endRectOf(id) {
+    const it = this.items.get(id);
+    if (!it) return null;
+    try {
+      // Array.from 而不是展开语法：旧一些的 Chromium 里 DOMRectList 有 length/item
+      // 但不一定声明 Symbol.iterator；扩展 minimum_chrome_version=111 要兼容这种形状。
+      const rects = Array.from(it.range.getClientRects()).filter((r) => r.width || r.height);
+      return rects.at(-1) ?? this.rectOf(id);
+    } catch { return null; }
   }
 }
