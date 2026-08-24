@@ -220,7 +220,8 @@ async function askAgent({ urlKey, draft, system, cfg, onProgress }) {
   const tailChars = cfg.translate?.tailChars ?? 1000;
   const article = chunkChars > 0 && urlKey ? articleOf(urlKey) : null;
   const sess = urlKey ? db.getAgentSession(urlKey, id) : null;
-  const canResume = agent.AGENTS[id].resumable && !!sess;
+  const profile = a.profile || 'safe';
+  const canResume = profile === 'full' && agent.AGENTS[id].resumable && !!sess;
 
   let prompt, chunks, note, turnsIncluded = sess?.turns || 0;
   if (canResume) {
@@ -254,6 +255,7 @@ async function askAgent({ urlKey, draft, system, cfg, onProgress }) {
     sessionId: sess?.sessionId,
     resume: canResume,
     notesDir: a.notesDir || '',
+    profile,
     maxTurns: a.maxTurns || 12,
     timeoutMs: a.timeoutMs || 240000,
     env: a.env || {},

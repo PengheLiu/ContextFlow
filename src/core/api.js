@@ -1,5 +1,10 @@
 // 本地服务客户端。X-ContextFlow 头是安全模型的一半（强制预检），每个请求都必须带。
-// 服务不可达时写入 localStorage outbox，恢复后自动补发 —— 服务没起也不丢标注。
+// 服务不可达时写入 IndexedDB 操作队列；localStorage outbox 只作旧环境降级。
+import {
+  available as offlineAvailable, saveOfflineEvents, tombstoneOfflineEvents,
+  claimOperations, acknowledgeOperations, releaseOperations, operationCount,
+  migrateLegacyOutbox,
+} from './offline-store.js';
 
 const BASE = 'http://127.0.0.1:7317';
 const OUTBOX = 'contextflow:outbox';
@@ -68,26 +73,65 @@ export async function fetchEvents(urlKey) {
   return events;
 }
 
-/** 推送事件；失败则入 outbox。返回是否直达服务。 */
+/**
+ * 先原子落 IDB，再尝试直达服务。失败时 queued 操作保留；成功后由 flush 的 lease ack。
+ * 调用方可先把 UI 更新，不会再出现镜像已写、outbox 因配额丢失的裂缝。
+ */
 export async function pushEvents(events) {
   if (!events.length) return true;
+  if (offlineAvailable()) {
+    await saveOfflineEvents(events);
+    const flushed = await flushOutbox();
+    return flushed > 0 || await outboxSize() === 0;
+  }
   try {
     await call('/events', { method: 'POST', body: JSON.stringify({ events }) });
     return true;
   } catch (e) {
-    console.warn('[ContextFlow] 推送失败，已入 outbox：', e.message);
+    console.warn('[ContextFlow] 推送失败，已入降级 outbox：', e.message);
     writeOutbox([...readOutbox(), ...events]);
     return false;
   }
 }
 
-export async function deleteEvent(id) {
+/** 删除也作为 tombstone 排队，不再 best-effort 后丢失。 */
+export async function deleteEvent(event) {
+  if (offlineAvailable() && event?.id) {
+    await tombstoneOfflineEvents([event]);
+    return (await flushOutbox()) > 0;
+  }
+  const id = typeof event === 'string' ? event : event?.id;
   try { await call(`/events/${encodeURIComponent(id)}`, { method: 'DELETE' }); return true; }
   catch (e) { console.warn('[ContextFlow] 删除未同步：', e.message); return false; }
 }
 
-/** 补发积压。返回补发条数（0 表示无积压或仍失败）。 */
+const OWNER = `tab:${Math.random().toString(36).slice(2)}`;
+let legacyImported = false;
+
+async function importLegacyOutbox() {
+  if (!offlineAvailable() || legacyImported) return;
+  await migrateLegacyOutbox(readOutbox());
+  legacyImported = true;
+}
+
+/** lease claim + token ack：并发 tab 不会清掉彼此新增的操作。 */
 export async function flushOutbox() {
+  if (offlineAvailable()) {
+    await importLegacyOutbox();
+    const claimed = await claimOperations(OWNER);
+    if (!claimed.length) return 0;
+    try {
+      const events = claimed.map((o) => o.payload);
+      await call('/events', { method: 'POST', body: JSON.stringify({ events }) });
+      await acknowledgeOperations(claimed);
+      // 旧 outbox 只在对应迁移操作得到服务端确认后清理；失败时原件仍可重试。
+      if (readOutbox().length) writeOutbox([]);
+      return claimed.length;
+    } catch (e) {
+      await releaseOperations(claimed, e);
+      return 0;
+    }
+  }
   const pending = readOutbox();
   if (!pending.length) return 0;
   try {
@@ -97,7 +141,9 @@ export async function flushOutbox() {
   } catch { return 0; }
 }
 
-export function outboxSize() { return readOutbox().length; }
+export function outboxSize(urlKey) {
+  return offlineAvailable() ? operationCount(urlKey) : readOutbox().length;
+}
 
 // ---- 配置界面 ----
 export const getConfig = () => call('/config');

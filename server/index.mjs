@@ -224,7 +224,9 @@ const server = createServer(async (req, res) => {
                   NO_API_KEY: 503, TOO_LONG: 413, BAD_INPUT: 400, BAD_JSON: 400,
                   TOO_LARGE: 413, SIYUAN_DOWN: 503, SIYUAN_AUTH: 503, SIYUAN: 502,
                   NO_MODEL: 503, NO_BASEURL: 503, UPSTREAM: 502,
-                  NO_TARGET: 503, BAD_TARGET: 400, BAD_BACKEND: 400, REFUSAL: 422, EMPTY: 502 };
+                  NO_TARGET: 503, BAD_TARGET: 400, BAD_BACKEND: 400,
+                  AGENT_FULL_ACK: 400, AGENT_SAFE_UNSUPPORTED: 400,
+                  REFUSAL: 422, EMPTY: 502 };
     const code = map[e.code] || (e.status >= 400 && e.status < 600 ? e.status : 500);
     console.error(`[err] ${req.method} ${path} → ${code}: ${e.message}`);
     return json(res, code, { error: e.message, code: e.code });

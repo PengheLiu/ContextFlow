@@ -28,6 +28,7 @@ import { mkdirSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import * as db from './db.mjs';
 import { CATEGORIES, LABEL_OF, groupByCategory, docName, contentHash } from './layout.mjs';
+import { renderEventMarkdown } from '../src/core/markdown.js';
 
 const err = (msg, code) => Object.assign(new Error(msg), { code });
 
@@ -56,25 +57,7 @@ export function localDay(d = new Date()) {
  * 事件 → Markdown 块。
  * 翻译与解释都带上原文引用 —— 脱离网页后，只看译文/答案根本不知道在说哪一段。
  */
-export function render(ev) {
-  const v = String(ev.value ?? '').trim();
-  switch (ev.action) {
-    case 'highlight': return quote(ev.text);
-    case 'comment': return v ? `💬 ${v}` : '';
-    // 速览是机器写的，用引用块与"你自己写的总结"在视觉上分开。
-    // 逐行加 `> `：quote() 会先折掉换行（那是给单行原文用的），
-    // 而速览可能有分段，第二行不加前缀就会掉出引用块。
-    case 'summary': return v ? v.split('\n').map((l) => `> ${l}`).join('\n') : '';
-    case 'note': return v || '';
-    case 'translate': return v ? `${quote(ev.text)}\n${v}` : '';
-    case 'explain': {
-      if (!v) return '';
-      const q = oneLine(ev.extra?.question) || '这段在讲什么';
-      return `**❓ ${q}**\n${quote(ev.text)}\n${v}`;
-    }
-    default: return '';
-  }
-}
+export function render(ev) { return renderEventMarkdown(ev); }
 
 /**
  * 把文件内容按标记解析成结构。

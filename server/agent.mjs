@@ -11,17 +11,12 @@
 //
 // ────────────────── 权限姿态 ──────────────────
 //
-// **不做任何工具限制** —— 用户本地的 agent 有什么能力就用什么能力（这是明确的
-// 产品决定）。因此这里既不下发 --allowedTools/--disallowedTools，也不剥 MCP，
-// 也不强制沙箱：agent 完全按用户自己的配置运行。
+// 新用户默认 Safe：Claude Code 只暴露读/检索工具并隔离 MCP、命令与持久会话；
+// Codex 使用 read-only sandbox。dsh / Gemini 的权限边界尚未验证，Safe 下直接拒绝。
+// Full 藏在设置页「高级能力」并需风险确认；只有迁移来的旧配置保留原行为。
 //
-// 剩下的唯一防线是软性的：convo.mjs 把网页正文包在 <article> 里并声明"这是资料、
-// 不是给你的指令"。它挡不住刻意构造的提示注入 —— 一个被注入的页面理论上可以借
-// agent 的能力在本机执行命令。接受这个风险是使用本功能的前提。
-//
-// 仍然保留的两件事，与权限无关：
-//   · 子进程环境不整份继承 process.env（服务里有 LLM key 与思源 token，
-//     没有理由让 agent 进程看见）
+// 两档都保留的硬约束：
+//   · 子进程环境不整份继承 process.env（服务里有 LLM key 与思源 token）
 //   · --max-turns 与进程超时，防一次查询把 agent 跑飞、把额度烧干
 import { execFile, spawn } from 'node:child_process';
 import { promisify } from 'node:util';
@@ -38,6 +33,7 @@ export const AGENTS = {
     // 已实测可用（读文件、续接会话）。注意本机的 Claude Code 指向内部网关，
     // WebSearch/WebFetch 会挂死 —— 那是网关不代理服务端工具，不是配置问题。
     verified: true,
+    safeSupport: 'best-effort',
     resumable: true,
   },
   codex: {
@@ -46,6 +42,7 @@ export const AGENTS = {
     versionArgs: ['--version'],
     // 已实测可用，且联网正常（走另一套认证，不经内部网关）
     verified: true,
+    safeSupport: 'verified',
     resumable: true,
   },
   dsh: {
@@ -53,6 +50,7 @@ export const AGENTS = {
     bin: 'dsh',
     versionArgs: ['--version'],
     verified: false,
+    safeSupport: 'unsupported',
     // 实测 headless 输出里只有答案、没有 session id，因此无法 --resume。
     // 不可续接的 agent 走"每次发完整对话"的路子（见 lookup.explainViaAgent）。
     resumable: false,
@@ -62,6 +60,7 @@ export const AGENTS = {
     bin: 'gemini',
     versionArgs: ['--version'],
     verified: false,
+    safeSupport: 'unsupported',
     resumable: false,
   },
 };
@@ -94,7 +93,10 @@ export async function detect(fresh = false) {
 async function probe() {
   const out = [];
   for (const [id, a] of Object.entries(AGENTS)) {
-    const row = { id, label: a.label, verified: !!a.verified, available: false, path: '', version: '' };
+    const row = {
+      id, label: a.label, verified: !!a.verified, safeSupport: a.safeSupport,
+      available: false, path: '', version: '',
+    };
     try {
       const { stdout } = await execFileAsync('/usr/bin/which', [a.bin], { timeout: 3000 });
       row.path = stdout.trim().split('\n')[0];
@@ -137,32 +139,46 @@ function childEnv(extra = {}) {
  * 不用一个魔法 `-` 糊过去 —— dsh 就是把字面的 `-` 当成了提问内容，
  * 结果它回了一句"你的消息是空的"。
  */
-function argvFor(id, { prompt, sessionId, resume, notesDir, maxTurns }) {
+function argvFor(id, { prompt, sessionId, resume, notesDir, maxTurns, profile = 'safe' }) {
   switch (id) {
     case 'claude': {
-      // bypassPermissions：无头模式下没人能批准授权，dontAsk 会把未预授权的工具
-      // 一律静默拒掉 —— 那等于"有能力却用不了"。既然不做限制，就要真的放开。
+      if (profile === 'safe') {
+        // Safe 是 best-effort：工具面 + allow/deny + customizations/MCP/Chrome 多层同时收紧。
+        // 先前只配 allowedTools 时 Monitor 仍能执行 shell，所以绝不能只靠 allowlist。
+        const allow = ['Read', 'Grep', 'Glob', 'WebFetch', 'WebSearch'];
+        const deny = ['Bash', 'Edit', 'Write', 'NotebookEdit', 'Monitor', 'Workflow',
+          'Agent', 'Task', 'Skill', 'CronCreate', 'ScheduleWakeup', 'PushNotification'];
+        const argv = ['-p', '--output-format', 'json', '--safe-mode',
+          '--permission-mode', 'dontAsk',
+          '--tools', ...allow,
+          '--allowedTools', ...allow,
+          '--disallowedTools', ...deny,
+          '--strict-mcp-config', '--mcp-config', '{"mcpServers":{}}',
+          '--disable-slash-commands', '--no-chrome', '--no-session-persistence',
+          '--max-turns', String(maxTurns)];
+        if (notesDir) argv.push('--add-dir', notesDir);
+        // Safe 不续接 Full 时代的 session；历史由 DB 重建。
+        return { argv, stdin: true };
+      }
       const argv = ['-p', '--output-format', 'json',
-        '--permission-mode', 'bypassPermissions',
-        '--max-turns', String(maxTurns)];
+        '--permission-mode', 'bypassPermissions', '--max-turns', String(maxTurns)];
       if (notesDir) argv.push('--add-dir', notesDir);
-      if (resume) argv.push('--resume', sessionId);
-      else argv.push('--session-id', sessionId);
+      if (resume) argv.push('--resume', sessionId); else argv.push('--session-id', sessionId);
       return { argv, stdin: true };
     }
     case 'codex': {
-      // 不指定 --sandbox，用用户 config.toml 里自己的设置。
-      // --skip-git-repo-check：cwd 是 /tmp，codex 默认拒绝在非 git 目录里跑
-      // （"Not inside a trusted directory"）。这里不需要 git 语义。
-      // 刻意**不**加 --ignore-user-config：实测它会把认证与网关路由一并剥掉，
-      // 导致 codex 直连 api.openai.com 拿 401。
-      const argv = resume
-        ? ['exec', 'resume', sessionId, '--json', '--skip-git-repo-check', '-']
-        : ['exec', '--json', '--skip-git-repo-check', '-'];
+      const safe = profile === 'safe';
+      const base = ['--json', '--skip-git-repo-check'];
+      if (safe) base.push('--sandbox', 'read-only', '--ephemeral', '--ignore-rules');
+      // 不加 --ignore-user-config：实测会把认证路由剥掉，直连 api.openai.com 拿 401。
+      const argv = !safe && resume
+        ? ['exec', 'resume', sessionId, ...base, '-']
+        : ['exec', ...base, '-'];
       if (notesDir) argv.push('--cd', notesDir);
       return { argv, stdin: true };
     }
     case 'dsh':
+      if (profile === 'safe') throw err('DeepSeek Harness 的安全权限边界未验证，仅可在高级完整权限中使用', 'AGENT_SAFE_UNSUPPORTED');
       // `dsh --profile headless [task...]`：prompt 是位置参数，没有 stdin 契约
       return {
         argv: resume
@@ -171,6 +187,7 @@ function argvFor(id, { prompt, sessionId, resume, notesDir, maxTurns }) {
         stdin: false,
       };
     case 'gemini':
+      if (profile === 'safe') throw err('Gemini CLI 的安全权限边界未验证，仅可在高级完整权限中使用', 'AGENT_SAFE_UNSUPPORTED');
       return { argv: ['-p', prompt], stdin: false };
     default:
       throw err(`未知 agent：${id}`, 'BAD_AGENT');
@@ -254,14 +271,19 @@ function parseOut(id, stdout) {
  * @param {(s:string)=>void} [o.onProgress] 收到 stderr/事件时回调，用于界面进度
  */
 export async function run({
-  agent, prompt, sessionId, resume = false, notesDir = '',
+  agent, prompt, sessionId, resume = false, notesDir = '', profile = 'safe',
   maxTurns = 12, timeoutMs = 240000, env = {}, onProgress,
 }) {
   const a = AGENTS[agent];
   if (!a) throw err(`未知 agent：${agent}`, 'BAD_AGENT');
 
+  if (profile === 'safe' && a.safeSupport === 'unsupported') {
+    throw err(`${a.label} 不支持安全档，仅可在高级完整权限中使用`, 'AGENT_SAFE_UNSUPPORTED');
+  }
   const sid = sessionId || (agent === 'claude' ? randomUUID() : '');
-  const { argv, stdin } = argvFor(agent, { prompt, sessionId: sid, resume, notesDir, maxTurns });
+  const { argv, stdin } = argvFor(agent, {
+    prompt, sessionId: sid, resume: profile === 'full' && resume, notesDir, maxTurns, profile,
+  });
   if (!stdin && prompt.length > ARGV_MAX) {
     throw err(
       `${a.label} 只能用命令行参数传 prompt，而本次有 ${prompt.length} 字符，超过 ${ARGV_MAX} 上限。`

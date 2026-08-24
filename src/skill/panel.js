@@ -40,13 +40,19 @@ const loadUI = () => {
   catch { return { width: 360, mode: 'push', open: false }; }
 };
 const saveUI = (ui) => { try { localStorage.setItem(UI_KEY, JSON.stringify(ui)); } catch { /* 配额 */ } };
+const appendTransition = (current, extra) => [
+  ...String(current || '').split(',').map((x) => x.trim()).filter((x) => x && !x.startsWith('margin-right')),
+  extra,
+].join(', ');
 
 const PANEL_CSS = `
   .wrap{position:fixed;top:0;right:0;height:100vh;
         background:${T.paper};border-left:1px solid ${T.line};
-        font:13px/1.6 ${T.sans};color:${T.ink};
-        display:none;flex-direction:column;overflow:hidden}
-  .wrap.open{display:flex}
+        font:13px/1.6 ${T.sans};color:${T.ink};display:flex;flex-direction:column;overflow:hidden;
+        transform:translateX(100%);visibility:hidden;pointer-events:none;
+        transition:transform .22s cubic-bezier(.22,.8,.3,1),visibility 0s linear .22s;
+        will-change:transform}
+  .wrap.open{transform:translateX(0);visibility:visible;pointer-events:auto;transition-delay:0s}
   .wrap.float{box-shadow:-10px 0 30px -14px rgba(28,26,23,.22)}
 
   /* 左缘拖拽把手 */
@@ -55,6 +61,16 @@ const PANEL_CSS = `
   .grab::after{content:'';position:absolute;left:2px;top:0;bottom:0;width:2px;
         background:transparent;transition:background .12s}
   .grab:hover::after,.grab.on::after{background:${T.accent}}
+  /* 展开按钮与收起按钮都是 wrap 的兄弟节点，避免被 wrap 的 overflow:hidden 裁掉。 */
+  .edge-toggle{position:fixed;top:50%;z-index:5;transform:translateY(-50%) translateX(8px);
+        width:31px;height:46px;padding:0;display:grid;place-items:center;border:1px solid ${T.line};
+        touch-action:manipulation;user-select:none;-webkit-user-select:none;
+        border-radius:8px 0 0 8px;background:${T.paper};color:${T.inkSoft};
+        box-shadow:-2px 0 10px -4px rgba(28,26,23,.2);opacity:0;visibility:hidden;pointer-events:none;
+        transition:right .22s cubic-bezier(.22,.8,.3,1),opacity .12s,transform .22s cubic-bezier(.22,.8,.3,1),visibility 0s linear .22s}
+  .edge-toggle.show{opacity:1;visibility:visible;pointer-events:auto;transform:translateY(-50%) translateX(0);transition-delay:0s}
+  .edge-toggle:hover{color:${T.accent};background:${T.sunk}}
+  .edge-toggle svg{width:14px;height:14px}
 
   header{padding:12px 14px 0;flex:0 0 auto}
   .title{display:flex;align-items:center;justify-content:space-between;gap:6px}
@@ -154,8 +170,24 @@ ${Object.entries(MARKS).map(([k, m]) =>
 
   footer{flex:0 0 auto;padding:8px 14px;border-top:1px solid ${T.line};
          background:${T.sunk};font-variant-numeric:tabular-nums}
-  footer .r{justify-content:space-between;gap:8px}
+  footer .r{justify-content:space-between;gap:8px;align-items:center}
   footer .muted{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .foot-actions{display:flex;gap:3px;flex:0 0 auto}
+  .foot-actions button{font-size:11.5px;padding:4px 8px;white-space:nowrap}
+  .stat-wrap{position:relative;display:inline-flex;align-items:center;min-width:0}
+  .stat-main{cursor:pointer;color:${T.quote};white-space:nowrap}
+  .stat-main:hover{color:${T.inkSoft}}
+  .tip{position:absolute;left:0;bottom:calc(100% + 9px);z-index:8;width:max-content;max-width:260px;
+       padding:7px 9px;border:1px solid ${T.line};border-radius:7px;background:${T.ink};color:${T.paper};
+       font:11px/1.5 ${T.sans};white-space:normal;overflow-wrap:anywhere;text-align:left;
+       box-shadow:0 5px 18px rgba(28,26,23,.18);opacity:0;visibility:hidden;
+       transform:translateY(3px);transition:opacity .12s,transform .12s;pointer-events:none}
+  .tip::after{content:'';position:absolute;left:15px;top:100%;border:5px solid transparent;border-top-color:${T.ink}}
+  .has-tip:hover>.tip,.has-tip:focus-visible>.tip,.has-tip:focus-within>.tip{
+       opacity:1;visibility:visible;transform:none}
+  .foot-actions .has-tip{position:relative}
+  .foot-actions .tip{left:auto;right:0;width:230px}
+  .foot-actions .tip::after{left:auto;right:12px}
   /* 同步结果/失败原因。原先只写进 console，界面上只有"同步失败"三个字，
      等于把唯一有用的信息藏在开发者工具里。 */
   .syncmsg{display:none;margin-top:6px;font-size:11.5px;line-height:1.5;
@@ -165,16 +197,16 @@ ${Object.entries(MARKS).map(([k, m]) =>
   .syncmsg.ok{color:${T.quote}}
   .syncmsg .hint{color:${T.quote};display:block;margin-top:2px}
 
-  /* ---- 收起时的右缘把手 ---- */
-  .grip{position:fixed;right:0;top:46%;display:flex;align-items:center;gap:6px;
-        writing-mode:vertical-rl;padding:12px 6px;cursor:pointer;
-        background:${T.paper};color:${T.inkSoft};border:1px solid ${T.line};
-        border-right:none;border-radius:8px 0 0 8px;font:11.5px/1 ${T.sans};
-        letter-spacing:.08em;box-shadow:-2px 0 10px -4px rgba(28,26,23,.2)}
-  /* 竖排把手里的图标要强制横排，否则会随文字一起旋转 */
-  .grip .mk{writing-mode:horizontal-tb;width:14px;height:14px;margin-bottom:2px}
-  .grip:hover{color:${T.ink}}
-  .grip.hide{display:none}
+  /* 收起后只留右侧中点的展开图标，不再显示竖排文字。 */
+  .grip{position:fixed;right:0;top:50%;transform:translateY(-50%) translateX(0);width:31px;height:46px;
+        display:grid;place-items:center;padding:0;cursor:pointer;background:${T.paper};color:${T.inkSoft};
+        border:1px solid ${T.line};border-right:none;border-radius:8px 0 0 8px;
+        touch-action:manipulation;user-select:none;-webkit-user-select:none;
+        box-shadow:-2px 0 10px -4px rgba(28,26,23,.2);opacity:1;visibility:visible;pointer-events:auto;
+        transition:opacity .12s,transform .22s cubic-bezier(.22,.8,.3,1),visibility 0s}
+  .grip svg{width:14px;height:14px}.grip:hover{color:${T.accent};background:${T.sunk}}
+  .grip.hide{opacity:0;visibility:hidden;pointer-events:none;transform:translateY(-50%) translateX(100%);
+        transition:opacity .12s,transform .22s cubic-bezier(.22,.8,.3,1),visibility 0s linear .22s}
 ${SETTINGS_CSS}
 `;
 
@@ -203,19 +235,21 @@ export class Panel {
     this.tab = 'comments';
     this.open = false;
     this.rootMarginBefore = null;
+    this.rootTransitionBefore = null;
+    this._togglePointer = null;
 
     const sh = shadowHost('panel', PANEL_CSS);
     sh.innerHTML += `
-      <div class="grip" id="grip"><svg class="mk" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 6.5h12" stroke="currentColor" stroke-opacity=".34" stroke-width="2.2" stroke-linecap="round"/><path d="M4 17.5h9" stroke="currentColor" stroke-opacity=".34" stroke-width="2.2" stroke-linecap="round"/><path d="M4 12h13.5" stroke="${T.accent}" stroke-width="2.6" stroke-linecap="round"/><path d="M16.3 9.2 19.8 12l-3.5 2.8" stroke="${T.accent}" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>ContextFlow <span id="gn"></span></div>
+      <button class="grip" id="grip" title="展开 ContextFlow" aria-label="展开 ContextFlow"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="m15 5-7 7 7 7" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+      <button class="edge-toggle" id="close" title="收起 ContextFlow" aria-label="收起 ContextFlow"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="m9 5 7 7-7 7" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
       <div class="wrap" id="wrap">
         <div class="grab" id="grab" title="拖动调整宽度"></div>
         <header>
           <div class="title">
             <span class="brand"><svg class="mk" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 6.5h12" stroke="currentColor" stroke-opacity=".34" stroke-width="2.2" stroke-linecap="round"/><path d="M4 17.5h9" stroke="currentColor" stroke-opacity=".34" stroke-width="2.2" stroke-linecap="round"/><path d="M4 12h13.5" stroke="${T.accent}" stroke-width="2.6" stroke-linecap="round"/><path d="M16.3 9.2 19.8 12l-3.5 2.8" stroke="${T.accent}" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>Context<em>Flow</em></span>
             <span class="r">
-              <button id="cfg" title="配置翻译后端与思源目录">配置</button>
+              <button id="cfg" title="配置翻译后端与笔记目录">配置</button>
               <button id="mode" title="切换：挤开正文 / 浮在正文上"></button>
-              <button id="close" title="收起">收起 ›</button>
             </span>
           </div>
           <div class="tabs" role="tablist">
@@ -235,8 +269,12 @@ export class Panel {
         </div>
         <footer>
           <div class="r">
-            <span id="stat" title="点击重新解析锚点"></span>
-            <button id="sync" title="把四类记录同步到笔记库">同步到笔记</button>
+            <span id="stat" class="stat-wrap"></span>
+            <span class="foot-actions">
+              <button id="copyMd" class="has-tip"><span class="label">复制</span><span class="tip" role="tooltip">复制当前文章的速览、翻译、解释、批注和总结；无需本地服务</span></button>
+              <button id="downloadMd" class="has-tip"><span class="label">下载</span><span class="tip" role="tooltip">把当前文章的全部本地记录下载为 Markdown 文件；离线也可用</span></button>
+              <button id="sync" class="has-tip"><span class="label" id="syncLabel">同步</span><span class="tip" role="tooltip">把当前文章同步到已配置的思源、Obsidian 或 Markdown 笔记库</span></button>
+            </span>
           </div>
           <div class="syncmsg" id="syncmsg"></div>
         </footer>
@@ -244,12 +282,29 @@ export class Panel {
     this.sh = sh;
     this.$ = (id) => sh.getElementById(id);
 
-    this.$('grip').onclick = () => this.toggle(true);
-    this.$('close').onclick = () => this.toggle(false);
-    // 「重锚」按钮已移除；能力保留在统计文字上 —— 动态内容加载后偶尔需要手动触发
-    this.$('stat').style.cursor = 'pointer';
+    // 状态在 pointerdown 就切换：按钮会随动画移动/隐藏，若等 pointerup/click，目标可能
+    // 已从指针下移走，浏览器便取消 click。键盘产生的 click(detail=0)单独兜底。
+    for (const [id, open] of [['grip', true], ['close', false]]) {
+      const button = this.$(id);
+      button.addEventListener('pointerdown', (e) => {
+        if (e.button !== undefined && e.button !== 0) return;
+        e.preventDefault(); e.stopPropagation();
+        this._togglePointer = { id, pointerId: e.pointerId };
+        if (this.open !== open) this.toggle(open);
+      });
+      button.addEventListener('pointerup', (e) => e.stopPropagation());
+      button.addEventListener('click', (e) => {
+        e.stopPropagation();
+        // 键盘 Enter / Space 没有 pointerdown，detail=0；真实指针 click 已在 down 处理。
+        if (e.detail === 0 && this.open !== open) this.toggle(open);
+        this._togglePointer = null;
+      });
+    }
+    // 0/0 仍可点击重新解析；工程细节只放 title，普通用户不再直接看到术语。
     this.$('stat').onclick = () => this.h.onReanchor();
     this.$('sync').onclick = () => this.doSync();
+    this.$('copyMd').onclick = this.guard(async () => this.syncMsg(await this.h.onCopyMarkdown(), 'ok'));
+    this.$('downloadMd').onclick = this.guard(() => this.syncMsg(this.h.onDownloadMarkdown(), 'ok'));
     this.$('cfg').onclick = () => this.toggleSettings();
     this.$('mode').onclick = () => this.setMode(this.ui.mode === 'push' ? 'float' : 'push');
     for (const k of TAB_KEYS) this.$(`t-${k}`).onclick = () => this.select(k);
@@ -285,25 +340,26 @@ export class Panel {
 
   async doSync() {
     const btn = this.$('sync');
-    const old = btn.textContent;
-    btn.textContent = '同步中…';
+    const label = this.$('syncLabel');
+    const old = label.textContent;
+    label.textContent = '同步中…';
     this.syncMsg('');
     try {
       const r = await this.h.onSync();
       // 新增与改写要分开报：只报总数的话，"改了总结再同步"看起来像什么都没发生
       const bits = [r.inserted ? `新增 ${r.inserted}` : null,
         r.updated ? `改写 ${r.updated}` : null].filter(Boolean);
-      btn.textContent = bits.length ? `已同步 · ${bits.join(' · ')}` : '已是最新';
+      label.textContent = bits.length ? '已同步' : '已是最新';
       const where = (r.files || r.docs || []).join('、');
       if (bits.length && where) this.syncMsg(`${r.articles} 篇 → ${where}`, 'ok');
     } catch (e) {
-      btn.textContent = '同步失败';
+      label.textContent = '同步失败';
       // 原因必须出现在界面上。只 console.error 的话，用户看到的是一个
       // 没有下文的"同步失败"，连"服务没重启"这种一句话就能解决的问题都看不出来。
       this.syncMsg(e.message, 'bad', hintFor(e.message));
       console.error('[ContextFlow] 同步到笔记失败：', e.message);
     }
-    setTimeout(() => { btn.textContent = old; }, 2600);
+    setTimeout(() => { label.textContent = old; }, 2600);
   }
 
   /** @param {string} text 空字符串则隐藏 */
@@ -335,14 +391,26 @@ export class Panel {
     const wrap = this.$('wrap');
     wrap.style.width = `${w}px`;
     wrap.classList.toggle('float', this.ui.mode === 'float');
+    // 收起按钮是 wrap 的兄弟 fixed 元素，显式贴到面板左边缘，避免 overflow 裁切。
+    // 按钮有 31px 宽；放在面板左边界外侧，不能覆盖 6px 拖拽热区。
+    this.$('close').style.right = `${w}px`;
 
     const root = document.documentElement;
     if (this.open && this.ui.mode === 'push') {
-      if (this.rootMarginBefore === null) this.rootMarginBefore = root.style.marginRight;
+      if (this.rootMarginBefore === null) {
+        this.rootMarginBefore = root.style.marginRight;
+        this.rootTransitionBefore = root.style.transition;
+      }
+      root.style.transition = appendTransition(this.rootTransitionBefore, 'margin-right .22s cubic-bezier(.22,.8,.3,1)');
       root.style.marginRight = `${w}px`;
     } else if (this.rootMarginBefore !== null) {
+      root.style.transition = appendTransition(this.rootTransitionBefore, 'margin-right .22s cubic-bezier(.22,.8,.3,1)');
       root.style.marginRight = this.rootMarginBefore;
+      const restore = this.rootTransitionBefore;
+      clearTimeout(this._marginTimer);
+      this._marginTimer = setTimeout(() => { root.style.transition = restore || ''; }, 240);
       this.rootMarginBefore = null;
+      this.rootTransitionBefore = null;
     }
     this.$('mode').textContent = this.ui.mode === 'push' ? '挤开正文' : '浮层';
   }
@@ -352,7 +420,9 @@ export class Panel {
     // 先还原旧模式留下的外边距，再按新模式重算
     if (this.rootMarginBefore !== null) {
       document.documentElement.style.marginRight = this.rootMarginBefore;
+      document.documentElement.style.transition = this.rootTransitionBefore || '';
       this.rootMarginBefore = null;
+      this.rootTransitionBefore = null;
     }
     this.applyLayout();
     saveUI(this.ui);
@@ -395,6 +465,7 @@ export class Panel {
     this.ui.open = open;
     this.$('wrap').classList.toggle('open', open);
     this.$('grip').classList.toggle('hide', open);
+    this.$('close').classList.toggle('show', open);
     this.applyLayout();
     saveUI(this.ui);
     if (open) this.render();
@@ -476,13 +547,15 @@ export class Panel {
     const ok = s.position + s.quote + s.fuzzy;
     const online = this.h.isOnline();
     const box = this.h.outbox();
+    const detail = `锚点解析：pos ${s.position} · quote ${s.quote} · fuzzy ${s.fuzzy}`
+      + (s.orphan ? ` · 失锚 ${s.orphan}` : '') + '；点击重新解析';
     this.$('stat').innerHTML =
-      `<span class="muted">${ok}/${n} · pos ${s.position} · quote ${s.quote} · fuzzy ${s.fuzzy}`
-      + (s.orphan ? ` · <span class="bad">失锚 ${s.orphan}</span>` : '')
-      + ` · <span class="${online ? 'ok' : 'bad'}">${online ? '已连服务' : '离线'}</span>`
-      + (box ? ` · <span class="bad" title="此站点 origin 未加入白名单？见 ~/.contextflow/config.json">积压 ${box}</span>` : '')
+      `<button class="stat-main has-tip" aria-label="${ok}/${n} 个锚点已解析">${ok}/${n}`
+      + `<span class="tip" role="tooltip">${detail}</span></button>`
+      + ` <span class="muted">· <span class="${online ? 'ok' : 'bad'}">${online ? '已连服务' : '本地模式'}</span>`
+      + (box ? ` · <span class="bad" title="等待本地服务恢复">待处理 ${box}</span>` : '')
       + '</span>';
-    this.$('gn').textContent = n ? String(n) : '';
+    // 收起把手现在是纯图标，不再在把手里重复显示记录数。
     this.$('b-comments').textContent = String(n);
     // 总结没有"条数"，只标有无内容。速览也算 —— 否则面板停在别的 tab 上时，
     // 速览已经生成了却完全看不出来。
@@ -516,7 +589,10 @@ export class Panel {
       // 提交即落记录，所以列表里会有还没答案的条目。状态行让人看出它在跑到哪，
       // 失败了也留着并给「重试」—— 悄悄消失比留个失败条目更糟。
       const status = !pending ? ''
-        : st === 'error'
+        : st === 'deferred'
+          ? `<div class="st err"><span>离线，已保存；联网后可手动重试</span>`
+            + '<button data-act="retry">重试</button></div>'
+          : st === 'error'
           ? `<div class="st err"><span>✕ ${esc(it.extra?.error || '失败')}</span>`
             + '<button data-act="retry">重试</button></div>'
           : `<div class="st run"><span class="dot2"></span>`

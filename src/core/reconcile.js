@@ -23,22 +23,32 @@
  */
 const isPending = (e) => !e.value && !e.deletedAt && !!e.extra?.status;
 
+const cmp = (a, b) => {
+  const ta = Number(a?.updatedAt || a?.createdAt || 0);
+  const tb = Number(b?.updatedAt || b?.createdAt || 0);
+  if (ta !== tb) return ta - tb;
+  if (!!a?.deletedAt !== !!b?.deletedAt) return a?.deletedAt ? 1 : -1;
+  return String(a?.mutationId || '').localeCompare(String(b?.mutationId || ''));
+};
+
 export function reconcile(local, remote, { pending, localBefore }) {
-  const remoteIds = new Set(remote.map((e) => e.id));
+  const localMap = new Map(local.map((e) => [e.id, e]));
+  const remoteMap = new Map(remote.map((e) => [e.id, e]));
+  const merged = [];
 
-  // 只有积压清空、且服务端确实有数据时才敢淘汰本地多出来的：
-  //  · 有积压 → 本地那些"服务端没有"的可能只是还没推上去
-  //  · 服务端全空而本地有 → 更可能是库被重置或换了机器，不是用户真删空了。
-  //    宁可留着重复，也不能把阅读痕迹抹掉。
-  const trustRemote = pending === 0 && remote.length > 0;
+  // 新协议：服务端返回 live + tombstone，并带 mutation clock。逐实体选新者，不再从
+  // "远端没有"推断删除；旧客户端数据没有 clock 时仍保留下面的 absence 兼容策略。
+  for (const [id, r] of remoteMap) {
+    const l = localMap.get(id);
+    merged.push(l && cmp(l, r) > 0 ? l : r);
+  }
 
-  const keepLocal = local.filter((e) => !remoteIds.has(e.id)
-    // localBefore 之外的是请求期间新增的，服务端当然还没有，必须留
-    && (!trustRemote || !localBefore.has(e.id)
-      // 还没有结果的查询记录是**故意只存本地**的（半成品不该推给服务端），
-      // 服务端当然没有它。按"服务端没有就是被删了"处理会让正在跑的解释
-      // 在下一次同步时凭空消失。
-      || isPending(e)));
+  const clockedRemote = remote.some((e) => e.updatedAt || e.mutationId || e.deletedAt);
+  const trustRemote = !clockedRemote && pending === 0 && remote.length > 0;
+  for (const l of local) {
+    if (remoteMap.has(l.id)) continue;
+    if (!trustRemote || !localBefore.has(l.id) || isPending(l)) merged.push(l);
+  }
 
-  return [...remote, ...keepLocal].filter((e) => !e.deletedAt);
+  return merged.filter((e) => !e.deletedAt);
 }

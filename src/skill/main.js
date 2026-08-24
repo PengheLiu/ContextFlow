@@ -21,6 +21,11 @@ import { Popover, ticker } from './popover.js';
 import { MarkDeleteControl } from './mark-delete.js';
 import { lookupKey, lookupId } from '../core/lookupkey.js';
 import { reconcile } from '../core/reconcile.js';
+import {
+  available as offlineAvailable, migrateArticleMirror, listOfflineEvents,
+  saveOfflineEvents, tombstoneOfflineEvents, applyRemoteEvents, mutationStamp,
+} from '../core/offline-store.js';
+import { renderArticleMarkdown, safeMarkdownFilename } from '../core/markdown.js';
 
 const MIRROR = 'contextflow:v2:';
 
@@ -61,6 +66,7 @@ export class App {
     this.pos = new Map();          // id → 解析后的文档偏移，用于面板排序
     this.stats = { position: 0, quote: 0, fuzzy: 0, orphan: 0 };
     this.online = false;
+    this.pendingCount = 0;
     this.timer = null;
     // lookup id → 当前轮询的 AbortController。删除 pending 记录时用它中止轮询，
     // 也防止已经晚到的结果把已删除记录用稳定 id "复活"。
@@ -72,6 +78,11 @@ export class App {
     this.buildToolbar();
     this.markDelete = new MarkDeleteControl((id) => this.deleteMarked(id));
     this.panel = new Panel(this.handlers());
+    if (offlineAvailable()) {
+      await migrateArticleMirror(this.key, this.items);
+      const durable = await listOfflineEvents(this.key);
+      if (durable.length || !this.items.length) this.items = durable;
+    }
     this.reanchor();
     this.wire();
     await this.sync();
@@ -86,7 +97,7 @@ export class App {
       getStats: () => this.stats,
       getNote: () => this.noteItem()?.value ?? '',
       isOnline: () => this.online,
-      outbox: () => api.outboxSize(),
+      outbox: () => this.pendingCount,
       positionOf: (id) => this.pos.get(id) ?? Number.MAX_SAFE_INTEGER,
       isOrphan: (id) => !this.hl.has(id),
       colorOf: (id) => COLORS[this.items.find((e) => e.id === id)?.color] ?? COLORS.yellow,
@@ -103,6 +114,8 @@ export class App {
       onOpen: () => this.autoSummarize(),
       onSummarize: (fresh) => this.autoSummarize(fresh),
       onRetryLookup: (id) => this.retryLookup(id),
+      onCopyMarkdown: () => this.copyMarkdown(),
+      onDownloadMarkdown: () => this.downloadMarkdown(),
       onSync: async () => {
         const r = await api.sync();
         await this.sync();          // 同步后回读，刷新「待同步」计数
@@ -122,8 +135,15 @@ export class App {
       // 那条服务端还没有，不能被当成"服务端已删"抹掉。
       const localBefore = new Set(this.items.map((e) => e.id));
       const remote = await api.fetchEvents(this.key);
-      this.items = reconcile(this.items, remote,
-        { pending: api.outboxSize(), localBefore });
+      const pending = await api.outboxSize(this.key);
+      this.pendingCount = pending;
+      this.items = reconcile(this.items, remote, { pending, localBefore });
+      if (offlineAvailable()) {
+        await applyRemoteEvents(remote);
+        // 把 reconcile 保住的请求期新增/本地 pending 同样写回 durable store，再吸收其他 tab。
+        await saveOfflineEvents(this.items, { queue: false });
+        this.items = await listOfflineEvents(this.key);
+      }
       mSet(this.key, this.items);
       this.reanchor();
     } catch (e) {
@@ -171,8 +191,15 @@ export class App {
   }
 
   persist(events) {
+    const stamped = events.map((event) => {
+      const next = mutationStamp(event);
+      Object.assign(event, next);
+      return event;
+    });
     mSet(this.key, this.items);
-    api.pushEvents(events).then((ok) => {
+    // api.pushEvents 会把事件与 queued operation 原子写入 IDB，再尝试网络发送。
+    api.pushEvents(stamped).then(async (ok) => {
+      this.pendingCount = await api.outboxSize(this.key);
       if (ok !== this.online) { this.online = ok; this.panel.renderStatus(); }
     });
   }
@@ -370,17 +397,24 @@ export class App {
     else if (MARKED.has(it.action)) this.deleteLookup(id);
   }
 
-  deleteHighlight(id) {
+  async deleteHighlight(id) {
     this.markDelete?.hide();
+    const h = this.items.find((e) => e.id === id);
     const c = this.commentFor(id);
+    const dead = [h, c].filter(Boolean);
     this.items = this.items.filter((e) => e.id !== id && e.id !== c?.id);
     mSet(this.key, this.items);
-    api.deleteEvent(id);
-    if (c) api.deleteEvent(c.id);
+    if (offlineAvailable()) {
+      await tombstoneOfflineEvents(dead);
+      api.flushOutbox();
+    } else {
+      if (h) api.deleteEvent(h);
+      if (c) api.deleteEvent(c);
+    }
     this.reanchor();
   }
 
-  deleteLookup(id) {
+  async deleteLookup(id) {
     this.markDelete?.hide();
     const ev = this.items.find((e) => e.id === id);
     const jobId = ev?.extra?.jobId;
@@ -390,7 +424,10 @@ export class App {
     if (jobId) api.cancelJob(jobId);
     this.items = this.items.filter((e) => e.id !== id);
     mSet(this.key, this.items);
-    api.deleteEvent(id);
+    if (ev && offlineAvailable()) {
+      await tombstoneOfflineEvents([ev]);
+      api.flushOutbox();
+    } else if (ev) api.deleteEvent(ev);
     if (this.watching === id) this.tipFor('explain').close();
     this.reanchor();          // 顺带抹掉原文上的标记
   }
@@ -474,7 +511,15 @@ export class App {
         extra: { target: this.target || '' } });
     } catch (e) {
       tk.stop();
-      pop.body(`翻译失败：${e.message}`, 'bad').foot(this.hintFor(e));
+      const status = this.online && e.status ? 'error' : 'deferred';
+      this.saveLookup('translate', {
+        text, value: null, anchor,
+        extra: { target: this.target || '', offset, status, error: e.message,
+          progress: status === 'deferred' ? '离线，已保存；联网后手动重试' : '' },
+      });
+      pop.body(`翻译失败：${e.message}`, 'bad').foot(status === 'deferred'
+        ? '已保存到本地；恢复联网后请在「翻译」页点重试，不会自动产生费用'
+        : this.hintFor(e));
     }
   }
 
@@ -589,8 +634,11 @@ export class App {
     } catch (e) {
       tk?.stop();
       if (ctl.signal.aborted || e.code === 'ABORTED' || !this.items.some((x) => x.id === id)) return;
-      // 失败也留痕：条目上显示原因并给「重试」，而不是悄悄消失
-      this.patchLookup(id, { status: 'error', error: e.message, progress: '' });
+      const status = this.online && e.status ? 'error' : 'deferred';
+      this.patchLookup(id, {
+        status, error: e.message, progress: status === 'deferred'
+          ? '离线，已保存；联网后手动重试' : '',
+      });
       if (live()) pop.body(`解释失败：${e.message}`, 'bad').foot(this.hintFor(e));
     } finally {
       if (this.lookupRuns.get(id) === ctl) this.lookupRuns.delete(id);
@@ -635,7 +683,9 @@ export class App {
     } catch (e) {
       tk?.stop();
       if (ctl.signal.aborted || !this.items.some((x) => x.id === id)) return;
-      this.patchLookup(id, { status: 'error', error: e.message, progress: '' });
+      const status = this.online && e.status ? 'error' : 'deferred';
+      this.patchLookup(id, { status, error: e.message,
+        progress: status === 'deferred' ? '离线，已保存；联网后手动重试' : '' });
       if (live()) pop.body(`解释失败：${e.message}`, 'bad').foot(this.hintFor(e));
     } finally {
       if (this.lookupRuns.get(id) === ctl) this.lookupRuns.delete(id);
@@ -658,6 +708,12 @@ export class App {
     const has = this.items.find((e) => e.action === 'summary' && !e.deletedAt && e.value);
     if (has && !fresh) {
       this.panel.renderBrief({ state: 'ok', text: has.value, retry: true });
+      return;
+    }
+    const deferred = this.items.find((e) => e.action === 'summary' && !e.deletedAt
+      && e.extra?.status === 'deferred');
+    if (deferred && !fresh) {
+      this.panel.renderBrief({ state: 'err', text: '离线，速览请求已保存；联网后可手动重试', retry: true });
       return;
     }
     // 正文太短的页面不值得总结（搜索结果页、仓库首页、列表页）
@@ -685,6 +741,10 @@ export class App {
         meta: [this.meta({ ...r, ms }), r.degraded].filter(Boolean).join(' · '),
       });
     } catch (e) {
+      if (!this.online || !e.status) {
+        this.saveLookup('summary', { text: '', value: null, anchor: null,
+          extra: { status: 'deferred', error: e.message } });
+      }
       this.panel.renderBrief({
         state: 'err', retry: true,
         text: `速览失败：${e.message}`,
@@ -695,15 +755,55 @@ export class App {
     }
   }
 
-  /** 面板上点「重试」 */
-  retryLookup(id) {
+  /** 面板上点「重试」；deferred 永远由用户手动触发，不在重连时自动消费。 */
+  async retryLookup(id) {
     const ev = this.items.find((e) => e.id === id);
     if (!ev) return;
+    if (ev.action === 'translate') {
+      this.patchLookup(id, { status: 'running', progress: '重新提交…', error: '' });
+      try {
+        await this.uploadArticle();
+        const r = await api.translate(ev.text, ev.extra?.target, this.key, ev.extra?.offset);
+        this.saveLookup('translate', { text: ev.text, value: r.translation, anchor: ev.anchor,
+          extra: { target: r.target || ev.extra?.target || '' } });
+      } catch (e) {
+        const status = this.online && e.status ? 'error' : 'deferred';
+        this.patchLookup(id, { status, error: e.message,
+          progress: status === 'deferred' ? '离线，已保存；联网后手动重试' : '' });
+      }
+      return;
+    }
     this.patchLookup(id, { status: 'running', progress: '重新提交…', error: '' });
-    this.pollExplain(id, {
+    await this.pollExplain(id, {
       text: ev.text, question: ev.extra?.question || '',
       anchor: ev.anchor, offset: ev.extra?.offset,
     }, { fresh: true });
+  }
+
+  markdown() {
+    return renderArticleMarkdown({ title: document.title, url: location.href, events: this.items });
+  }
+
+  async copyMarkdown() {
+    const text = this.markdown();
+    if (navigator.clipboard?.writeText) await navigator.clipboard.writeText(text);
+    else {
+      const ta = document.createElement('textarea');
+      ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+      document.body.appendChild(ta); ta.select();
+      if (!document.execCommand?.('copy')) throw new Error('浏览器不允许复制，请使用下载');
+      ta.remove();
+    }
+    return 'Markdown 已复制';
+  }
+
+  downloadMarkdown() {
+    const blob = new Blob([this.markdown()], { type: 'text/markdown;charset=utf-8' });
+    const href = URL.createObjectURL(blob), a = document.createElement('a');
+    a.href = href; a.download = safeMarkdownFilename(document.title, this.key);
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(href), 0);
+    return 'Markdown 已下载';
   }
 
   /**
@@ -714,7 +814,8 @@ export class App {
    * 中断并给重试 —— 三种下场都比"永远转圈"好。
    */
   async resumePending() {
-    const pend = this.items.filter((e) => e.action === 'explain' && !e.value && !e.deletedAt);
+    const pend = this.items.filter((e) => e.action === 'explain' && !e.value && !e.deletedAt
+      && e.extra?.status !== 'deferred');
     for (const ev of pend) {
       const jobId = ev.extra?.jobId;
       if (!jobId) {

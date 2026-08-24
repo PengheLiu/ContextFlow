@@ -22,12 +22,13 @@ console.log('扩展产物\n');
 // 用一个可识别的假 token 构建：真 token 可能为空，那样"没泄漏"就成了假阳性。
 const FAKE = 'cf-test-token-DO-NOT-LEAK-9f3a2b';
 const HOME = mkdtempSync(join(tmpdir(), 'cf-extbuild-'));
+const OUT = join(HOME, 'extension-dist');
 writeFileSync(join(HOME, 'config.json'), JSON.stringify({ token: FAKE }));
 
 let built = true;
 try {
   execFileSync('node', ['tools/build.mjs', '--ext'], {
-    env: { ...process.env, HOME, CONTEXTFLOW_DIR: HOME },
+    env: { ...process.env, HOME, CONTEXTFLOW_DIR: HOME, CONTEXTFLOW_EXT_DIR: OUT },
     stdio: 'pipe',
   });
 } catch (e) {
@@ -36,12 +37,12 @@ try {
   process.exitCode = 1;
 }
 
-const read = (f) => readFileSync(join('extension/dist', f), 'utf8');
+const read = (f) => readFileSync(join(OUT, f), 'utf8');
 
 if (built) {
   t('三个产物都在', () => {
     for (const f of ['manifest.json', 'app.js', 'sw.js']) {
-      assert.ok(existsSync(join('extension/dist', f)), `缺 ${f}`);
+      assert.ok(existsSync(join(OUT, f)), `缺 ${f}`);
     }
   });
 
@@ -133,7 +134,7 @@ if (built) {
     for (const m of server.matchAll(/path\.startsWith\('\/([a-z][a-z-]*)\//g)) routes.add(m[1]);
     assert.ok(routes.size >= 8, `只抽到 ${routes.size} 个路由，抽取逻辑可能失效了`);
 
-    const sw = readFileSync('extension/dist/sw.js', 'utf8');
+    const sw = readFileSync(join(OUT, 'sw.js'), 'utf8');
     const m = sw.match(/\^\\\/\(([a-z|]+)\)/);
     assert.ok(m, 'sw.js 里找不到路径白名单');
     const allowed = new Set(m[1].split('|'));
@@ -148,7 +149,7 @@ if (built) {
     const routes = new Set();
     for (const m of server.matchAll(/path === '\/([a-z][a-z-]*)/g)) routes.add(m[1]);
     for (const m of server.matchAll(/path\.startsWith\('\/([a-z][a-z-]*)\//g)) routes.add(m[1]);
-    const sw = readFileSync('extension/dist/sw.js', 'utf8');
+    const sw = readFileSync(join(OUT, 'sw.js'), 'utf8');
     const allowed = sw.match(/\^\\\/\(([a-z|]+)\)/)[1].split('|');
     const extra = allowed.filter((a) => !routes.has(a));
     assert.deepEqual(extra, [], `白名单里有服务端并不存在的路径：${extra.join(', ')}`);
@@ -164,7 +165,7 @@ if (built) {
     const refs = [...Object.values(m.action?.default_icon || {}), ...Object.values(m.icons || {})];
     assert.ok(refs.length >= 4, `只引用了 ${refs.length} 个图标`);
     for (const f of new Set(refs)) {
-      assert.ok(existsSync(join('extension/dist', f)), `manifest 引用了 ${f} 但没拷进 dist`);
+      assert.ok(existsSync(join(OUT, f)), `manifest 引用了 ${f} 但没拷进 dist`);
     }
   });
 
@@ -176,7 +177,7 @@ if (built) {
 
   t('每个图标的实际像素尺寸与声明的键一致（不一致会被缩放糊掉）', () => {
     for (const [key, f] of Object.entries(mf().action.default_icon)) {
-      const b = readFileSync(join('extension/dist', f));
+      const b = readFileSync(join(OUT, f));
       // PNG 的 IHDR 紧跟 8 字节签名 + 4 长度 + 4 类型
       const w = b.readUInt32BE(16), h = b.readUInt32BE(20);
       assert.equal(w, Number(key), `${f} 宽 ${w}，声明 ${key}`);
@@ -187,8 +188,8 @@ if (built) {
   // 这才是"图标看起来太小"的根因：icon-512 有圆角底和大留白，墨迹只占 31% 高度，
   // 且底色接近白、在工具栏上等于透明。工具栏那套是紧贴边界的构图。
   t('工具栏图标不是 icon-512 的副本（构图不同，不能复用）', () => {
-    const a = readFileSync(join('extension/dist', 'toolbar-128.png'));
-    const b = readFileSync(join('extension/dist', 'icon-512.png'));
+    const a = readFileSync(join(OUT, 'toolbar-128.png'));
+    const b = readFileSync(join(OUT, 'icon-512.png'));
     assert.ok(!a.equals(b), '工具栏图标直接用了 icon-512');
     assert.ok(!Object.values(mf().action.default_icon).includes('icon-512.png'),
       'action.default_icon 里出现了 icon-512.png —— 那个构图在工具栏上会显得又小又淡');

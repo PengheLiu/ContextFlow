@@ -22,6 +22,9 @@ try {
 } catch { /* 未初始化过服务：留空，服务端 requireToken=false 时不校验 */ }
 
 const EXT = process.argv.includes('--ext');
+// 测试构建必须写临时目录，绝不能覆盖开发者实际加载的 extension/dist。
+// test/extbuild.test.mjs 会通过此变量隔离假 token 产物。
+const EXT_DIR = process.env.CONTEXTFLOW_EXT_DIR || 'extension/dist';
 
 const common = {
   bundle: true,
@@ -34,7 +37,7 @@ if (EXT) await buildExtension();
 else await buildUserscript();
 
 async function buildExtension() {
-  mkdirSync('extension/dist', { recursive: true });
+  mkdirSync(EXT_DIR, { recursive: true });
 
   // 稳定的扩展 id：不写 key 的话 id 由目录路径派生，移动目录或换机器就变，
   // 服务端 allowedOrigins 里的白名单会立刻失效。
@@ -52,7 +55,7 @@ async function buildExtension() {
   const ui = await esbuild.build({
     ...common,
     entryPoints: ['src/ext/app.js'],
-    outfile: 'extension/dist/app.js',
+    outfile: join(EXT_DIR, 'app.js'),
     format: 'iife',
     define: { __CONTEXTFLOW_TOKEN__: '""' },
     metafile: true,
@@ -62,18 +65,18 @@ async function buildExtension() {
   const sw = await esbuild.build({
     ...common,
     entryPoints: ['extension/sw.js'],
-    outfile: 'extension/dist/sw.js',
+    outfile: join(EXT_DIR, 'sw.js'),
     format: 'esm',
     define: { __CONTEXTFLOW_TOKEN__: JSON.stringify(token) },
     metafile: true,
   });
 
-  writeFileSync('extension/dist/manifest.json', `${JSON.stringify({
+  const storeBuild = process.argv.includes('--store');
+  const manifest = {
     manifest_version: 3,
     name: 'ContextFlow',
     version: '0.1.0',
     description: '划词翻译 / 解释 / 高亮批注 / 全文总结，一键同步到你自己的笔记库。',
-    key,
     minimum_chrome_version: '111',
     permissions: ['storage'],
     host_permissions: ['http://127.0.0.1:7317/*'],
@@ -100,20 +103,29 @@ async function buildExtension() {
       run_at: 'document_idle',
       all_frames: false,
     }],
-  }, null, 2)}\n`);
+  };
+  // Chrome Web Store 自己签名并分配 id，不需要 manifest.key。开发者模式需要稳定 id
+  // 才能配置 allowedOrigins，所以普通 build 保留 key；--store 构建删除它。
+  if (!storeBuild) manifest.key = key;
+  writeFileSync(join(EXT_DIR, 'manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`);
 
   for (const f of ['icon-512.png', 'toolbar-16.png', 'toolbar-32.png',
     'toolbar-48.png', 'toolbar-128.png']) {
-    if (existsSync(`assets/${f}`)) copyFileSync(`assets/${f}`, `extension/dist/${f}`);
+    if (existsSync(`assets/${f}`)) copyFileSync(`assets/${f}`, join(EXT_DIR, f));
     else console.warn(`  ⚠ 缺 assets/${f} —— 先跑 node tools/gen-assets.mjs --png`);
   }
 
   const kb = (b) => `${(b / 1024).toFixed(1)} KB`;
-  console.log(`extension/dist/app.js  ${kb(ui.metafile.outputs['extension/dist/app.js'].bytes)}`);
-  console.log(`extension/dist/sw.js   ${kb(sw.metafile.outputs['extension/dist/sw.js'].bytes)}`);
-  console.log(`扩展 id  ${id}`);
-  console.log(`把这一行加进 ~/.contextflow/config.json 的 allowedOrigins，然后可以关掉 allowAnyOrigin：`);
-  console.log(`  "chrome-extension://${id}"`);
+  const outputBytes = (result) => Object.values(result.metafile.outputs)[0]?.bytes || 0;
+  console.log(`${join(EXT_DIR, 'app.js')}  ${kb(outputBytes(ui))}`);
+  console.log(`${join(EXT_DIR, 'sw.js')}   ${kb(outputBytes(sw))}`);
+  if (storeBuild) {
+    console.log('Chrome Web Store 包：manifest.key 已移除；商店会分配扩展 id');
+  } else {
+    console.log(`扩展 id  ${id}`);
+    console.log('把这一行加进 ~/.contextflow/config.json 的 allowedOrigins，然后可以关掉 allowAnyOrigin：');
+    console.log(`  "chrome-extension://${id}"`);
+  }
 }
 
 async function buildUserscript() {

@@ -102,6 +102,29 @@ t('软删除的事件不入选、也不返回', () => {
   assert.ok(!db.eventsForArticle('art:1', 'siyuan').some((e) => e.id === 'del-1'));
 });
 
+t('GET 事件包含 tombstone，客户端才能传播删除', () => {
+  const row = db.listByUrlKey('art:1').find((e) => e.id === 'del-1');
+  assert.ok(row?.deletedAt);
+  assert.ok(row.updatedAt >= row.deletedAt);
+  assert.match(row.mutationId, /^server-delete:/);
+});
+
+t('较旧 upsert 不能复活较新 tombstone', () => {
+  const dead = db.listByUrlKey('art:1').find((e) => e.id === 'del-1');
+  db.upsertEvents([{ ...dead, value: 'stale', deletedAt: null,
+    updatedAt: dead.updatedAt - 1, mutationId: 'stale' }]);
+  assert.ok(db.listByUrlKey('art:1').find((e) => e.id === 'del-1').deletedAt);
+});
+
+t('同时间 delete wins，但明确更晚的新建可覆盖', () => {
+  const dead = db.listByUrlKey('art:1').find((e) => e.id === 'del-1');
+  db.upsertEvents([{ ...dead, deletedAt: null, updatedAt: dead.updatedAt, mutationId: 'zz-live' }]);
+  assert.ok(db.listByUrlKey('art:1').find((e) => e.id === 'del-1').deletedAt);
+  db.upsertEvents([{ ...dead, value: 'reborn', deletedAt: null,
+    updatedAt: dead.updatedAt + 1, mutationId: 'newer' }]);
+  assert.equal(db.listByUrlKey('art:1').find((e) => e.id === 'del-1').value, 'reborn');
+});
+
 // ---- artdoc：一文一档的落点 ----
 
 t('artdoc 记住后取回同一个 docRef', () => {

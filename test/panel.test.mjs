@@ -51,13 +51,102 @@ const mk = (over) => new Panel(handlers(over));
 
 console.log('右侧面板\n');
 
-await t('构造后四个 tab 与速览区都在', () => {
+await t('构造后四个 tab、速览区和简洁底栏都在', () => {
   const p = mk();
   for (const k of ['translate', 'explain', 'comments', 'note']) {
     assert.ok(p.sh.getElementById(`t-${k}`), `缺 tab ${k}`);
     assert.ok(p.sh.getElementById(`p-${k}`), `缺 pane ${k}`);
   }
   assert.ok(p.sh.getElementById('brief'), '缺速览区');
+  assert.equal(p.sh.querySelector('#copyMd .label').textContent, '复制');
+  assert.equal(p.sh.querySelector('#downloadMd .label').textContent, '下载');
+  assert.equal(p.sh.querySelector('#sync .label').textContent, '同步');
+  for (const id of ['copyMd', 'downloadMd', 'sync']) {
+    assert.ok(p.sh.querySelector(`#${id} [role=tooltip]`)?.textContent, `${id} 缺可见悬浮说明`);
+  }
+  const css = p.sh.querySelector('style').textContent;
+  assert.match(css, /\.foot-actions \.tip\{[^}]*width:230px/);
+  assert.match(css, /white-space:normal/);
+  assert.match(css, /overflow-wrap:anywhere/);
+});
+
+await t('收起/展开都是中点图标，顶部不再出现文字收起按钮', () => {
+  const p = mk();
+  assert.ok(p.sh.getElementById('close').classList.contains('edge-toggle'));
+  assert.ok(p.sh.getElementById('close').querySelector('svg'));
+  assert.ok(p.sh.getElementById('grip').querySelector('svg'));
+  assert.equal(p.sh.getElementById('close').textContent.trim(), '');
+  assert.equal(p.sh.getElementById('grip').textContent.trim(), '');
+  assert.match(p.sh.querySelector('#close path').getAttribute('d'), /^m9 /, '展开时收起箭头应向右');
+  assert.match(p.sh.querySelector('#grip path').getAttribute('d'), /^m15 /, '收起后展开箭头应向左');
+  assert.equal(p.sh.getElementById('close').parentNode, p.sh, '收起按钮不能放在 overflow:hidden 的面板内');
+});
+
+await t('图标连续展开/收起状态稳定且贴住面板左缘', () => {
+  const p = mk();
+  p.toggle(false);
+  assert.ok(!p.sh.getElementById('grip').classList.contains('hide'));
+  assert.ok(!p.sh.getElementById('close').classList.contains('show'));
+  p.sh.getElementById('grip').click();
+  assert.equal(p.open, true);
+  assert.ok(p.sh.getElementById('grip').classList.contains('hide'));
+  assert.ok(p.sh.getElementById('close').classList.contains('show'));
+  assert.equal(p.sh.getElementById('close').style.right, `${p.ui.width}px`);
+  p.sh.getElementById('close').click();
+  assert.equal(p.open, false);
+  assert.ok(!p.sh.getElementById('grip').classList.contains('hide'));
+  assert.ok(!p.sh.getElementById('close').classList.contains('show'));
+});
+
+await t('pointerdown 立即切换，随后指针 click 不重复执行', () => {
+  let opened = 0;
+  const p = mk({ onOpen: () => { opened++; } });
+  p.toggle(false);
+  const grip = p.sh.getElementById('grip');
+  grip.dispatchEvent(new window.MouseEvent('pointerdown', { bubbles: true, button: 0 }));
+  assert.equal(p.open, true);
+  grip.dispatchEvent(new window.MouseEvent('click', { bubbles: true, detail: 1 }));
+  assert.equal(p.open, true);
+  assert.equal(opened, 1);
+  const close = p.sh.getElementById('close');
+  close.dispatchEvent(new window.MouseEvent('pointerdown', { bubbles: true, button: 0 }));
+  assert.equal(p.open, false);
+  close.dispatchEvent(new window.MouseEvent('click', { bubbles: true, detail: 1 }));
+  assert.equal(p.open, false);
+});
+
+await t('连续二十次收起展开不丢操作', () => {
+  const p = mk();
+  p.toggle(false);
+  for (let i = 0; i < 20; i++) {
+    p.sh.getElementById('grip').dispatchEvent(new window.MouseEvent('pointerdown', { bubbles: true, button: 0 }));
+    assert.equal(p.open, true, `第 ${i + 1} 次展开失败`);
+    p.sh.getElementById('close').dispatchEvent(new window.MouseEvent('pointerdown', { bubbles: true, button: 0 }));
+    assert.equal(p.open, false, `第 ${i + 1} 次收起失败`);
+  }
+});
+
+await t('面板和页面 margin 使用同一时长连续动画', () => {
+  const p = mk();
+  p.toggle(true);
+  const css = p.sh.querySelector('style').textContent;
+  assert.match(css, /\.wrap\{[^}]*transition:transform \.22s/s);
+  assert.match(document.documentElement.style.transition, /margin-right (?:0)?\.22s/);
+});
+
+await t('锚点术语隐藏在 0/0 的悬浮说明里', () => {
+  const p = mk({ getStats: () => ({ position: 2, quote: 1, fuzzy: 1, orphan: 0 }),
+    getItems: () => [{}, {}, {}, {}] });
+  p.renderStatus();
+  const stat = p.sh.getElementById('stat');
+  assert.equal(stat.querySelector('.stat-main').firstChild.textContent, '4/4');
+  const tip = stat.querySelector('[role=tooltip]');
+  assert.match(tip.textContent, /pos 2 · quote 1 · fuzzy 1/);
+  assert.equal(tip.parentElement, stat.querySelector('.stat-main'));
+  assert.ok(!stat.childNodes[1]?.textContent?.includes('pos'));
+  const css = p.sh.querySelector('style').textContent;
+  assert.match(css, /\.has-tip:hover>\.tip/);
+  assert.match(css, /\.has-tip:focus-visible>\.tip/);
 });
 
 // ---- 这就是那个 bug ----

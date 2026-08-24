@@ -33,6 +33,19 @@ export const SETTINGS_CSS = `
   .chk input{width:auto;flex:0 0 auto;margin:2px 0 0;accent-color:${T.accent}}
   .chk .t{font-size:12.5px;color:${T.ink}}
   .chk .t .hint{margin-top:2px}
+  .profile{border:1px solid ${T.line};border-radius:8px;padding:9px;background:${T.paper}}
+  .profile + .profile{margin-top:7px}
+  .profile input[type=radio]{width:auto;margin:2px 7px 0 0;accent-color:${T.accent}}
+  .profile label{display:flex;align-items:flex-start;font-size:12.5px;cursor:pointer}
+  .profile .tag{margin-left:auto;font:10px/1.5 ${T.mono};color:#2f6b45;background:#eaf5ed;
+      border-radius:999px;padding:1px 6px}
+  .advanced{margin-top:7px;border:1px solid ${T.line};border-radius:8px;padding:0 9px}
+  .advanced > summary{cursor:pointer;padding:8px 0;font-size:12px;color:${T.inkSoft};font-weight:600}
+  .risk{margin:0 0 9px;padding:8px;border-left:3px solid #b45309;background:#fff8eb;
+      color:#7c2d12;font-size:11.5px;line-height:1.55}
+  .legacy{display:none;margin:0 0 8px;color:#991b1b;font-size:11.5px;font-weight:600}
+  .legacy.on{display:block}
+  .ack{display:none;margin:8px 0}.ack.on{display:flex}
 `;
 
 const FORM = `
@@ -105,6 +118,31 @@ const FORM = `
       <div class="f">
         <label>笔记库</label>
         <input id="s-notesDir" placeholder="/path/to/notes（留空则不授予任何目录）">
+      </div>
+      <div class="f">
+        <label>Agent 权限</label>
+        <div class="profile">
+          <label><input type="radio" name="agent-profile" id="s-profileSafe" value="safe">
+            <span>安全（推荐）<div class="hint">只读文件与检索工具；隔离写入、命令、MCP 和持久会话。</div></span>
+            <span class="tag">SAFE</span>
+          </label>
+        </div>
+        <div class="legacy" id="s-legacyFull">升级前行为已保留：当前为完整权限。建议切回安全档。</div>
+        <details class="advanced" id="s-advanced">
+          <summary>高级能力</summary>
+          <div class="profile">
+            <label><input type="radio" name="agent-profile" id="s-profileFull" value="full">
+              <span>完整权限<div class="hint">继承本地 Agent 的文件、命令、Git、MCP 与网络能力。</div></span>
+              <span class="tag" style="color:#991b1b;background:#fee2e2">FULL</span>
+            </label>
+          </div>
+          <div class="risk" id="s-fullWarning"></div>
+          <label class="chk ack" id="s-fullAckWrap">
+            <input type="checkbox" id="s-fullAck">
+            <span class="t">我理解网页和笔记内容可能包含 Prompt Injection，并确认开启完整权限</span>
+          </label>
+        </details>
+        <div class="hint" id="s-profileHint"></div>
       </div>
     </div>
   </div>
@@ -216,6 +254,12 @@ export class Settings {
       this.toggleAgentBox();
       // 切到 agent 且还没探测过时自动探一次 —— 否则下拉是空的，用户不知道要点检测
       if (this.$('s-exBackend').value === 'agent' && !this.agents) this.detectAgents(false);
+    });
+    on('s-profileSafe', 'onchange', () => this.syncProfileUi());
+    on('s-profileFull', 'onchange', () => this.syncProfileUi());
+    on('s-agent', 'onchange', () => {
+      this.wantAgent = this.$('s-agent').value;
+      this.syncProfileUi();
     });
     on('s-reloadNb', 'onclick', () => this.loadSiyuan(true));
     on('s-save', 'onclick', () => this.save());
@@ -335,7 +379,12 @@ export class Settings {
       this.$('s-exBackend').value = c.explain?.backend || 'llm';
       this.$('s-notesDir').value = c.agent?.notesDir || '';
       this.wantAgent = c.agent?.id || '';
+      this.$('s-profileSafe').checked = (c.agent?.profile || 'safe') === 'safe';
+      this.$('s-profileFull').checked = c.agent?.profile === 'full';
+      this.$('s-fullWarning').textContent = c.agent?.fullWarning || '';
+      this.$('s-fullAck').checked = false;
       this.syncAgentSel();
+      this.syncProfileUi();
       this.toggleAgentBox();
       // 自动探测：服务端有缓存（10 分钟），所以这在每个页面上都近乎免费。
       // 不这么做的话，配置早就存好了，界面上却永远显示"未检测"——
@@ -401,6 +450,25 @@ export class Settings {
     this.$('s-agentBox').style.display = on ? 'block' : 'none';
   }
 
+  syncProfileUi() {
+    const full = this.$('s-profileFull').checked;
+    const legacy = full && this.cfg?.agent?.profileSource === 'legacy-migrated';
+    const selected = this.agents?.find((a) => a.id === this.$('s-agent').value);
+    const unsupported = selected?.safeSupport === 'unsupported';
+    this.$('s-advanced').open = full || legacy || unsupported;
+    this.$('s-legacyFull').classList.toggle('on', legacy);
+    const alreadyAcknowledged = this.cfg?.agent?.fullAccessAcknowledged
+      && this.cfg?.agent?.id === this.$('s-agent').value;
+    const needAck = full && !legacy && !alreadyAcknowledged;
+    this.$('s-fullAckWrap').classList.toggle('on', needAck);
+    if (!needAck) this.$('s-fullAck').checked = false;
+    this.$('s-profileHint').textContent = unsupported
+      ? `${selected.label} 的安全权限边界未验证，只能在高级完整权限中使用。`
+      : selected?.safeSupport === 'best-effort'
+        ? `${selected.label} 安全档为多层限制；本机 CLI 更新后建议重新检测。`
+        : '';
+  }
+
   /**
    * 探测本机可用的 agent。
    * @param {boolean} verbose 手动点「检测」时给反馈；自动探测时保持安静
@@ -454,7 +522,7 @@ export class Settings {
       || list.find((a) => a.available && a.verified)
       || list.find((a) => a.available);
     if (pick) { sel.value = pick.id; this.wantAgent = pick.id; }
-    sel.onchange = this.guard(() => { this.wantAgent = sel.value; });
+    this.syncProfileUi();
   }
 
   async fetchModels() {
@@ -491,6 +559,28 @@ export class Settings {
 
   /** 收集表单 → PATCH。密钥留空即不提交该字段。 */
   patch() {
+    const profile = this.$('s-profileFull').checked ? 'full' : 'safe';
+    const agentId = this.$('s-agent').value.trim();
+    const previous = this.cfg?.agent || {};
+    const acknowledged = previous.fullAccessAcknowledged && previous.profile === 'full'
+      && previous.id === agentId;
+    let fullAccessAcknowledgement;
+    if (profile === 'full' && !acknowledged && previous.profileSource !== 'legacy-migrated') {
+      if (!this.$('s-fullAck').checked) {
+        throw Object.assign(new Error('请先勾选完整权限风险确认'), { code: 'AGENT_FULL_ACK' });
+      }
+      fullAccessAcknowledgement = {
+        version: previous.fullWarningVersion,
+        agentId,
+        acceptedAt: Date.now(),
+        warningHash: previous.fullWarningHash,
+      };
+    }
+    const selected = this.agents?.find((a) => a.id === agentId);
+    if (profile === 'safe' && selected?.safeSupport === 'unsupported') {
+      throw Object.assign(new Error(`${selected.label} 不支持安全档，请改选 Claude Code / Codex 或在高级能力中确认完整权限`),
+        { code: 'AGENT_SAFE_UNSUPPORTED' });
+    }
     const p = {
       translate: {
         provider: this.$('s-provider').value,
@@ -503,8 +593,12 @@ export class Settings {
       },
       explain: { backend: this.$('s-exBackend').value },
       agent: {
-        id: this.$('s-agent').value.trim(),
+        id: agentId,
         notesDir: this.$('s-notesDir').value.trim(),
+        profile,
+        profileSource: profile === 'full' && previous.profileSource === 'legacy-migrated'
+          && previous.id === agentId ? 'legacy-migrated' : 'user',
+        ...(fullAccessAcknowledgement ? { fullAccessAcknowledgement } : {}),
       },
       sync: { backend: this.$('s-backend').value },
       obsidian: {

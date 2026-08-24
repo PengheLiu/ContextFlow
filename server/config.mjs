@@ -6,13 +6,17 @@
 import { mkdirSync, readFileSync, writeFileSync, existsSync, renameSync, readdirSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { randomBytes } from 'node:crypto';
+import { randomBytes, createHash } from 'node:crypto';
 
 // CONTEXTFLOW_DIR 供测试指向临时目录 —— 同步层的测试要真实读写库和文件，
 // 绝不能碰用户 ~/.contextflow 里的阅读记录和密钥。生产环境不设这个变量。
 export const DIR = process.env.CONTEXTFLOW_DIR || join(homedir(), '.contextflow');
 const LEGACY_DIR = join(homedir(), '.context_it');   // 改名前的目录
 const FILE = join(DIR, 'config.json');
+
+export const AGENT_PROFILE_VERSION = 1;
+export const FULL_WARNING = '网页与笔记内容可能通过 Prompt Injection 驱动本地 Agent 执行文件写入、命令、Git、MCP 或网络操作。仅在明确需要时开启完整权限。';
+const warningHash = () => createHash('sha256').update(FULL_WARNING).digest('hex').slice(0, 16);
 
 /**
  * 一次性迁移：把改名前的 ~/.context_it 整体搬到 ~/.contextflow。
@@ -35,6 +39,7 @@ function migrateLegacyDir() {
 }
 
 const DEFAULTS = {
+  schemaVersion: 2,
   port: 7317,
   // CORS 白名单。支持 * 通配符（只匹配单个 host 段，不跨 . / :）
   allowedOrigins: [
@@ -75,6 +80,10 @@ const DEFAULTS = {
     maxTurns: 12,
     timeoutMs: 240000,
     env: {},                                  // 需要代理时在这里给（用户的 claude 别名里就带着）
+    // 新安装默认 Safe。旧配置的迁移见 migrate()：保留 Full 行为但持续警告。
+    profile: 'safe',
+    profileSource: 'new-default',              // new-default | legacy-migrated | user
+    fullAccessAcknowledgement: null,
   },
 
   // 同步后端。加新后端见 server/sync.mjs
@@ -121,16 +130,48 @@ function write(cfg) {
   writeFileSync(FILE, JSON.stringify(cfg, null, 2) + '\n', { mode: 0o600 });
 }
 
-/** 兼容早期扁平字段：anthropicApiKey / translateTarget */
-function migrate(saved) {
+/** 配置迁移。必须在 defaults merge **之前**看原始字段，否则无法分辨旧用户。 */
+export function migrate(saved = {}) {
   const t = { ...(saved.translate || {}) };
   if (!t.apiKey && saved.anthropicApiKey) t.apiKey = saved.anthropicApiKey;
   if (!t.target && saved.translateTarget) t.target = saved.translateTarget;
-  const out = { ...saved, translate: t };
+  const agent = { ...(saved.agent || {}) };
+
+  // 用户选择了兼容：已有 agent 配置保持过去的完整权限行为；新用户默认 Safe。
+  // legacy Full 不视为已确认 —— UI 持续显示警告；一旦切 Safe，再切 Full 要正常确认。
+  if (!agent.profile) {
+    if (agent.id) {
+      agent.profile = 'full';
+      agent.profileSource = 'legacy-migrated';
+    } else {
+      agent.profile = 'safe';
+      agent.profileSource = 'new-default';
+    }
+    agent.fullAccessAcknowledgement = null;
+  }
+
+  if (!['safe', 'full'].includes(agent.profile)) agent.profile = 'safe';
+  if (!['new-default', 'legacy-migrated', 'user'].includes(agent.profileSource)) {
+    agent.profileSource = 'user';
+  }
+
+  const out = { ...saved, schemaVersion: 2, translate: t, agent };
   // 多后端之前的配置只有 siyuan。若已配好思源 token，就不要被新的
   // markdown 默认值悄悄切走后端 —— 那会让用户以为同步坏了。
   if (!saved.sync && saved.siyuan?.token) out.sync = { backend: 'siyuan' };
   return out;
+}
+
+export function fullAckValid(agent) {
+  if (agent?.profile !== 'full') return false;
+  if (agent.profileSource === 'legacy-migrated') return true;  // 兼容旧行为，但 UI 仍警告
+  return fullAckRecorded(agent);
+}
+
+function fullAckRecorded(agent) {
+  const a = agent?.fullAccessAcknowledgement;
+  return !!a && a.version === AGENT_PROFILE_VERSION && a.agentId === agent.id
+    && a.warningHash === warningHash() && Number.isFinite(a.acceptedAt);
 }
 
 export function loadConfig() {
@@ -154,6 +195,24 @@ export function saveConfig(patch) {
   if (patch?.translate && patch.translate.apiKey === '') delete patch.translate.apiKey;
   if (patch?.siyuan && patch.siyuan.token === '') delete patch.siyuan.token;
   const next = merge(current, patch);
+  next.schemaVersion = 2;
+  next.agent.profile = ['safe', 'full'].includes(next.agent.profile) ? next.agent.profile : 'safe';
+  // profileSource 是服务端所有的迁移状态，不能信任页面传来的 legacy-migrated。
+  const preservesLegacy = current.agent.profile === 'full'
+    && current.agent.profileSource === 'legacy-migrated'
+    && next.agent.profile === 'full' && next.agent.id === current.agent.id;
+  next.agent.profileSource = preservesLegacy
+    ? 'legacy-migrated'
+    : (next.agent.profile === 'safe' && current.agent.profileSource === 'new-default'
+      ? 'new-default' : 'user');
+  // legacy Full 只有在原配置仍是 legacy-migrated 且 agent 未变时才被豁免。一旦用户切
+  // 到 Safe 或换 agent，之后再开 Full 必须带有效确认。
+  if (next.agent.profile === 'full' && !fullAckValid(next.agent)) {
+    throw Object.assign(new Error('开启 Agent 完整权限前必须确认高级风险'), { code: 'AGENT_FULL_ACK' });
+  }
+  if (patch?.agent?.profile === 'safe') {
+    next.agent.fullAccessAcknowledgement = null;
+  }
   next.token = current.token;                 // 服务鉴权 token 不允许从界面改
   next.port = current.port;                   // 改端口需重启，不从界面改
   write(next);
@@ -172,6 +231,12 @@ export function publicView(cfg) {
       notesDir: cfg.agent?.notesDir || '',
       maxTurns: cfg.agent?.maxTurns ?? 12,
       timeoutMs: cfg.agent?.timeoutMs ?? 240000,
+      profile: cfg.agent?.profile || 'safe',
+      profileSource: cfg.agent?.profileSource || 'new-default',
+      fullAccessAcknowledged: fullAckRecorded(cfg.agent),
+      fullWarning: FULL_WARNING,
+      fullWarningVersion: AGENT_PROFILE_VERSION,
+      fullWarningHash: warningHash(),
     },
     translate: {
       provider: cfg.translate.provider,

@@ -24,6 +24,8 @@ export function open() {
       anchor        TEXT,                   -- JSON，note 为 NULL
       parentId      TEXT,                   -- comment 挂在某 highlight 上
       createdAt     INTEGER NOT NULL,
+      updatedAt     INTEGER NOT NULL DEFAULT 0,
+      mutationId    TEXT NOT NULL DEFAULT '',
       deletedAt     INTEGER,                -- 软删除，保证同步幂等
       syncedAt      INTEGER,
       siyuanBlockId TEXT
@@ -143,6 +145,12 @@ export function open() {
   try {
     db.exec('ALTER TABLE events ADD COLUMN dirty INTEGER NOT NULL DEFAULT 0');
   } catch { /* 已存在 */ }
+  try { db.exec('ALTER TABLE events ADD COLUMN updatedAt INTEGER NOT NULL DEFAULT 0'); }
+  catch { /* 已存在 */ }
+  try { db.exec("ALTER TABLE events ADD COLUMN mutationId TEXT NOT NULL DEFAULT ''"); }
+  catch { /* 已存在 */ }
+  // 旧行没有 mutation clock：createdAt 是唯一可用的保守基线。
+  db.exec('UPDATE events SET updatedAt = createdAt WHERE updatedAt = 0');
   // 老库补列。注意上面的 CREATE TABLE 也要带这一列，否则新库反而缺 ——
   // 建表与迁移必须成对更新（这里漏过一次，报 "no such column: loadedChunks"）。
   try {
@@ -162,8 +170,8 @@ export function open() {
 }
 
 const COLS = ['id', 'urlKey', 'url', 'title', 'action', 'text', 'value', 'color',
-  'anchor', 'parentId', 'createdAt', 'deletedAt', 'syncedAt', 'siyuanBlockId', 'extra',
-  'dirty'];
+  'anchor', 'parentId', 'createdAt', 'updatedAt', 'mutationId', 'deletedAt', 'syncedAt',
+  'siyuanBlockId', 'extra', 'dirty'];
 
 // 曾经这里有 NOT_SYNCED = ['translate']，理由是"翻译是纯机器输出，混进笔记会
 // 污染喂给 Agent 的信噪比"。现在四类记录都同步，且各自归到独立标题下 ——
@@ -187,24 +195,38 @@ export function upsertEvents(events) {
       anchor = excluded.anchor,
       title = excluded.title,
       extra = excluded.extra,
+      updatedAt = excluded.updatedAt,
+      mutationId = excluded.mutationId,
       deletedAt = excluded.deletedAt,
-      -- 只有内容**真的**变了才置脏，否则每次开页面的例行 upsert 都会重写笔记
+      -- 任一可同步载荷变化都置脏；delete 也必须让后端有机会清理旧内容。
       dirty = CASE WHEN events.value IS NOT excluded.value
-        OR events.text IS NOT excluded.text
-        OR events.extra IS NOT excluded.extra
+        OR events.text IS NOT excluded.text OR events.color IS NOT excluded.color
+        OR events.anchor IS NOT excluded.anchor OR events.title IS NOT excluded.title
+        OR events.extra IS NOT excluded.extra OR events.deletedAt IS NOT excluded.deletedAt
         THEN 1 ELSE events.dirty END,
-      -- 内容变更后需要重新同步
-      syncedAt = CASE WHEN events.value IS NOT excluded.value THEN NULL ELSE events.syncedAt END
+      syncedAt = CASE WHEN events.value IS NOT excluded.value
+        OR events.text IS NOT excluded.text OR events.color IS NOT excluded.color
+        OR events.anchor IS NOT excluded.anchor OR events.extra IS NOT excluded.extra
+        OR events.deletedAt IS NOT excluded.deletedAt
+        THEN NULL ELSE events.syncedAt END
+    WHERE excluded.updatedAt > events.updatedAt
+       OR (excluded.updatedAt = events.updatedAt AND excluded.deletedAt IS NOT NULL AND events.deletedAt IS NULL)
+       OR (excluded.updatedAt = events.updatedAt
+           AND (excluded.deletedAt IS NULL) = (events.deletedAt IS NULL)
+           AND excluded.mutationId > events.mutationId)
+       -- 旧客户端没有 mutationId：保持原有 upsert 行为，由字段比较决定是否置脏。
+       OR (excluded.mutationId = '' AND events.mutationId = '')
   `);
   const n = [];
   for (const e of events) {
     if (!e?.id || !e?.action || !e?.urlKey) continue;
+    const createdAt = e.createdAt ?? Date.now();
     stmt.run(
       e.id, e.urlKey, e.url ?? '', e.title ?? '', e.action,
       e.text ?? null, e.value ?? null, e.color ?? null,
       e.anchor ? JSON.stringify(e.anchor) : null,
       e.parentId ?? null,
-      e.createdAt ?? Date.now(),
+      createdAt, e.updatedAt ?? Date.now(), e.mutationId ?? '',
       e.deletedAt ?? null, e.syncedAt ?? null, e.siyuanBlockId ?? null,
       e.extra ? JSON.stringify(e.extra) : null,
       0,
@@ -216,14 +238,17 @@ export function upsertEvents(events) {
 
 export function listByUrlKey(urlKey) {
   return open()
-    .prepare('SELECT * FROM events WHERE urlKey = ? AND deletedAt IS NULL ORDER BY createdAt')
+    .prepare('SELECT * FROM events WHERE urlKey = ? ORDER BY createdAt')
     .all(urlKey)
     .map(rowToEvent);
 }
 
 export function softDelete(id) {
-  const r = open().prepare('UPDATE events SET deletedAt = ? WHERE id = ? AND deletedAt IS NULL')
-    .run(Date.now(), id);
+  const at = Date.now();
+  const r = open().prepare(`UPDATE events SET deletedAt = ?, updatedAt = ?,
+      mutationId = ?, dirty = 1, syncedAt = NULL
+    WHERE id = ? AND (deletedAt IS NULL OR updatedAt < ?)`)
+    .run(at, at, `server-delete:${at}`, id, at);
   return r.changes > 0;
 }
 
