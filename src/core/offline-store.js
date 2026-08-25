@@ -2,8 +2,11 @@
 // localStorage 只保留迁移兼容与小型 UI 偏好，不再承担并发写入正确性。
 
 const DB_NAME = 'contextflow-offline';
-const DB_VERSION = 1;
+const DB_VERSION = 3;
 const LEASE_MS = 30_000;
+const ARTICLE_MAX_CHARS = 400_000;
+const ARTICLE_MAX_COUNT = 12;
+const ARTICLE_MAX_BYTES = 8 * 1024 * 1024;
 const now = () => Date.now();
 const uid = () => globalThis.crypto?.randomUUID?.()
   || `${now().toString(36)}-${Math.random().toString(36).slice(2)}`;
@@ -25,21 +28,31 @@ export function openOfflineStore() {
   if (dbPromise) return dbPromise;
   dbPromise = new Promise((resolve, reject) => {
     const r = indexedDB.open(DB_NAME, DB_VERSION);
-    r.onupgradeneeded = () => {
+    r.onupgradeneeded = (event) => {
       const db = r.result;
-      const events = db.createObjectStore('events', { keyPath: ['urlKey', 'id'] });
-      events.createIndex('urlKey', 'urlKey');
-      events.createIndex('action', 'action');
-      events.createIndex('updatedAt', 'updatedAt');
-      const ops = db.createObjectStore('operations', { keyPath: 'opId' });
-      ops.createIndex('state', 'state');
-      ops.createIndex('coalesceKey', 'coalesceKey', { unique: true });
-      ops.createIndex('leaseUntil', 'leaseUntil');
-      ops.createIndex('createdAt', 'createdAt');
-      const articles = db.createObjectStore('articles', { keyPath: 'urlKey' });
-      articles.createIndex('lastUsedAt', 'lastUsedAt');
-      articles.createIndex('byteLength', 'byteLength');
-      db.createObjectStore('meta', { keyPath: 'name' });
+      if (!db.objectStoreNames.contains('events')) {
+        const events = db.createObjectStore('events', { keyPath: ['urlKey', 'id'] });
+        events.createIndex('urlKey', 'urlKey'); events.createIndex('action', 'action');
+        events.createIndex('updatedAt', 'updatedAt');
+      }
+      if (!db.objectStoreNames.contains('operations')) {
+        const ops = db.createObjectStore('operations', { keyPath: 'opId' });
+        ops.createIndex('state', 'state'); ops.createIndex('coalesceKey', 'coalesceKey', { unique: true });
+        ops.createIndex('leaseUntil', 'leaseUntil'); ops.createIndex('createdAt', 'createdAt');
+      }
+      if (!db.objectStoreNames.contains('articles')) {
+        const articles = db.createObjectStore('articles', { keyPath: 'urlKey' });
+        articles.createIndex('lastUsedAt', 'lastUsedAt'); articles.createIndex('byteLength', 'byteLength');
+      }
+      if (!db.objectStoreNames.contains('meta')) db.createObjectStore('meta', { keyPath: 'name' });
+      if (!db.objectStoreNames.contains('targets')) db.createObjectStore('targets', { keyPath: 'id' });
+      if (!db.objectStoreNames.contains('fileArticles')) {
+        db.createObjectStore('fileArticles', { keyPath: ['targetId', 'urlKey'] });
+      }
+      if (event.oldVersion < 3 && db.objectStoreNames.contains('fileEvents')) db.deleteObjectStore('fileEvents');
+      if (!db.objectStoreNames.contains('fileEvents')) {
+        db.createObjectStore('fileEvents', { keyPath: ['targetId', 'urlKey', 'eventId'] });
+      }
     };
     r.onsuccess = () => resolve(r.result);
     r.onerror = () => reject(r.error);
@@ -192,6 +205,104 @@ export function compareMutation(a, b) {
   const da = a?.deletedAt ? 1 : 0, db = b?.deletedAt ? 1 : 0;
   if (da !== db) return da - db; // 同时间 delete wins
   return String(a?.mutationId || '').localeCompare(String(b?.mutationId || ''));
+}
+
+const textHash = (s) => {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < s.length; i++) h = ((h ^ s.charCodeAt(i)) * 0x01000193) >>> 0;
+  return `${s.length}:${h.toString(16)}`;
+};
+
+/** 正文只存在浏览器本地，供公开userscript的 LLMBridge 上下文使用。 */
+export async function putOfflineArticle({ urlKey, title = '', url = '', text = '' }) {
+  const db = await openOfflineStore();
+  const raw = String(text || '');
+  const body = raw.slice(0, ARTICLE_MAX_CHARS);
+  const hash = textHash(body);
+  if (!db) return { hash, changed: false, chars: body.length, truncated: raw.length > body.length };
+  const tx = db.transaction('articles', 'readwrite');
+  const os = tx.objectStore('articles');
+  const old = await req(os.get(urlKey));
+  const at = now();
+  const row = {
+    urlKey, title, url, text: body, hash, byteLength: new Blob([body]).size,
+    originalChars: raw.length, storedChars: body.length, truncated: raw.length > body.length,
+    updatedAt: old?.hash === hash ? old.updatedAt : at, lastUsedAt: at,
+  };
+  os.put(row);
+  await done(tx);
+  await pruneOfflineArticles(urlKey);
+  return { hash, changed: old?.hash !== hash, chars: body.length, truncated: raw.length > body.length };
+}
+
+export async function getOfflineArticle(urlKey) {
+  const db = await openOfflineStore();
+  if (!db) return null;
+  const tx = db.transaction('articles', 'readwrite');
+  const os = tx.objectStore('articles');
+  const row = await req(os.get(urlKey));
+  if (row) { row.lastUsedAt = now(); os.put(row); }
+  await done(tx);
+  return row || null;
+}
+
+async function pruneOfflineArticles(protect) {
+  const db = await openOfflineStore();
+  if (!db) return;
+  const tx = db.transaction('articles', 'readwrite');
+  const os = tx.objectStore('articles');
+  const rows = await req(os.getAll());
+  let bytes = rows.reduce((n, x) => n + (x.byteLength || 0), 0), count = rows.length;
+  for (const row of rows.sort((a, b) => (a.lastUsedAt || 0) - (b.lastUsedAt || 0))) {
+    if ((count <= ARTICLE_MAX_COUNT && bytes <= ARTICLE_MAX_BYTES) || row.urlKey === protect) continue;
+    os.delete(row.urlKey); count--; bytes -= row.byteLength || 0;
+  }
+  await done(tx);
+}
+
+export async function saveFileTarget(target) {
+  const db = await openOfflineStore(); if (!db) return null;
+  const tx = db.transaction('targets', 'readwrite');
+  tx.objectStore('targets').put({ ...target, updatedAt: now() }); await done(tx);
+  return target;
+}
+export async function getFileTarget(id = 'default', origin = globalThis.location?.origin || '') {
+  const db = await openOfflineStore(); if (!db) return null;
+  const tx = db.transaction('targets', 'readonly');
+  const row = await req(tx.objectStore('targets').get(id)); await done(tx);
+  return row && (!origin || row.origin === origin) ? row : null;
+}
+export async function forgetFileTarget(id = 'default') {
+  const db = await openOfflineStore(); if (!db) return;
+  const tx = db.transaction(['targets', 'fileArticles', 'fileEvents'], 'readwrite');
+  tx.objectStore('targets').delete(id);
+  for (const row of await req(tx.objectStore('fileArticles').getAll())) if (row.targetId === id) tx.objectStore('fileArticles').delete([id, row.urlKey]);
+  for (const row of await req(tx.objectStore('fileEvents').getAll())) if (row.targetId === id) tx.objectStore('fileEvents').delete([id, row.urlKey, row.eventId]);
+  await done(tx);
+}
+export async function getFileArticle(targetId, urlKey) {
+  const db = await openOfflineStore(); if (!db) return null;
+  const tx = db.transaction('fileArticles', 'readonly');
+  const row = await req(tx.objectStore('fileArticles').get([targetId, urlKey])); await done(tx); return row || null;
+}
+export async function saveFileArticle(row) {
+  const db = await openOfflineStore(); if (!db) return;
+  const tx = db.transaction('fileArticles', 'readwrite'); tx.objectStore('fileArticles').put(row); await done(tx);
+}
+export async function getFileEventStates(targetId, urlKey) {
+  const db = await openOfflineStore(); if (!db) return [];
+  const tx = db.transaction('fileEvents', 'readonly'); const rows = await req(tx.objectStore('fileEvents').getAll()); await done(tx);
+  return rows.filter((x) => x.targetId === targetId && (!urlKey || x.urlKey === urlKey));
+}
+/** 成功写盘后原子替换该文章的同步状态，退休已处理的 tombstone/冲突。 */
+export async function replaceFileEventStates(targetId, urlKey, states) {
+  const db = await openOfflineStore(); if (!db) return;
+  const tx = db.transaction('fileEvents', 'readwrite'), os = tx.objectStore('fileEvents');
+  for (const row of await req(os.getAll())) {
+    if (row.targetId === targetId && row.urlKey === urlKey) os.delete([row.targetId, row.urlKey, row.eventId]);
+  }
+  for (const state of states) os.put({ targetId, urlKey, ...state });
+  await done(tx);
 }
 
 export async function migrateLegacyOutbox(legacyEvents = []) {

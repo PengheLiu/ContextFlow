@@ -11,7 +11,8 @@ import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, extname } from 'node:path';
 
 const ROOT = new URL('..', import.meta.url).pathname;
-const SKIP = new Set(['node_modules', '.git', 'dist', 'assets']);
+// release 与 dist 都是编译产物；esbuild 会把转义分隔符还原成运行时控制字符。
+const SKIP = new Set(['node_modules', '.git', 'dist', 'release', 'assets']);
 // 制表符与换行是正常的；其余 C0 控制字符不该出现在源码里
 const CTRL = /[\u0000-\u0008\u000b-\u001f]/;
 

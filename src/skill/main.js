@@ -117,7 +117,7 @@ export class App {
       onCopyMarkdown: () => this.copyMarkdown(),
       onDownloadMarkdown: () => this.downloadMarkdown(),
       onSync: async () => {
-        const r = await api.sync();
+        const r = await api.sync(this.key);
         await this.sync();          // 同步后回读，刷新「待同步」计数
         return r;
       },
@@ -858,7 +858,8 @@ export class App {
       ctx?.hasArticle
         ? `正文 ${ctx.chunks ?? '?'}/${ctx.totalChunks ?? '?'} 段 · ${ctx.turns ?? 0} 轮`
         : (ctx ? '无正文上下文' : null),
-      ctx?.truncated ? '⚠ 正文已截断' : null,
+      ctx?.articleTruncated ? `⚠ 正文超过 400k，仅使用 ${ctx.storedChars ?? 400000}/${ctx.originalChars ?? '?'} 字符` : null,
+      ctx?.truncated ? '⚠ 上下文预算已截断' : null,
       // 不能续接的 agent 每次都要重发整段对话，这会直接反映在耗时上，
       // 与其让人纳闷"为什么不走缓存"，不如写清楚
       agentMeta && agentMeta.resumed === false ? '未续接会话（每次重发对话）' : null,
@@ -873,6 +874,12 @@ export class App {
   }
 
   hintFor(e) {
+    if (e.code === 'NO_FILE_TARGET') return '打开“配置”并选择 Obsidian Vault 或 Markdown 文件夹';
+    if (e.code === 'FS_PERMISSION') return '打开“配置”并点击重新授权';
+    if (e.code === 'FS_UNSUPPORTED') return '当前浏览器不支持文件夹写入，可使用底部“下载”';
+    if (e.code === 'LLM_BRIDGE_UNAVAILABLE') return '请在支持 AI 能力的 浏览器 userscript环境中运行';
+    if (e.code === 'LLM_BRIDGE_TIMEOUT') return '本次等待已结束；晚到结果不会写入，可稍后手动重试';
+    if (['LLM_BRIDGE_ERROR', 'LLM_BRIDGE_BAD_RESPONSE'].includes(e.code)) return '浏览器 AI 暂时不可用，请稍后手动重试';
     if (e.code === 'NO_AGENT') return '在面板「配置」里选一个本地 agent 并点「检测」';
     if (e.code === 'AGENT_SPAWN') return '选中的 agent 没装或不在 PATH 上';
     if (e.code === 'AGENT_TIMEOUT') return 'agent 太久没返回；可在配置里调大超时或改用 LLM';

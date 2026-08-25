@@ -70,6 +70,22 @@ await t('明确更晚的新建可以覆盖旧 tombstone', async () => {
   assert.equal(row.value, 'reborn');
 });
 
+await t('文章正文写入、去重、截断并可读回', async () => {
+  const first = await store.putOfflineArticle({ urlKey: 'article-u', title: 'A', url: 'https://x/a', text: '正文' });
+  assert.equal(first.changed, true);
+  assert.equal((await store.putOfflineArticle({ urlKey: 'article-u', title: 'A', url: 'https://x/a', text: '正文' })).changed, false);
+  const row = await store.getOfflineArticle('article-u');
+  assert.equal(row.text, '正文');
+  assert.ok(row.lastUsedAt);
+  const huge = await store.putOfflineArticle({ urlKey: 'huge-u', text: 'x'.repeat(400_100) });
+  assert.equal(huge.truncated, true);
+  const hugeRow = await store.getOfflineArticle('huge-u');
+  assert.equal(hugeRow.text.length, 400_000);
+  assert.equal(hugeRow.truncated, true);
+  assert.equal(hugeRow.originalChars, 400_100);
+  assert.equal(hugeRow.storedChars, 400_000);
+});
+
 await t('旧 localStorage outbox 迁移后保留 queued 操作并幂等', async () => {
   const old = [ev('outbox-old', { urlKey: 'outbox-u', createdAt: 40 })];
   assert.equal(await store.migrateLegacyOutbox(old), true);

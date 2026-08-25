@@ -7,6 +7,7 @@
 import esbuild from 'esbuild';
 import { mkdirSync, readFileSync, writeFileSync, copyFileSync, existsSync } from 'node:fs';
 import { createHash } from 'node:crypto';
+import { execFileSync } from 'node:child_process';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 
@@ -22,6 +23,7 @@ try {
 } catch { /* 未初始化过服务：留空，服务端 requireToken=false 时不校验 */ }
 
 const EXT = process.argv.includes('--ext');
+const PUBLIC_SKILL = process.argv.includes('--public');
 // 测试构建必须写临时目录，绝不能覆盖开发者实际加载的 extension/dist。
 // test/extbuild.test.mjs 会通过此变量隔离假 token 产物。
 const EXT_DIR = process.env.CONTEXTFLOW_EXT_DIR || 'extension/dist';
@@ -75,7 +77,7 @@ async function buildExtension() {
   const manifest = {
     manifest_version: 3,
     name: 'ContextFlow',
-    version: '0.1.0',
+    version: JSON.parse(readFileSync('package.json', 'utf8')).version,
     description: '划词翻译 / 解释 / 高亮批注 / 全文总结，一键同步到你自己的笔记库。',
     minimum_chrome_version: '111',
     permissions: ['storage'],
@@ -129,20 +131,26 @@ async function buildExtension() {
 }
 
 async function buildUserscript() {
-mkdirSync('dist', { recursive: true });
+const outDir = PUBLIC_SKILL ? (process.env.CONTEXTFLOW_PUBLIC_DIR || 'release/public-skill') : 'dist';
+const outfile = join(outDir, 'skill.js');
+mkdirSync(outDir, { recursive: true });
 
+const pkg = JSON.parse(readFileSync('package.json', 'utf8'));
+const version = pkg.version;
 const config = {
   entryPoints: ['src/skill/entry.js'],
-  outfile: 'dist/skill.js',
+  outfile,
   bundle: true,
   format: 'iife',
   target: 'chrome110',
   charset: 'utf8',
   legalComments: 'none',
-  define: { __CONTEXTFLOW_TOKEN__: JSON.stringify(token) },
+  // 公开userscript绝不带发布者本机 token。它可以离线标注/导出；连接本地服务需后续配对。
+  define: { __CONTEXTFLOW_TOKEN__: JSON.stringify(PUBLIC_SKILL ? '' : token) },
   banner: {
-    js: '// ContextFlow — 粘贴进 userscript 宿主（Tampermonkey 等），绑定目标页面后运行。\n'
-      + '// 划词出现颜色条 → 点色块高亮 → 刷新页面应原位重现。右上角状态条显示各层命中数。',
+    js: PUBLIC_SKILL
+      ? `// ContextFlow 浏览器 Skill v${version} — LLMBridge AI + 本地批注 + Obsidian/Markdown 同步。`
+      : `// ContextFlow v${version} — 私人本地服务版，请勿公开发布。`,
   },
 };
 
@@ -151,8 +159,45 @@ if (process.argv.includes('--watch')) {
   await ctx.watch();
   console.log('watching src/ … (Ctrl-C 退出)');
 } else {
-  const r = await esbuild.build({ ...config, metafile: true });
-  const out = r.metafile.outputs['dist/skill.js'];
-  console.log(`dist/skill.js  ${(out.bytes / 1024).toFixed(1)} KB`);
+  const publicPlugin = {
+    name: 'contextflow-public-llmbridge',
+    setup(build) {
+      build.onResolve({ filter: /^\.\.\/core\/api\.js$/ }, () =>
+        ({ path: join(process.cwd(), 'src/public/api.js') }));
+      build.onResolve({ filter: /^\.\/settings\.js$/ }, (args) => args.importer.endsWith('/src/skill/panel.js')
+        ? ({ path: join(process.cwd(), 'src/public/settings.js') }) : null);
+    },
+  };
+  const r = await esbuild.build({ ...config, metafile: true,
+    plugins: PUBLIC_SKILL ? [publicPlugin] : [] });
+  const out = Object.values(r.metafile.outputs)[0];
+  if (PUBLIC_SKILL) {
+    const skill = readFileSync(outfile);
+    const sha256 = createHash('sha256').update(skill).digest('hex');
+    let sourceCommit = process.env.CONTEXTFLOW_SOURCE_COMMIT || '';
+    if (!sourceCommit) {
+      try { sourceCommit = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(); }
+      catch { sourceCommit = 'unknown'; }
+    }
+    const manifest = {
+      schemaVersion: 1, name: 'contextflow-browser-skill', version, sourceCommit,
+      sourceDateEpoch: process.env.SOURCE_DATE_EPOCH || null,
+      artifact: { path: 'skill.js', bytes: skill.length, sha256 },
+      requirements: { chromium: '>=110', browserHost: 'LLMBridge + File System Access API' },
+      limits: { indexedDbSchema: 3, articleChars: 400000, bridgeTimeoutMs: 60000 },
+      capabilities: ['llmbridge-ai', 'anchors', 'annotations', 'indexeddb', 'markdown-copy-download', 'obsidian-markdown-folder-sync'],
+      excluded: ['mcp', 'siyuan', 'local-service', 'local-agent', 'api-key'],
+    };
+    const readme = readFileSync('PUBLIC_README.md', 'utf8').replace(/^\*\*版本：.*$/m, `**版本：${version}**`);
+    writeFileSync(join(outDir, 'manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`);
+    writeFileSync(join(outDir, 'README.md'), readme.endsWith('\n') ? readme : `${readme}\n`);
+    const sums = [
+      `${sha256}  skill.js`,
+      `${createHash('sha256').update(readFileSync(join(outDir, 'manifest.json'))).digest('hex')}  manifest.json`,
+      `${createHash('sha256').update(readFileSync(join(outDir, 'README.md'))).digest('hex')}  README.md`,
+    ].join('\n') + '\n';
+    writeFileSync(join(outDir, 'SHA256SUMS'), sums);
+  }
+  console.log(`${outfile}  ${(out.bytes / 1024).toFixed(1)} KB${PUBLIC_SKILL ? ' · 无本机 token' : ''}`);
 }
 }
