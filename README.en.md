@@ -4,207 +4,247 @@
 </p>
 
 <p align="center">
-  <b>Turn reading into reusable context.</b><br>
-  <sub>What you understand today should become context for what you think tomorrow.</sub><br>
+  <b>Bring what you understood before into everything you read next.</b><br>
+  <sub>A Chrome extension connecting the page in front of you, your personal notes, and local AI.</sub><br>
   <sub><a href="./README.md">中文</a></sub>
 </p>
 
 ---
 
-## A familiar afternoon
+## Every reading session should not start from zero
 
-You're reading a paper. You hit the `Threat model` section and wonder what exactly it
-assumes the attacker can do — so you flip to another tab and ask an AI. The answer is
-decent. You nod, close the tab.
+Your browser sees what you are reading now. Your notes preserve what you genuinely
+thought before.
 
-Three weeks later you're writing a design doc and you half-remember reading something
-about this. You dig up the paper. But the question you asked, the answer you got, and
-the "is this even feasible?" you scribbled in the margin — all gone.
+Most of the time, those two worlds are disconnected. A claim feels familiar, but you
+cannot recover your earlier judgment. You want to verify an idea, so you search from
+scratch. A question you left unresolved months ago does not return when today's article
+finally contains the missing evidence.
 
-**The work you put into understanding it was spent, not saved.**
+**ContextFlow reconnects them.**
 
-What's worth keeping isn't only the sentences you highlighted. It's what confused you,
-what you asked, what convinced you, what you doubted. That's what actually happened
-between you and that paper.
+It preserves highlights, annotations, questions, and summaries in the browser, while a
+local AI agent can read the notes you explicitly authorize. The answer can therefore use
+not only the current page, but also what you previously read, doubted, and accepted.
 
-ContextFlow structures that trail of understanding — source text, questions, answers,
-judgments, and summaries — into **your own notes**, then makes it reusable by the local
-agents you already work with.
-
-It is not another reader, and not another chat box. It is context infrastructure connecting
-**reading, personal knowledge, and local intelligence**.
+This is not another chat box inside the browser. It brings your personal knowledge back
+into the act of reading.
 
 ---
 
-## Four things, on any page
+## Bring personal knowledge into the current article
 
-Select text and a toolbar appears:
-
-| | |
+| While reading | What ContextFlow can do |
 |---|---|
-| 🎨 **Highlight & annotate** | Four colors, your thought next to it |
-| 🌐 **Translate** | Terminology follows the whole article, so one term doesn't get two translations |
-| ❓ **Explain** | Open the panel for a 200-character brief; select a passage and ask what you actually want to know |
-| 📝 **Summarize** | A few lines when you're done, stored alongside the rest |
+| **Compare as you read** | Surface related definitions, earlier conclusions, and counterexamples from your notes |
+| **Cross-check an idea** | Place supporting evidence, conflicting evidence, and assumptions side by side; distinguish independent sources from repeated citations |
+| **Trace how your view changed** | Reconstruct how a question became a hypothesis and how later evidence revised it |
+| **Let unfinished questions return** | Resurface an old open question when a new article contains relevant evidence |
+| **Write back into the same thread** | Store the new judgment, quoted passage, and source next to the knowledge it extends |
 
-Reload the page and highlights land back where they were. Click a mark in the article to
-jump to its record; click the record to jump back to the text.
+The important change is not better note search. It is a layer of **personal context that
+persists across time**.
 
 ---
 
-## The part that's actually different
+## A real reading session can look like this
 
-**Explain** can be handed to an AI agent **already installed on your computer**
-(Claude Code, Codex, …) instead of yet another chat box in a browser tab.
+You are reading a new paper about long-term memory and ask:
 
-The difference: that agent can read *your* stuff.
+> **Is this conclusion consistent with what I have read before?**
 
-A real answer — I selected the paper's `Threat model` section and asked what it's about:
+ContextFlow explains the current passage, then lets the local agent compare it with your
+notes:
 
-> This section draws the attacker's capability boundary. Three assumptions:
-> 1. **Black-box access** — interaction only through the public API…
-> 2. **No white-box information** — no weights, no gradients, so no gradient-based attacks
-> 3. **Strong query budget** — many adaptive queries, and control of the system prompt
+> The paper argues that long-term memory depends on retrieving context at the right time,
+> not on storing as much as possible.
 >
-> From your notes: in `reading/2026-08-19.md` you wrote "is this even feasible?" next to
-> the *attacker's server* passage — **that's exactly the realism of assumption 3 here**.
+> - This supports your April note: the value of memory is retrieval timing, not storage volume.
+> - It conflicts with an experiment you recorded in June: a wrong retrieval can be worse than no retrieval.
+> - The two sources use different tasks and evaluation criteria. They point in a similar direction, but do not yet prove each other.
 
-That last line is the point. It found a doubt I'd written down days earlier and connected
-it to the paper's assumption.
-
-**No browser-tab AI can do that** — it can't see your notes. The agent on your machine can.
-
-> These answers take tens of seconds, so you can fire the question and close the window.
-> A pending mark stays on the passage; the answer shows up in the panel when it lands.
-> Ask the same thing again and it comes straight from a local cache — no second run.
+The point is not a longer answer. **What you understood before is participating in the
+judgment you make now.**
 
 ---
 
-## It lands in your own notes
+## From one-off answers to a personal knowledge loop
 
-One click to sync. **One document per article**, with a brief and each kind of reading record under its own heading:
+```mermaid
+flowchart LR
+    A[Current page] --> B[ContextFlow<br/>Chrome extension]
+    B --> C[Local service]
+    C <--> D[Local AI agent]
+    E[Your personal notes] -->|Safe: read only| D
+    D -. Full: invoke .-> F[MCP / local tools]
+    F -. Authorized read/write .-> E
+    B --> G[Highlights · notes · questions · summaries]
+    G --> E
+```
+
+- **ContextFlow** understands the reading session: article text, selection, context,
+  annotations, and questions.
+- The **local agent** connects that session to earlier knowledge and may use file or MCP
+  tools within the permissions you grant.
+- **Note backends** keep the durable, portable assets instead of locking them inside the
+  extension.
+- The **next reading session** can consume those assets again, turning documents into a
+  growing personal knowledge network.
+
+The default Safe profile exposes only reading and retrieval capabilities: Codex runs in a
+read-only sandbox, while Claude Code is constrained with explicit tool allow/deny rules.
+Writes, shell commands, MCP, and persistent sessions remain isolated. Only the opt-in Full
+profile inherits the MCP servers and other capabilities already configured for your agent.
+
+---
+
+## What is implemented
+
+### The reading surface
+
+- Four-color highlights and annotations
+- Translation using full-article context
+- Article brief, passage explanation, and follow-up questions
+- Whole-article summary
+- Two-way navigation between source marks and reading records
+- Highlight restoration after reload or revisit
+
+### Personal knowledge connection
+
+- Route **Explain** to a locally installed AI agent such as Claude Code, Codex, or another
+  supported CLI agent
+- Grant the agent read-only access to an explicit notes directory
+- Retrieve and compare earlier judgments, then bring relevant notes into the current answer
+- Safe and advanced full-permission agent profiles
+- Asynchronous jobs, progress states, and local caching, so you can keep reading while an
+  answer is generated
+
+### Durable notes and sync
+
+- One long-lived document per article
+- **Obsidian**, **SiYuan**, and plain **Markdown directory** backends
+- Idempotent sync: repeated syncs do not append duplicates
+- In-place updates for summaries and managed blocks
+- Source text, question, answer, annotation, and source URL preserved together
+
+---
+
+## Your notes remain yours
+
+A synced article looks roughly like this:
 
 ```markdown
 # Stealing Reasoning Traces from Proprietary LLM APIs
 
 ## Brief
-A black-box attack recovers hidden reasoning traces through a public API by reusing encrypted reasoning blocks across sessions.
+The paper presents an attack that recovers hidden reasoning traces through a public API.
 
-## Translation
+## Explanation
+**❓ Is this conclusion consistent with what I have read before?**
 > Threat model
-威胁模型
 
-## Explanations
-**❓ What is this section about?**
-> Threat model
-This section draws the attacker's capability boundary. Three assumptions…
+The current claim supports your earlier view about retrieval timing, but conflicts with
+another experiment in your notes…
 
-## Annotations
+## Annotation
 > attackers can only query the model through its public API
-💬 This assumption is what sets the attack cost.
+
+This assumption determines the attack cost and should be considered alongside the
+feasibility question recorded earlier.
 
 ## Summary
-Recovers reasoning traces through a public API.
-To verify: does it still work against models with summarized-reasoning mode on?
+Core contribution, agreements with existing notes, conflicts, and open questions.
 ```
 
-Works with **SiYuan**, **Obsidian**, or just **Markdown files in a plain folder**.
-
-Read the same article across several days and everything appends to the same document.
-Edit your summary and re-sync — it rewrites in place instead of adding a second copy.
-Clicking sync twice never duplicates anything.
+It is ordinary Markdown and can live directly in your existing note system. If you stop
+using ContextFlow, the content remains readable, searchable, and portable.
 
 ---
 
-## Everything stays local
+## Local-first by architecture
 
-Not a slogan — it falls out of the architecture:
-
-- A small service on `127.0.0.1`, data in SQLite on your own machine
-- **API keys live only in that service** and never reach browser-side code
-- Notes are written straight into your folder or note app, through no third party
-- No account, no cloud. Annotate with the service down — it's saved locally and pushed
-  when the service comes back
-
-As a Chrome extension it goes one step further: network calls happen in the service
-worker, so not even page JavaScript can touch your credentials.
+- The local service listens only on `127.0.0.1`; structured data stays in local SQLite
+- The LLM API key stays in the local service; the service token is injected only into the extension service worker. Neither enters page code
+- Content scripts hold no service credentials
+- Notes are written directly to your folder or note application, with no ContextFlow cloud
+- No ContextFlow account and no hosted personal knowledge base
+- You can keep annotating while the service is offline and continue processing later
+- The agent receives read-only access to the notes directory by default
 
 ---
 
 ## Getting started
 
-Needs **Node ≥ 22.5** (uses the built-in SQLite, so nothing to compile).
+Requires **Node.js ≥ 22.5** and a Chromium 111+ browser.
 
 ```bash
 git clone https://github.com/PengheLiu/ContextFlow.git
-cd ContextFlow && npm install
-npm run server        # first run creates ~/.contextflow/config.json
-npm run build:ext     # prints the extension id
+cd ContextFlow
+npm install
+npm run server        # terminal A: creates ~/.contextflow/config.json on first run
+
+# Open terminal B
+npm run build:ext     # prints the stable extension ID and chrome-extension:// origin
 ```
 
-In Chrome: `chrome://extensions` → Developer mode → Load unpacked → pick
-`extension/dist`.
+Then:
 
-Then open the panel on the right and hit **配置** (Settings): point it at an LLM endpoint
-and key (used for translation — there's a "fetch available models" button), and choose
-where your notes live. To route **Explain** through a local agent, hit **检测** (Detect)
-there and pick one.
+1. Add the printed `chrome-extension://<id>` to `allowedOrigins` in `~/.contextflow/config.json`.
+2. Restart the local service so the updated origin allowlist takes effect.
+3. Open `chrome://extensions` and enable Developer mode.
+4. Choose **Load unpacked** and select `extension/dist`.
+5. Open any article and enter **Settings** in the ContextFlow side panel.
+6. Configure the LLM used for translation, your notes backend, and an optional local agent.
 
-> **Heads up:** the UI and the generated notes are in Chinese. Explanations come back in
-> Chinese by default too. If you'd want an English UI, open an issue — it's a matter of
-> extracting the strings, not a redesign.
+To let an agent use personal notes, click **Detect**, choose an installed agent, and
+explicitly select the notes directory it may read.
 
-<details>
-<summary>Prefer a userscript over an extension?</summary>
+> The current interface and generated note headings are primarily Chinese. Contributions
+> that extract the strings into an English locale are welcome.
 
-```bash
-npm run build:skill   # produces dist/skill.js
-```
+---
 
-Paste `dist/skill.js` into Tampermonkey / Violentmonkey and bind it to the pages you want.
+## Configuration
 
-The tradeoff: this path compiles the token into the script and shares the page's
-JavaScript environment, so it's weaker than the extension.
-</details>
+The configuration file is `~/.contextflow/config.json`:
 
-<details>
-<summary>Settings you might want to change</summary>
-
-`~/.contextflow/config.json`:
-
-| Key | What it does |
+| Key | Purpose |
 |---|---|
-| `explain.backend` | `llm` (seconds) or `agent` (much slower, but reads your notes) |
-| `agent.id` / `agent.notesDir` | Which local agent, and which notes directory it may read |
-| `translate.chunkChars` | How much article text to feed per turn (default 5000). `0` disables article context |
+| `explain.backend` | `llm` for a fast answer; `agent` for an answer grounded in personal notes |
+| `agent.id` | Which local agent to use |
+| `agent.notesDir` | The notes directory the agent may read |
+| `agent.profile` | `safe` for minimal read-only access; `full` to inherit the agent's complete capabilities |
+| `translate.chunkChars` | Article context sent per translation turn; `0` disables full-article context |
 | `sync.backend` | `siyuan` / `obsidian` / `markdown` |
-| `allowedOrigins` | Who may reach the local service. With the extension you can allow only the extension itself |
-
-</details>
+| `allowedOrigins` | Origins allowed to access the local service; for the extension, add the `chrome-extension://<id>` printed by `build:ext` |
 
 ---
 
 ## Known limits
 
-- arxiv `/pdf/` pages render in the browser's built-in PDF viewer, which scripts can't
-  enter — no annotating there. Use the `/abs/` or `/html/` version.
-- Explain-via-local-agent takes tens of seconds and spends that agent's quota.
-  Switch back to `llm` if that's the wrong trade for you.
-- After a heavy page redesign a highlight may not resolve. Those are marked as orphaned
-  and listed in the panel — never silently dropped.
+- Extensions cannot enter the browser's built-in PDF viewer. For arXiv, use the `/abs/`
+  or `/html/` version instead of `/pdf/`.
+- A local agent needs time and quota to read and reason over your notes, so it is slower
+  than a direct LLM answer.
+- After a major page redesign, a small number of highlights may no longer resolve. They
+  are marked as orphaned and never silently discarded.
+- Full-permission mode may inherit shell, network, and MCP capabilities. Enable it only
+  after understanding the risk.
 
 ---
 
-## Why it's built this way
+## Why it is built this way
 
-[DESIGN.md](./DESIGN.md) (Chinese) records the tradeoffs and the measurements behind them
-— why highlighting uses the CSS Custom Highlight API instead of injecting `<span>`s, the
-hit rates of each anchoring tier, why translation isn't worth an agent (one to two orders
-of magnitude more expensive, measured), and how the running conversation keeps hitting
-the prompt cache.
+[DESIGN.md](./DESIGN.md) records the architecture tradeoffs and measurements behind the
+implementation, including:
 
-It also records a few things only running the thing teaches you, like "an allow-list of
-tools is not enough".
+- Why highlighting uses the CSS Custom Highlight API instead of injected `<span>` elements
+- The multi-tier anchoring strategy and measured hit rates
+- Why the reading surface and durable notes use separate storage layers
+- How long-running local-agent jobs avoid blocking the reading experience
+- Why a tool allow-list is not a substitute for permission isolation
+- Credential boundaries between the extension service worker, local service, and page
+  environment
 
 ## License
 
