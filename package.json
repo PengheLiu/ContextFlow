@@ -16,7 +16,8 @@
     "resync": "node tools/resync.mjs",
     "build:ext": "node tools/build.mjs --ext",
     "publish:public": "node tools/publish.mjs",
-    "build:store": "node tools/build.mjs --ext --store && node tools/package-store.mjs"
+    "build:store": "node tools/build.mjs --ext --store && node tools/package-store.mjs",
+    "assets:readme": "node tools/gen-readme-assets.mjs"
   },
   "devDependencies": {
     "esbuild": "^0.25.0",
