@@ -13,12 +13,13 @@
 
 import { buildTextIndex, serializeRange, resolveAnchor, charOffsetOf, boundaryOffset }
   from '../core/anchor.js';
-import { Highlighter, COLORS, MARKS, supported } from '../core/highlight.js';
+import { Highlighter, COLORS, DARK_COLORS, MARKS, supported } from '../core/highlight.js';
 import * as api from '../core/api.js';
-import { T, FLOAT, shadowHost } from './theme.js';
+import { T, FLOAT, shadowHost, onPageTheme } from './theme.js';
 import { Panel } from './panel.js';
 import { Popover, ticker } from './popover.js';
 import { MarkDeleteControl } from './mark-delete.js';
+import { icon } from './icons.js';
 import { lookupKey, lookupId } from '../core/lookupkey.js';
 import { reconcile } from '../core/reconcile.js';
 import {
@@ -49,19 +50,31 @@ const mGet = (k) => { try { return JSON.parse(localStorage.getItem(MIRROR + k) |
 const mSet = (k, v) => { try { localStorage.setItem(MIRROR + k, JSON.stringify(v)); } catch { /* 配额 */ } };
 
 const TOOLBAR_CSS = `${FLOAT}
-  .card{display:none;gap:3px;align-items:center}
-  .sw{width:19px;height:19px;border-radius:50%;padding:0;
-      border:1px solid rgba(28,26,23,.14);box-shadow:inset 0 -1px 2px rgba(0,0,0,.05)}
-  .sw:hover{transform:scale(1.14)}
-  .sep{width:1px;height:18px;background:${T.line};margin:0 3px}
-  .txt{font-size:12.5px;padding:5px 8px}
+  .card{display:none;gap:2px;align-items:center;padding:5px 6px;border-radius:7px;
+        background-color:${T.paper};
+        background-image:radial-gradient(circle at 1px 1px,var(--cf-grain) .6px,transparent .7px);background-size:5px 5px}
+  .sw{position:relative;width:18px;height:22px;margin:0 2px;border-radius:2px 2px 6px 2px;padding:0;
+      border:1px solid ${T.lineStrong};box-shadow:inset 0 -2px 2px ${T.hover};
+      transition:transform .14s ease,border-color .14s ease,filter .14s ease}
+  .sw::after{content:'';position:absolute;left:3px;right:3px;top:3px;height:4px;border-top:1px solid rgba(255,255,255,.58);opacity:.75}
+  .sw:hover{transform:translateY(-1px);border-color:${T.inkSoft};filter:saturate(1.08)}
+${Object.entries(COLORS).map(([name, color]) => `  .sw[data-c="${name}"]{background:${color}}`).join('\n')}
+${Object.entries(DARK_COLORS).map(([name, color]) => `  :host([data-theme=dark]) .sw[data-c="${name}"]{background:${color}}`).join('\n')}
+  .sep{width:1px;height:23px;background:${T.line};margin:0 5px}
+  .txt{display:inline-flex;align-items:center;gap:5px;min-height:31px;font-size:12.5px;font-weight:620;padding:5px 8px;background:transparent}
+  .txt .ico{width:14px;height:14px;color:${T.quote}}
+  .txt:hover .ico{color:${T.accent}}
 `;
 
 export class App {
-  constructor() {
+  constructor({ initialPanelOpen = null } = {}) {
+    this.initialPanelOpen = typeof initialPanelOpen === 'boolean' ? initialPanelOpen : null;
+    this.pendingPanelToggle = false;
     this.key = urlKey();
     this.items = mGet(this.key);
     this.hl = new Highlighter();
+    // 正文标记与 UI 用同一明暗判定源：页面实测背景，系统偏好只是兜底。
+    onPageTheme((tone) => this.hl.setDark(tone === 'dark'));
     this.index = null;
     this.pos = new Map();          // id → 解析后的文档偏移，用于面板排序
     this.stats = { position: 0, quote: 0, fuzzy: 0, orphan: 0 };
@@ -78,6 +91,11 @@ export class App {
     this.buildToolbar();
     this.markDelete = new MarkDeleteControl((id) => this.deleteMarked(id));
     this.panel = new Panel(this.handlers());
+    // 浏览器 userscript首次运行要直接展开；只覆盖这一次启动，不改变扩展和侧边按钮
+    // 对 localStorage 中 open 状态的正常记忆。若脚本在 DOMContentLoaded 前被连续点击，
+    // togglePanel() 会先翻转 initialPanelOpen，面板创建后再一次性应用最终状态。
+    if (this.initialPanelOpen !== null) this.panel.toggle(this.initialPanelOpen, false);
+    if (this.pendingPanelToggle) this.panel.toggle(!this.panel.open, false);
     if (offlineAvailable()) {
       await migrateArticleMirror(this.key, this.items);
       const durable = await listOfflineEvents(this.key);
@@ -89,6 +107,19 @@ export class App {
     this.resumePending();          // 接上刷新前没跑完的解释
     if (this.panel.open) this.autoSummarize();   // 面板记忆为展开：这也算"打开插件"
     console.log('[ContextFlow] 就绪', { key: this.key, n: this.items.length, online: this.online });
+  }
+
+  /**
+   * 切换现有面板。公开userscript重复执行时走这里，避免再次构造整套 UI。
+   * DOM 尚未 ready 时先记下意图，Panel 创建后再应用。
+   */
+  togglePanel() {
+    if (this.panel) {
+      this.panel.toggle();
+      return;
+    }
+    if (this.initialPanelOpen !== null) this.initialPanelOpen = !this.initialPanelOpen;
+    else this.pendingPanelToggle = !this.pendingPanelToggle;
   }
 
   handlers() {
@@ -111,7 +142,9 @@ export class App {
       // 只做筛选，排序统一交给 panel 的 byPosition（见 core/order.js）
       getLookups: (kind) => this.items.filter((e) => e.action === kind && !e.deletedAt),
       onDeleteLookup: (id) => this.deleteLookup(id),
-      onOpen: () => this.autoSummarize(),
+      // Panel 构造时会恢复“上次保持展开”的状态；把速览放到微任务，
+      // 等 this.panel 完成赋值后再执行，避免刷新时访问尚未挂载的 panel。
+      onOpen: () => queueMicrotask(() => this.autoSummarize()),
       onSummarize: (fresh) => this.autoSummarize(fresh),
       onRetryLookup: (id) => this.retryLookup(id),
       onCopyMarkdown: () => this.copyMarkdown(),
@@ -250,13 +283,13 @@ export class App {
   // ---------- 划词工具条 ----------
   buildToolbar() {
     const sh = shadowHost('toolbar', TOOLBAR_CSS, 2147483647);
-    sh.innerHTML += `<div class="card r" id="tb">
+    sh.innerHTML += `<div class="card r" id="tb" role="toolbar" aria-label="选中文本操作">
       ${Object.keys(COLORS).map((c) =>
-        `<button class="sw" data-c="${c}" title="高亮" style="background:${COLORS[c]}"></button>`).join('')}
-      <span class="sep"></span>
-      <button class="txt" data-a="comment" title="高亮并在右侧写评论">批注</button>
-      <button class="txt" data-a="explain" title="就这段内容提问">解释</button>
-      <button class="txt" data-a="translate" title="翻译选中文本">翻译</button>
+        `<button class="sw" data-c="${c}" title="高亮" aria-label="${c} 高亮"></button>`).join('')}
+      <span class="sep" aria-hidden="true"></span>
+      <button class="txt" data-a="comment" title="高亮并写批注">${icon('comment')}<span>批注</span></button>
+      <button class="txt" data-a="explain" title="就这段内容提问">${icon('explain')}<span>解释</span></button>
+      <button class="txt" data-a="translate" title="翻译选中文本">${icon('translate')}<span>翻译</span></button>
     </div>`;
     this.tb = sh.getElementById('tb');
     // mousedown + preventDefault：点击若走 click 事件，选区已被清掉
@@ -285,8 +318,16 @@ export class App {
       if (el?.closest?.('[data-contextflow]')) return this.hideTb();
       const r = range.getBoundingClientRect();
       this.tb.style.display = 'flex';
-      this.tb.style.left = `${Math.min(Math.max(8, r.left), innerWidth - 250)}px`;
-      this.tb.style.top = `${r.top > 54 ? r.top - 46 : r.bottom + 10}px`;
+      // 居中贴在选区上方；上方不够再翻到下方。高度也要量 —— 图标化后工具条
+      // 不再恒高，写死偏移会压住第一行文字。
+      const box = this.tb.getBoundingClientRect();
+      const width = box.width || 292, height = box.height || 48;
+      const center = r.left + r.width / 2;
+      const left = Math.min(Math.max(8, center - width / 2), Math.max(8, innerWidth - width - 8));
+      const above = r.top - height - 10;
+      const top = above >= 8 ? above : Math.min(r.bottom + 10, Math.max(8, innerHeight - height - 8));
+      this.tb.style.left = `${Math.round(left)}px`;
+      this.tb.style.top = `${Math.round(top)}px`;
     }, 0));
 
     // 翻译面板是常驻的（由 × 或点击页面空白关闭），滚动只收工具条
@@ -457,7 +498,7 @@ export class App {
     this.pops ??= {};
     if (this.pops[kind]) return this.pops[kind];
     return (this.pops[kind] = kind === 'translate'
-      ? new Popover({ name: 'tip-translate', title: '翻译' })
+      ? new Popover({ name: 'tip-translate', title: '翻译', showSource: false })
       : new Popover({
         name: 'tip-explain', title: '解释', input: true,
         placeholder: '想问什么？留空则直接解释这段（Enter 提交）',
@@ -923,12 +964,14 @@ export class App {
 /**
  * 防重复注入。
  *
- * 脚本可能被注入两次（userscript 手动再运行一次；扩展重载后旧 content script 仍在）。
- * shadowHost 每次都新建宿主，于是会出现**两套完整 UI**：两个工具条都响应 mousedown、
- * 两个浮层叠在一起，你看到的是上面那个而事件可能绑在下面那个上 —— 表现就是"点了没反应"。
- * 用 documentElement 上的标记做闸，第二次注入直接退出并说明原因。
+ * 脚本可能被注入两次（userscript再次点击；扩展重载后旧 content script 仍在）。直接再建
+ * shadowHost 会产生两套完整 UI，所以仍用 documentElement 标记做闸。区别是：公开userscript
+ * 把“再次执行”解释为切换已有面板，通过固定 DOM 事件通知第一份实例；扩展等普通
+ * 入口仍忽略重复注入。
  */
 const MARK = 'contextflowLoaded';
+const TOGGLE_MARK = 'toggle';
+const PANEL_TOGGLE_EVENT = 'contextflow:toggle-panel';
 
 /**
  * 显式启动，**不在模块加载时自动跑**。
@@ -936,16 +979,25 @@ const MARK = 'contextflowLoaded';
  * 两个载体都要在启动前先把传输层配好（扩展入口要 setTransport 换成走 service worker），
  * 若在 import 时就自动启动，那一步永远来不及。
  *
- * @returns {App|null} 已在运行则返回 null
+ * @param {{initialPanelOpen?: boolean|null, toggleExisting?: boolean}} options
+ * @returns {App|null} 首次启动返回实例；已有实例时返回 null
  */
-export function boot() {
-  if (document.documentElement.dataset[MARK]) {
+export function boot({ initialPanelOpen = null, toggleExisting = false } = {}) {
+  const loaded = document.documentElement.dataset[MARK];
+  if (loaded) {
+    if (toggleExisting && loaded === TOGGLE_MARK) {
+      document.dispatchEvent(new Event(PANEL_TOGGLE_EVENT));
+      return null;
+    }
     console.warn('[ContextFlow] 本页已在运行，忽略这次重复注入'
       + '（重复注入会产生两套 UI，点击可能落到不可见的那一套上）。刷新页面可重置。');
     return null;
   }
-  document.documentElement.dataset[MARK] = '1';
-  const app = new App();
+  document.documentElement.dataset[MARK] = toggleExisting ? TOGGLE_MARK : '1';
+  const app = new App({ initialPanelOpen });
+  if (toggleExisting) {
+    document.addEventListener(PANEL_TOGGLE_EVENT, () => app.togglePanel());
+  }
   // start 是异步的（要对账、上传正文），但调用方需要立刻拿到实例
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', () => app.start(), { once: true });

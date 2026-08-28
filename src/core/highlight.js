@@ -12,6 +12,15 @@ export const COLORS = {
   pink: 'rgba(255, 55, 95, .30)',
 };
 
+// 暗色不是把日间颜色直接加深：在暖炭灰页面上降低亮度与透明度，
+// 才不会像荧光笔发光。键与 COLORS 严格一致，工具条和正文可一一对应。
+export const DARK_COLORS = {
+  yellow: 'rgba(245, 194, 66, .32)',
+  green: 'rgba(72, 175, 110, .30)',
+  blue: 'rgba(80, 150, 235, .30)',
+  pink: 'rgba(224, 94, 133, .29)',
+};
+
 // 查询标记：解释 / 翻译在原文留下的痕迹，点它可跳到右侧对应条目。
 // 刻意不并进 COLORS —— 工具条的色板按钮是 Object.keys(COLORS) 生成的，
 // 混进去会凭空多出两个可选"颜色"。
@@ -23,8 +32,14 @@ export const COLORS = {
 // 用户根本不知道那里可点。所以底色单独也能看出来，同时仍明显弱于高亮的
 // .30~.45，叠在一起时不会喧宾夺主。
 export const MARKS = {
-  explain: { line: 'dotted', color: 'rgba(180, 83, 9, .95)', tint: 'rgba(180, 83, 9, .14)' },
-  translate: { line: 'dashed', color: 'rgba(37, 99, 235, .9)', tint: 'rgba(37, 99, 235, .12)' },
+  explain: {
+    line: 'dotted', color: 'rgba(180, 83, 9, .95)', tint: 'rgba(180, 83, 9, .14)',
+    darkColor: 'rgba(226, 160, 93, .96)', darkTint: 'rgba(226, 160, 93, .13)',
+  },
+  translate: {
+    line: 'dashed', color: 'rgba(37, 99, 235, .9)', tint: 'rgba(37, 99, 235, .12)',
+    darkColor: 'rgba(126, 173, 239, .96)', darkTint: 'rgba(126, 173, 239, .13)',
+  },
 };
 
 /**
@@ -36,10 +51,12 @@ export const MARKS = {
  */
 export const PENDING_MARK = {
   line: 'dotted', color: 'rgba(180, 83, 9, .5)', tint: 'rgba(180, 83, 9, .07)',
+  darkColor: 'rgba(226, 160, 93, .62)', darkTint: 'rgba(226, 160, 93, .075)',
 };
 
 // 定位闪烁用的临时色，不出现在调色板里
 const FLASH = 'rgba(180, 83, 9, .42)';
+const DARK_FLASH = 'rgba(226, 160, 93, .34)';
 
 // 所有标记样式（含 pending）。MARKS 只放"由 action 派生"的那些，
 // 因为 main.js 要用 Object.keys(MARKS) 判断哪些 action 需要画标记。
@@ -62,24 +79,48 @@ export class Highlighter {
   constructor() {
     this.items = new Map(); // id -> {range, color}
     this._styled = false;
+    this._dark = null;      // 三态：null = 页面明暗未知，退回系统偏好
+    this._styleEl = null;
+  }
+
+  /**
+   * 标记色板跟谁走：面板 UI 按页面实测背景判定明暗（theme.js 的 pageTheme），
+   * 系统 prefers-color-scheme 只是页面无法判定时的兜底。标记画在页面正文里，
+   * 必须与 UI 用同一判定源 —— 否则「OS 浅色 + 网页深色」时 UI 是夜间纸、
+   * 标记却还是日间色板。skill 载体启动后会订阅页面明暗并调用这里。
+   * @param {boolean|null} dark 页面实测明暗；null = 未知
+   */
+  setDark(dark) {
+    if (this._dark === dark) return;
+    this._dark = dark;
+    if (this._styleEl) this._styleEl.textContent = this._styleText();
+  }
+
+  _styleText() {
+    const rules = (colors, dark = false) => [
+      ...Object.entries(colors).map(([name, bg]) =>
+        `::highlight(contextflow-${name}){background:${bg};color:inherit;}`),
+      // tint 是给不认 text-decoration 的实现留的兜底：即使下划线没画出来，
+      // 也还看得出这段被查过，不至于完全无标记。
+      ...Object.entries(ALL_MARKS).map(([name, m]) =>
+        `::highlight(contextflow-mark-${name}){color:inherit;background:${dark ? m.darkTint : m.tint};`
+        + `text-decoration:underline ${m.line};text-decoration-color:${dark ? m.darkColor : m.color};`
+        + `text-decoration-thickness:2px;text-underline-offset:2px;}`),
+      `::highlight(contextflow-flash){background:${dark ? DARK_FLASH : FLASH};color:inherit;}`,
+    ].join('\n');
+    // 页面明暗已知时直接用对应色板；未知（扩展载体 / 无 watcher 的环境）退回媒体查询。
+    if (this._dark === true) return rules(DARK_COLORS, true);
+    if (this._dark === false) return rules(COLORS);
+    return `${rules(COLORS)}\n@media (prefers-color-scheme:dark){\n${rules(DARK_COLORS, true)}\n}`;
   }
 
   _ensureStyles() {
     if (this._styled) return;
     const style = document.createElement('style');
     style.setAttribute('data-contextflow', 'styles');
-    style.textContent = [
-      ...Object.entries(COLORS).map(([name, bg]) =>
-        `::highlight(contextflow-${name}){background:${bg};color:inherit;}`),
-      // tint 是给不认 text-decoration 的实现留的兜底：即使下划线没画出来，
-      // 也还看得出这段被查过，不至于完全无标记。
-      ...Object.entries(ALL_MARKS).map(([name, m]) =>
-        `::highlight(contextflow-mark-${name}){color:inherit;background:${m.tint};`
-        + `text-decoration:underline ${m.line};text-decoration-color:${m.color};`
-        + `text-decoration-thickness:2px;text-underline-offset:2px;}`),
-      `::highlight(contextflow-flash){background:${FLASH};color:inherit;}`,
-    ].join('\n');
+    style.textContent = this._styleText();
     document.head.appendChild(style);
+    this._styleEl = style;
     this._styled = true;
   }
 

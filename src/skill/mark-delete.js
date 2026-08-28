@@ -4,16 +4,17 @@
 // 所以这里只保留**一个** fixed-position Shadow DOM 按钮：点击某条标记时，根据 Range 的
 // 最后一个 client rect 临时摆到视觉末端的右上角；点别处 / 滚动 / resize 就收起。
 import { T, shadowHost } from './theme.js';
+import { icon } from './icons.js';
 
 const CSS = `
   .x{all:unset;display:none;position:fixed;box-sizing:border-box;
      width:23px;height:23px;border-radius:50%;cursor:pointer;
      place-items:center;background:${T.paper};color:${T.quote};
-     border:1px solid ${T.line};box-shadow:0 2px 10px rgba(28,26,23,.20);
-     font:600 15px/1 ${T.sans};user-select:none}
+     border:1px solid ${T.line};box-shadow:${T.shadowControl};user-select:none}
   .x.on{display:grid}
-  .x:hover{color:#b3261e;border-color:rgba(179,38,30,.30);background:#fff8f7}
-  .x:focus-visible{outline:2px solid ${T.accent};outline-offset:2px}
+  .x .ico{width:14px;height:14px}
+  .x:hover{color:${T.bad};border-color:${T.bad};background:${T.badSoft}}
+  .x:focus-visible{outline:2px solid ${T.focusLine};outline-offset:2px}
   .sr{position:fixed;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);
       clip-path:inset(50%);white-space:nowrap}
 `;
@@ -26,7 +27,7 @@ export class MarkDeleteControl {
   /** @param {(id:string)=>void} onDelete */
   constructor(onDelete) {
     const sh = shadowHost('mark-delete', CSS, 2147483647);
-    sh.innerHTML += `<button class="x" id="x" type="button">×</button>
+    sh.innerHTML += `<button class="x" id="x" type="button">${icon('trash')}</button>
       <span class="sr" id="status" role="status" aria-live="polite"></span>`;
     this.sh = sh;
     this.el = sh.getElementById('x');

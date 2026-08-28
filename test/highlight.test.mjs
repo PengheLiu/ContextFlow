@@ -5,7 +5,7 @@
 // 不锁进测试就会在后续重构里被无声改掉。
 import assert from 'node:assert/strict';
 import { JSDOM } from 'jsdom';
-import { Highlighter, COLORS, MARKS } from '../src/core/highlight.js';
+import { Highlighter, COLORS, DARK_COLORS, MARKS } from '../src/core/highlight.js';
 
 const dom = new JSDOM('<!doctype html><p>abc</p>');
 global.document = dom.window.document;
@@ -196,6 +196,52 @@ t('rectOf / endRectOf：missing、零尺寸、异常都返回 null', () => {
   assert.equal(h.endRectOf('z'), null);
   h.set('bad', { getClientRects: () => { throw new Error('detached'); } }, 'yellow');
   assert.equal(h.endRectOf('bad'), null);
+});
+
+console.log('标记色板的明暗来源\n');
+
+t('页面明暗未知时，标记色板退回系统偏好（媒体查询）', () => {
+  const h = fresh();
+  h.set('a', range('x'), 'explain');
+  h.render();
+  const el = [...document.head.querySelectorAll('style[data-contextflow]')].pop();
+  assert.ok(el.textContent.includes('@media (prefers-color-scheme:dark)'));
+  assert.ok(el.textContent.includes(MARKS.explain.color));
+});
+
+t('setDark(true)：直接使用夜间色板，不再依赖媒体查询', () => {
+  const h = fresh();
+  h.set('a', range('x'), 'explain');
+  h.render();
+  const el = [...document.head.querySelectorAll('style[data-contextflow]')].pop();
+  h.setDark(true);
+  assert.ok(!el.textContent.includes('prefers-color-scheme'));
+  assert.ok(el.textContent.includes(MARKS.explain.darkColor));
+  assert.ok(el.textContent.includes(DARK_COLORS.yellow));
+});
+
+t('setDark(false)：回到日间色板；重复设置不重写样式', () => {
+  const h = fresh();
+  h.set('a', range('x'), 'explain');
+  h.render();
+  const el = [...document.head.querySelectorAll('style[data-contextflow]')].pop();
+  h.setDark(true);
+  h.setDark(false);
+  assert.ok(el.textContent.includes(MARKS.explain.color));
+  assert.ok(!el.textContent.includes(MARKS.explain.darkColor));
+  const before = el.textContent;
+  h.setDark(false);   // 幂等：不触发重写
+  assert.equal(el.textContent, before);
+});
+
+t('render 前就 setDark 也成立：首份样式直接用对应色板', () => {
+  const h = fresh();
+  h.setDark(true);
+  h.set('a', range('x'), 'translate');
+  h.render();
+  const el = [...document.head.querySelectorAll('style[data-contextflow]')].pop();
+  assert.ok(el.textContent.includes(MARKS.translate.darkColor));
+  assert.ok(!el.textContent.includes('prefers-color-scheme'));
 });
 
 console.log(`\n${pass} 项通过`);

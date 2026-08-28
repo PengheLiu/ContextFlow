@@ -8,6 +8,7 @@
 // 2. 外部点击判定要放行**所有** [data-contextflow] 宿主，而不只是自己。
 //    工具条是另一个 shadow host，只放行自己同样会误关。
 import { T, FLOAT, shadowHost } from './theme.js';
+import { brandMark, icon } from './icons.js';
 
 const UI_KEY = 'contextflow:pop';
 const MIN_W = 300, MIN_H = 200;
@@ -18,67 +19,78 @@ const loadUI = () => {
 const saveUI = (ui) => { try { localStorage.setItem(UI_KEY, JSON.stringify(ui)); } catch { /* 配额 */ } };
 
 const CSS = `${FLOAT}
-  /* flex 列布局：给定高度后，答案区滚动、输入区固定在底部。
-     原来是 block + 各自写死 max-height，浮层一旦被拉高，多出来的空间没人用。 */
-  /* padding-bottom 放在 card 上，而不是让每个子元素各自写 —— 无论最后一个可见的
-     是输入框、答案还是元信息行，底部都有同样的留白。原先只有 .ask 的 padding
-     写成 8px 12px 0，答案区为空时输入框就直接贴着卡片下沿。 */
   .card{display:none;flex-direction:column;padding:0 0 11px;overflow:hidden;
-        width:min(480px,calc(100vw - 24px));max-height:calc(100vh - 24px)}
+        width:min(500px,calc(100vw - 24px));max-height:calc(100vh - 24px);border-radius:7px;
+        background-color:${T.paper};
+        background-image:radial-gradient(circle at 1px 1px,var(--cf-grain) .65px,transparent .75px);background-size:5px 5px}
+  .card::before{content:'';position:absolute;top:0;left:17px;width:42px;height:2px;background:${T.accent}}
   .card.on{display:flex}
-  /* 带输入框的（解释）默认给足高度：原来高度自适应，答案没出来之前只有两行，
-     又扁又难输入。答案区在输入框下方，这块空间正好是「答案将出现在这里」。 */
-  .card.has-input{min-height:340px}
+  .card.has-input{min-height:380px}
   .hd{display:flex;align-items:center;justify-content:space-between;flex:0 0 auto;
-      padding:6px 7px 6px 12px;border-bottom:1px solid ${T.lineSoft};background:${T.sunk};
-      cursor:move;user-select:none}
-  .hd b{font-size:11px;font-weight:600;letter-spacing:.08em;color:${T.inkSoft}}
-  .hd .r{gap:2px}
-  .x,.exp{all:unset;cursor:pointer;width:22px;height:22px;border-radius:6px;
-     display:grid;place-items:center;color:${T.quote};font:15px/1 ${T.sans}}
-  .exp{font-size:11px}
-  .x:hover,.exp:hover{background:rgba(28,26,23,.08);color:${T.ink}}
+      min-height:54px;padding:9px 9px 9px 14px;border-bottom:1px solid ${T.line};
+      background:${T.paper};cursor:move;user-select:none}
+  .hd-lock{display:flex;align-items:center;gap:9px;min-width:0}
+  .hd-seal{width:28px;height:28px;display:grid;place-items:center;border:1px solid ${T.lineStrong};
+      border-radius:4px;background:${T.paperRaised};color:${T.inkSoft}}
+  .hd-seal .mk{width:17px;height:17px}
+  .hd-copy{display:flex;flex-direction:column;gap:1px;min-width:0}
+  .hd-copy b{font-size:13.5px;line-height:1.2;font-weight:700;letter-spacing:-.01em;color:${T.ink}}
+  .hd-copy small{font-size:12px;line-height:1.25;font-weight:650;letter-spacing:.085em;color:${T.quote}}
+  .hd .r{gap:1px}
+  .x,.exp{all:unset;box-sizing:border-box;cursor:pointer;width:30px;height:30px;border-radius:6px;
+     display:grid;place-items:center;color:${T.quote};transition:background .14s ease,color .14s ease}
+  .x .ico,.exp .ico{width:16px;height:16px}
+  .x:hover,.exp:hover{background:${T.hover};color:${T.ink}}
+  .x:focus-visible,.exp:focus-visible{outline:2px solid ${T.focusLine};outline-offset:1px}
 
-  /* 引文默认收起 3 行，但**可点开** —— 原来是 overflow:hidden 直接截断，
-     用户看到的是断在词中间的半句话，还不知道后面有内容。 */
-  .src{flex:0 0 auto;padding:8px 12px 0;font:italic 12px/1.55 ${T.serif};color:${T.quote};
-       cursor:zoom-in;position:relative}
+  .source{position:relative;flex:0 0 auto;margin:17px 17px 0;padding:0 28px 0 14px;border-left:2px solid ${T.accent}}
+  .eyebrow{font:680 12px/1.3 ${T.sans};letter-spacing:.075em;color:${T.quote}}
+  .src{padding:7px 0 0;font:italic 14px/1.7 ${T.serif};color:${T.quote};
+       cursor:zoom-in;position:relative;overflow-wrap:anywhere}
   .src.clip{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
-  /* 只有 clipped 才提示。原先这个 ::after 是无条件的，引文只有一行、
-     根本没被截断时也显示"点击展开" —— 那是在撒谎。 */
-  .src.clip.clipped::after{content:'⋯ 点击展开';position:absolute;right:12px;bottom:0;
-       background:${T.paper};padding-left:6px;font-style:normal;font-size:11px;color:${T.accent}}
-  .src:not(.clipped){cursor:default}
-  .src.open{cursor:zoom-out;max-height:40vh;overflow-y:auto}
+  .src.clip.clipped::after{content:'继续阅读';position:absolute;right:0;bottom:0;
+       background:linear-gradient(90deg,transparent 0,${T.paper} 28%);padding-left:26px;
+       font:650 12px/1.7 ${T.sans};color:${T.accent}}
+  .src:not(.clipped){cursor:default}.src.open{cursor:zoom-out;max-height:40vh;overflow-y:auto}
+  .source .exp{position:absolute;right:-4px;top:-5px}
 
-  .ask{display:flex;gap:6px;align-items:flex-end;flex:0 0 auto;padding:8px 12px 0}
-  .ask textarea{flex:1;border:1px solid ${T.line};border-radius:7px;background:${T.paper};
-      color:${T.ink};font:13px/1.5 ${T.sans};padding:6px 8px;outline:none;
-      resize:none;min-height:32px;overflow-y:auto}
-  .ask textarea:focus{border-color:#d7cfbe;box-shadow:0 0 0 3px rgba(180,83,9,.07)}
-  .ask button{border:1px solid ${T.line};background:${T.sunk};padding:6px 11px;
-      font-size:12.5px;font-weight:600;white-space:nowrap}
-  .ask button:hover{background:#ece7dd}
-  #again{flex:0 0 auto;padding:2px 12px 0}
-  #again button{border:1px solid ${T.line};background:${T.sunk};padding:4px 9px;font-size:11.5px}
-  #again button:hover{background:#ece7dd}
+  .ask{display:grid;grid-template-columns:1fr auto;gap:7px;align-items:end;flex:0 0 auto;padding:17px 17px 0}
+  .ask-field{min-width:0}
+  .ask label{display:block;margin-bottom:6px;font-size:12px;font-weight:680;letter-spacing:.075em;color:${T.quote}}
+  .ask textarea{display:block;width:100%;border:1px solid ${T.line};border-radius:6px;background:${T.paperRaised};
+      color:${T.ink};font:13.5px/1.55 ${T.sans};padding:8px 10px;outline:none;resize:none;min-height:38px;
+      overflow-y:auto;transition:border-color .14s ease,box-shadow .14s ease,background .14s ease}
+  .ask textarea::placeholder{color:${T.placeholder}}
+  .ask textarea:hover{border-color:${T.lineStrong}}
+  .ask textarea:focus{border-color:${T.focusLine};background:${T.paper};box-shadow:0 0 0 3px ${T.focusRing}}
+  .ask button{min-height:38px;display:inline-flex;align-items:center;gap:6px;border:1px solid ${T.accent};
+      border-radius:6px;background:${T.accent};color:${T.paperRaised};padding:7px 12px;font-size:13px;font-weight:680;white-space:nowrap}
+  .ask button:hover{background:${T.accent};border-color:${T.accent};color:${T.paperRaised};filter:saturate(1.08) brightness(.94)}
+  .ask button .ico{width:14px;height:14px}
 
-  /* 答案区吃掉剩余空间。min-height:0 是 flex 子项能真正滚动的前提 */
-  #b{flex:1 1 auto;min-height:0;padding:10px 12px 0;line-height:1.62;
+  .response{display:flex;min-height:0;flex:1 1 auto;flex-direction:column;margin:18px 17px 0;padding-top:14px;border-top:1px solid ${T.line}}
+  .response .eyebrow{display:flex;align-items:center;gap:6px;flex:0 0 auto;color:${T.inkSoft}}
+  .response .eyebrow .ico{width:14px;height:14px;color:${T.accent}}
+  #b{flex:1 1 auto;min-height:0;padding:8px 0 4px;font-size:13.5px;line-height:1.72;
      white-space:pre-wrap;overflow-y:auto;overflow-wrap:anywhere}
-  /* 不再 display:none —— 它要负责撑起剩余空间。空态给一句灰字，
-     否则一大片空白看起来像坏了 */
-  #b:empty::before{content:'答案会显示在这里';color:#c3bdb0;font-size:12px}
+  #b:empty::before{content:'答案会显示在这里';color:${T.placeholder};font:italic 13px/1.7 ${T.serif}}
   #b.prog{color:${T.quote};font-variant-numeric:tabular-nums}
-  #f{flex:0 0 auto;padding:6px 12px 0;font-size:11px;color:${T.quote};
-     font-variant-numeric:tabular-nums}
+  #again{flex:0 0 auto;padding:5px 0 0}
+  #again button{display:inline-flex;align-items:center;gap:5px;border:1px solid ${T.line};
+      background:transparent;padding:4px 8px;font-size:12px}
+  #again button:hover{background:${T.hover};border-color:${T.lineStrong}}
+  #again .ico{width:14px;height:14px}
+  #f{flex:0 0 auto;margin:8px 17px 0;padding:9px 0 1px;border-top:1px solid ${T.lineSoft};
+     font-size:12px;color:${T.quote};font-variant-numeric:tabular-nums}
   #f:empty{display:none}
 
-  /* 右下角拖拽把手。不用 CSS resize：它要求 overflow 非 hidden，
-     而这里必须 hidden 才能保住圆角。 */
-  .rz{position:absolute;right:0;bottom:0;width:16px;height:16px;cursor:nwse-resize}
-  .rz::after{content:'';position:absolute;right:3px;bottom:3px;width:7px;height:7px;
-     border-right:2px solid ${T.line};border-bottom:2px solid ${T.line}}
+  .rz{position:absolute;right:0;bottom:0;width:20px;height:20px;cursor:nwse-resize}
+  .rz::after{content:'';position:absolute;right:5px;bottom:5px;width:7px;height:7px;
+     border-right:1.5px solid ${T.lineStrong};border-bottom:1.5px solid ${T.lineStrong}}
+  @media (max-width:420px){
+    .source,.response{margin-left:14px;margin-right:14px}.ask{padding-left:14px;padding-right:14px}
+    .hd-copy small{display:none}.ask{grid-template-columns:1fr}.ask button{justify-self:end}
+  }
 `;
 
 export class Popover {
@@ -87,33 +99,39 @@ export class Popover {
    * @param {string} o.name      shadow host 标识（也用于 CSS 隔离）
    * @param {string} o.title     标题栏文字
    * @param {boolean} [o.input]  是否带输入框
+   * @param {boolean} [o.showSource=true] 是否显示引用原文
    * @param {function} [o.onSubmit] 输入框提交回调 (question) => void
    */
   constructor(o) {
     this.o = o;
     const sh = shadowHost(o.name, CSS, 2147483647);
+    const modeIcon = o.name.includes('translate') ? 'translate' : 'explain';
+    const sourceSection = o.showSource === false ? '' : `<section class="source">
+      <div class="eyebrow">引用原文</div><div class="src" id="src"></div>
+      <button class="exp" id="exp" type="button" title="展开原文" aria-label="展开原文">${icon('expand')}</button>
+    </section>`;
     sh.innerHTML += `<div class="card${o.input ? ' has-input' : ''}" id="c">
-      <div class="hd" id="hd"><b>${o.title}</b><span class="r">
-        <button class="exp" id="exp" title="展开 / 收起原文">⤢</button>
-        <button class="x" id="x" title="关闭">×</button>
-      </span></div>
-      <div class="src" id="src"></div>
-      ${o.input ? `<div class="ask">
-        <textarea id="q" rows="1" placeholder="${o.placeholder || ''}"></textarea>
-        <button id="go">${o.submitLabel || '提问'}</button>
+      <div class="hd" id="hd">
+        <span class="hd-lock"><span class="hd-seal">${brandMark()}</span>
+          <span class="hd-copy"><b>${o.title}</b><small>CONTEXT NOTE</small></span></span>
+        <span class="r"><button class="x" id="x" type="button" title="关闭" aria-label="关闭">${icon('close')}</button></span>
+      </div>
+      ${sourceSection}
+      ${o.input ? `<div class="ask"><div class="ask-field"><label for="q">追问</label>
+        <textarea id="q" rows="1" placeholder="${o.placeholder || ''}"></textarea></div>
+        <button id="go">${icon('send')}<span>${o.submitLabel || '提问'}</span></button>
       </div>` : ''}
-      <div id="b"></div>
-      <div id="again" style="display:none"><button id="re">重新解释</button></div>
-      <div id="f"></div>
-      <div class="rz" id="rz" title="拖动调整大小"></div>
+      <section class="response"><div class="eyebrow">${icon(modeIcon)} ${o.title}结果</div><div id="b"></div>
+        <div id="again" style="display:none"><button id="re" type="button">${icon('retry')}<span>重新解释</span></button></div></section>
+      <div id="f"></div><div class="rz" id="rz" title="拖动调整大小"></div>
     </div>`;
     this.sh = sh;
     this.$ = (id) => sh.getElementById(id);
     this.el = this.$('c');
     this.ui = loadUI();
     this.$('x').onclick = () => this.close();
-    this.$('exp').onclick = () => this.toggleSrc();
-    this.$('src').onclick = () => this.toggleSrc();
+    if (this.$('exp')) this.$('exp').onclick = () => this.toggleSrc();
+    if (this.$('src')) this.$('src').onclick = () => this.toggleSrc();
     this.wireDrag();
     this.wireResize();
     this.$('re').onclick = () => {
@@ -152,13 +170,16 @@ export class Popover {
   /** @param {DOMRect} rect 选区位置  @param {string} [source] 顶部灰色引文 */
   open(rect, source = '') {
     const src = this.$('src');
-    src.textContent = source ? `「${source}」` : '';
-    // 每次打开都先收起：上一次展开过的状态带到新选区上会很怪
-    src.className = source ? 'src clip' : 'src';
+    if (src) {
+      src.textContent = source ? `「${source}」` : '';
+      // 每次打开都先收起：上一次展开过的状态带到新选区上会很怪
+      src.className = source ? 'src clip' : 'src';
+      this.setExpandState(false, !!source);
+    }
 
     this.el.classList.add('on');
     // 量一次是否真的被截断。必须在 .on 之后 —— 元素还没显示时 scrollHeight 是 0。
-    if (source) src.classList.toggle('clipped', src.scrollHeight > src.clientHeight + 1);
+    if (source && src) src.classList.toggle('clipped', src.scrollHeight > src.clientHeight + 1);
     this.openedAt = performance.now();
 
     // 用户调过大小就沿用，没调过用默认宽 + 自适应高
@@ -194,11 +215,21 @@ export class Popover {
   /** 引文展开 / 收起。默认收起 3 行，但要让人知道后面还有内容（见 .src.clip::after） */
   toggleSrc() {
     const el = this.$('src');
-    if (!el.textContent) return;
+    if (!el?.textContent) return;
     const open = el.classList.contains('open');
     // 没溢出就没有可展开的东西，切换只会让布局无谓跳一下
     if (!open && !el.classList.contains('clipped')) return;
     el.className = `src ${open ? 'clip clipped' : 'open'}`;
+    this.setExpandState(!open, true);
+  }
+
+  setExpandState(open, enabled = true) {
+    const btn = this.$('exp');
+    if (!btn) return;
+    btn.innerHTML = icon(open ? 'collapse' : 'expand');
+    btn.title = open ? '收起原文' : '展开原文';
+    btn.setAttribute('aria-label', btn.title);
+    btn.disabled = !enabled;
   }
 
   /** 拖标题栏移动。位置记进 localStorage —— 每次都回到选区旁边反而烦人 */

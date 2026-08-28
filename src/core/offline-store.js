@@ -272,6 +272,34 @@ export async function getFileTarget(id = 'default', origin = globalThis.location
   const row = await req(tx.objectStore('targets').get(id)); await done(tx);
   return row && (!origin || row.origin === origin) ? row : null;
 }
+/**
+ * 把一个 target（含其 fileArticles / fileEvents）整体搬到新 id 下。
+ * 用于双目录（Obsidian / Markdown 各记一个授权）从旧单目录迁移：旧数据
+ * 原地改 targetId，不留孤儿行，也不需要逐条重建。
+ */
+export async function moveFileTarget(fromId, target) {
+  const db = await openOfflineStore();
+  if (!db) return null;
+  const tx = db.transaction(['targets', 'fileArticles', 'fileEvents'], 'readwrite');
+  const targets = tx.objectStore('targets'), articles = tx.objectStore('fileArticles'),
+    events = tx.objectStore('fileEvents');
+  const articleRows = articles.getAll(), eventRows = events.getAll();
+  targets.put({ ...target, updatedAt: now() });
+  targets.delete(fromId);
+  for (const row of await req(articleRows)) {
+    if (row.targetId !== fromId) continue;
+    articles.delete([fromId, row.urlKey]);
+    articles.put({ ...row, targetId: target.id });
+  }
+  for (const row of await req(eventRows)) {
+    if (row.targetId !== fromId) continue;
+    events.delete([fromId, row.urlKey, row.eventId]);
+    events.put({ ...row, targetId: target.id });
+  }
+  await done(tx);
+  return target;
+}
+
 export async function forgetFileTarget(id = 'default') {
   const db = await openOfflineStore(); if (!db) return;
   const tx = db.transaction(['targets', 'fileArticles', 'fileEvents'], 'readwrite');

@@ -165,9 +165,22 @@ await t('带输入框的浮层有最小高度（否则答案出来前又扁又�
   assert.ok(pop.el.classList.contains('has-input'));
 });
 
-await t('不带输入框的（翻译）不套用那个最小高度', () => {
-  const p6 = new Popover({ name: 'tip-t6', title: '翻译' });
+await t('翻译浮层不带输入框，也不显示重复的「引用原文」区域', () => {
+  const p6 = new Popover({ name: 'tip-t6', title: '翻译', showSource: false });
   assert.ok(!p6.el.classList.contains('has-input'));
+  assert.equal(p6.sh.querySelector('.source'), null);
+  assert.equal(p6.sh.getElementById('src'), null);
+  assert.equal(p6.sh.getElementById('exp'), null);
+  // 调用方仍可沿用 open(rect, source) 的统一签名；隐藏引用区时应安全忽略 source。
+  p6.open(rect, '不会显示的原文');
+  p6.toggleSrc();
+  assert.equal(p6.open$, true);
+});
+
+await t('解释浮层默认仍保留「引用原文」区域', () => {
+  assert.ok(pop.sh.querySelector('.source'));
+  assert.ok(pop.sh.getElementById('src'));
+  assert.ok(pop.sh.getElementById('exp'));
 });
 
 await t('答案区为空时给出占位提示，避免大片空白看起来像坏了', () => {

@@ -73,11 +73,20 @@ export function mergeArticleDocument(text, article, events, previous = new Map()
 }
 
 export function mergeDateIndex(text, { firstDay, urlKey, title, fileName, mode }) {
-  const mark = idxMark(urlKey); if (String(text || '').includes(mark)) return { text, changed: false };
-  const base = fileName.replace(/\.md$/, ''), label = String(title || urlKey).replace(/[[\]]/g, '\\$&');
+  const mark = idxMark(urlKey);
+  const base = fileName.replace(/\.md$/, ''), label = String(title || urlKey).replace(/[\[\]]/g, '\\$&');
   const link = mode === 'obsidian' ? `[[${base}]]` : `[${label}](${encodeURI(fileName)})`;
-  const out = text || `---\ndate: ${firstDay}\ntags: [reading, contextflow]\n---\n\n# ${firstDay} 阅读记录\n`;
-  return { text: `${out.trimEnd()}\n\n- ${link} ${mark}\n`, changed: true };
+  // 已有本文章的条目时**原地更新**（标题/文件名变了要跟着改），而不是跳过 ——
+  // 否则改标题重同步后，索引里的链接会永远停在旧值。
+  const entry = `- ${link} ${mark}`, current = String(text || '');
+  if (current.includes(mark)) {
+    const lines = current.split('\n'), at = lines.findIndex((line) => line.includes(mark));
+    if (at < 0 || lines[at].trim() === entry) return { text, changed: false };
+    lines[at] = entry;
+    return { text: lines.join('\n'), changed: true };
+  }
+  const out = current || `---\ndate: ${firstDay}\ntags: [reading, contextflow]\n---\n\n# ${firstDay} 阅读记录\n`;
+  return { text: `${out.trimEnd()}\n\n${entry}\n`, changed: true };
 }
 
 export function initialFileName(title, urlKey) { return safeMarkdownFilename(title, urlKey); }

@@ -65,63 +65,66 @@ await t('构造后四个 tab、速览区和简洁底栏都在', () => {
     assert.ok(p.sh.querySelector(`#${id} [role=tooltip]`)?.textContent, `${id} 缺可见悬浮说明`);
   }
   const css = p.sh.querySelector('style').textContent;
-  assert.match(css, /\.foot-actions \.tip\{[^}]*width:230px/);
+  assert.match(css, /\.has-tip \.tip\{[^}]*width:230px/);
   assert.match(css, /white-space:normal/);
   assert.match(css, /overflow-wrap:anywhere/);
 });
 
-await t('收起/展开都是中点图标，顶部不再出现文字收起按钮', () => {
+await t('展开/收起共用同一个中点按钮，手势过程中不替换 DOM', () => {
   const p = mk();
-  assert.ok(p.sh.getElementById('close').classList.contains('edge-toggle'));
-  assert.ok(p.sh.getElementById('close').querySelector('svg'));
-  assert.ok(p.sh.getElementById('grip').querySelector('svg'));
-  assert.equal(p.sh.getElementById('close').textContent.trim(), '');
-  assert.equal(p.sh.getElementById('grip').textContent.trim(), '');
-  assert.match(p.sh.querySelector('#close path').getAttribute('d'), /^m9 /, '展开时收起箭头应向右');
-  assert.match(p.sh.querySelector('#grip path').getAttribute('d'), /^m15 /, '收起后展开箭头应向左');
-  assert.equal(p.sh.getElementById('close').parentNode, p.sh, '收起按钮不能放在 overflow:hidden 的面板内');
+  const toggle = p.sh.getElementById('panelToggle');
+  assert.ok(toggle.classList.contains('panel-toggle'));
+  assert.equal(toggle.parentNode, p.sh, '侧边按钮不能放在 overflow:hidden 的面板内');
+  assert.equal(toggle.querySelectorAll('svg').length, 2, '需要分别显示展开与收起箭头');
+  assert.match(toggle.querySelector('.toggle-close path').getAttribute('d'), /^m9 /, '展开时收起箭头应向右');
+  assert.match(toggle.querySelector('.toggle-open path').getAttribute('d'), /^m15 /, '收起后展开箭头应向左');
+  assert.equal(p.sh.getElementById('close'), null, '不能再保留会与展开按钮竞争同一次手势的第二个按钮');
+  assert.equal(p.sh.getElementById('grip'), null, '旧展开按钮应由稳定的单按钮替代');
 });
 
-await t('图标连续展开/收起状态稳定且贴住面板左缘', () => {
+await t('同一个侧边按钮连续展开/收起且贴住面板左缘', () => {
   const p = mk();
   p.toggle(false);
-  assert.ok(!p.sh.getElementById('grip').classList.contains('hide'));
-  assert.ok(!p.sh.getElementById('close').classList.contains('show'));
-  p.sh.getElementById('grip').click();
+  const toggle = p.sh.getElementById('panelToggle');
+  assert.equal(toggle.style.right, '0px');
+  assert.equal(toggle.getAttribute('aria-expanded'), 'false');
+  toggle.click();
   assert.equal(p.open, true);
-  assert.ok(p.sh.getElementById('grip').classList.contains('hide'));
-  assert.ok(p.sh.getElementById('close').classList.contains('show'));
-  assert.equal(p.sh.getElementById('close').style.right, `${p.ui.width}px`);
-  p.sh.getElementById('close').click();
+  assert.ok(toggle.classList.contains('open'));
+  assert.equal(toggle.style.right, `${p.ui.width}px`);
+  assert.equal(toggle.getAttribute('aria-expanded'), 'true');
+  assert.equal(toggle.getAttribute('aria-label'), '收起 ContextFlow');
+  toggle.click();
   assert.equal(p.open, false);
-  assert.ok(!p.sh.getElementById('grip').classList.contains('hide'));
-  assert.ok(!p.sh.getElementById('close').classList.contains('show'));
+  assert.ok(!toggle.classList.contains('open'));
+  assert.equal(toggle.style.right, '0px');
+  assert.equal(toggle.getAttribute('aria-label'), '展开 ContextFlow');
 });
 
-await t('pointerdown 立即切换，随后指针 click 不重复执行', () => {
+await t('pointerdown 立即切换，移动后的同次 click 不会反向切换', () => {
   let opened = 0;
   const p = mk({ onOpen: () => { opened++; } });
   p.toggle(false);
-  const grip = p.sh.getElementById('grip');
-  grip.dispatchEvent(new window.MouseEvent('pointerdown', { bubbles: true, button: 0 }));
+  const toggle = p.sh.getElementById('panelToggle');
+  toggle.dispatchEvent(new window.MouseEvent('pointerdown', { bubbles: true, button: 0 }));
   assert.equal(p.open, true);
-  grip.dispatchEvent(new window.MouseEvent('click', { bubbles: true, detail: 1 }));
-  assert.equal(p.open, true);
+  toggle.dispatchEvent(new window.MouseEvent('click', { bubbles: true, detail: 1 }));
+  assert.equal(p.open, true, '指针 click 不应把刚展开的面板又收起');
   assert.equal(opened, 1);
-  const close = p.sh.getElementById('close');
-  close.dispatchEvent(new window.MouseEvent('pointerdown', { bubbles: true, button: 0 }));
+  toggle.dispatchEvent(new window.MouseEvent('pointerdown', { bubbles: true, button: 0 }));
   assert.equal(p.open, false);
-  close.dispatchEvent(new window.MouseEvent('click', { bubbles: true, detail: 1 }));
-  assert.equal(p.open, false);
+  toggle.dispatchEvent(new window.MouseEvent('click', { bubbles: true, detail: 1 }));
+  assert.equal(p.open, false, '指针 click 不应把刚收起的面板又展开');
 });
 
 await t('连续二十次收起展开不丢操作', () => {
   const p = mk();
   p.toggle(false);
+  const toggle = p.sh.getElementById('panelToggle');
   for (let i = 0; i < 20; i++) {
-    p.sh.getElementById('grip').dispatchEvent(new window.MouseEvent('pointerdown', { bubbles: true, button: 0 }));
+    toggle.dispatchEvent(new window.MouseEvent('pointerdown', { bubbles: true, button: 0 }));
     assert.equal(p.open, true, `第 ${i + 1} 次展开失败`);
-    p.sh.getElementById('close').dispatchEvent(new window.MouseEvent('pointerdown', { bubbles: true, button: 0 }));
+    toggle.dispatchEvent(new window.MouseEvent('pointerdown', { bubbles: true, button: 0 }));
     assert.equal(p.open, false, `第 ${i + 1} 次收起失败`);
   }
 });
@@ -130,8 +133,8 @@ await t('面板和页面 margin 使用同一时长连续动画', () => {
   const p = mk();
   p.toggle(true);
   const css = p.sh.querySelector('style').textContent;
-  assert.match(css, /\.wrap\{[^}]*transition:transform \.22s/s);
-  assert.match(document.documentElement.style.transition, /margin-right (?:0)?\.22s/);
+  assert.match(css, /\.wrap\{[^}]*transition:transform \.26s/s);
+  assert.match(document.documentElement.style.transition, /margin-right (?:0)?\.26s/);
 });
 
 await t('锚点术语隐藏在 0/0 的悬浮说明里', () => {
@@ -139,14 +142,30 @@ await t('锚点术语隐藏在 0/0 的悬浮说明里', () => {
     getItems: () => [{}, {}, {}, {}] });
   p.renderStatus();
   const stat = p.sh.getElementById('stat');
-  assert.equal(stat.querySelector('.stat-main').firstChild.textContent, '4/4');
+  assert.match(stat.querySelector('.stat-main').textContent, /已定位 4\/4/);
   const tip = stat.querySelector('[role=tooltip]');
-  assert.match(tip.textContent, /pos 2 · quote 1 · fuzzy 1/);
-  assert.equal(tip.parentElement, stat.querySelector('.stat-main'));
-  assert.ok(!stat.childNodes[1]?.textContent?.includes('pos'));
+  assert.match(tip.textContent, /精确 2 · 文本匹配 1 · 模糊恢复 1/);
+  assert.equal(tip.parentElement, stat);
+  assert.doesNotMatch(stat.textContent, /pos|quote|fuzzy/);
   const css = p.sh.querySelector('style').textContent;
-  assert.match(css, /\.has-tip:hover>\.tip/);
-  assert.match(css, /\.has-tip:focus-visible>\.tip/);
+  assert.match(css, /\.anchor-stat:hover \.stat-tip/);
+  assert.match(css, /\.anchor-stat:focus-visible \.stat-tip/);
+});
+
+await t('配置按钮切换后同步更新可见文案与无障碍名称', () => {
+  const p = mk();
+  p.settings = { load() {} };
+  const btn = p.sh.getElementById('cfg');
+
+  p.toggleSettings();
+  assert.equal(btn.textContent.trim(), '返回');
+  assert.equal(btn.getAttribute('aria-label'), '返回阅读记录');
+  assert.equal(btn.title, '返回阅读记录');
+
+  p.toggleSettings();
+  assert.equal(btn.textContent.trim(), '配置');
+  assert.equal(btn.getAttribute('aria-label'), '配置');
+  assert.equal(btn.title, '配置翻译、解释与笔记同步');
 });
 
 // ---- 这就是那个 bug ----
@@ -226,6 +245,22 @@ await t('速览文本经过转义，页面标题里的尖括号不会变成标�
 
 // ---- 打开面板的时刻 ----
 
+await t('恢复上次展开状态时不在构造阶段触发 onOpen；之后手动展开仍通知一次', () => {
+  store.set('contextflow:ui', JSON.stringify({ width: 360, mode: 'push', open: true }));
+  let n = 0;
+  try {
+    const p = mk({ onOpen: () => { n++; } });
+    assert.equal(p.open, true, '没有恢复已展开状态');
+    assert.equal(n, 0, '构造期间触发 onOpen，会在 App.panel 赋值前访问未初始化实例');
+    p.toggle(false);
+    p.toggle(true);
+    assert.equal(n, 1, '初始化完成后再次手动展开应正常通知');
+  } finally {
+    store.delete('contextflow:ui');
+    document.documentElement.style.marginRight = '';
+  }
+});
+
 await t('从收起变展开时通知一次；已经展开时不重复通知', () => {
   let n = 0;
   const p = mk({ onOpen: () => { n++; } });
@@ -250,13 +285,15 @@ await t('收起时不通知', () => {
 await t('有速览时「总结」tab 出现角标', () => {
   const p = mk({ getLookups: (k) => (k === 'summary' ? [{ value: '速览内容' }] : []) });
   p.renderStatus();
-  assert.equal(p.sh.getElementById('b-note').textContent, '·');
+  assert.ok(p.sh.getElementById('b-note').classList.contains('has-content'));
+  assert.equal(p.sh.getElementById('b-note').textContent, '', '状态应由统一的 CSS 圆点表达，不再混用字符图标');
 });
 
 await t('没有速览也没有笔记时角标为空', () => {
   const p = mk();
   p.renderStatus();
   assert.equal(p.sh.getElementById('b-note').textContent, '');
+  assert.ok(!p.sh.getElementById('b-note').classList.contains('has-content'));
 });
 
 console.log(`\n${pass} 项通过`);
