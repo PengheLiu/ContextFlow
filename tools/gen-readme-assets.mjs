@@ -1,4 +1,6 @@
 import { mkdir, writeFile } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -465,3 +467,39 @@ for (const lang of ['zh', 'en']) {
   }
 }
 console.log('Generated 10 README SVG assets in assets/readme/');
+
+if (process.argv.includes('--png')) {
+  const chrome = [
+    '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+    '/Applications/Chromium.app/Contents/MacOS/Chromium',
+    '/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge',
+    '/usr/bin/google-chrome',
+    '/usr/bin/chromium',
+  ].find(existsSync);
+  if (!chrome) throw new Error('未找到 Chrome/Chromium，无法渲染 README PNG');
+
+  // README SVG 的 viewBox 与显式尺寸一致。以 2x device scale 输出，社交平台缩放后
+  // 文字仍清晰；同时保留 SVG 作为 GitHub 页面中的默认矢量资源。
+  const dimensions = {
+    hero: [1600, 900],
+    'knowledge-loop': [1600, 650],
+    'personal-context': [1600, 820],
+    workflow: [1600, 570],
+    architecture: [1600, 760],
+  };
+  for (const lang of ['zh', 'en']) {
+    for (const [name, [width, height]] of Object.entries(dimensions)) {
+      const source = resolve(OUT, `${name}-${lang}.svg`);
+      const output = resolve(OUT, `${name}-${lang}.png`);
+      execFileSync(chrome, [
+        '--headless', '--disable-gpu', '--hide-scrollbars',
+        '--default-background-color=00000000',
+        '--force-device-scale-factor=2',
+        `--window-size=${width},${height}`,
+        `--screenshot=${output}`,
+        `file://${source}`,
+      ], { stdio: 'ignore' });
+      console.log(`  assets/readme/${name}-${lang}.png  ${width * 2}x${height * 2}`);
+    }
+  }
+}
