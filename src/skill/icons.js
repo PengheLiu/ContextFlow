@@ -27,6 +27,7 @@ const PATHS = {
   download: '<path d="M12 3v11M8 10l4 4 4-4M4 19h16"/>',
   folder: '<path d="M3.5 7.5h6l1.7 2h9.3v8.8a2.2 2.2 0 0 1-2.2 2.2H5.7a2.2 2.2 0 0 1-2.2-2.2V7.5Z"/><path d="M3.5 7.5V5.7a2.2 2.2 0 0 1 2.2-2.2h3.1l1.8 2h7.7a2.2 2.2 0 0 1 2.2 2.2v1.8"/>',
   check: '<path d="m5 12.5 4.2 4.2L19 7"/>',
+  power: '<path d="M12 3.5v7.5"/><path d="M7 6.4a7.4 7.4 0 1 0 10 0"/>',
 };
 
 export function icon(name, cls = 'ico') {

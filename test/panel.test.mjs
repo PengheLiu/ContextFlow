@@ -168,6 +168,25 @@ await t('配置按钮切换后同步更新可见文案与无障碍名称', () =>
   assert.equal(btn.title, '配置翻译、解释与笔记同步');
 });
 
+
+await t('设置模式切换控制册副标题并暂时收起阅读底栏', () => {
+  const p = mk();
+  p.settings = { load() {} };
+  const wrap = p.sh.getElementById('wrap');
+  const footer = p.sh.querySelector('footer');
+  const sub = p.sh.getElementById('brandSub');
+
+  p.toggleSettings();
+  assert.equal(wrap.classList.contains('settings-mode'), true);
+  assert.equal(sub.textContent, 'SETTINGS');
+  assert.match(p.sh.querySelector('style').textContent, /\.wrap\.settings-mode > footer\{display:none\}/);
+  assert.ok(footer);
+
+  p.toggleSettings();
+  assert.equal(wrap.classList.contains('settings-mode'), false);
+  assert.equal(sub.textContent, 'READING MARGIN');
+});
+
 // ---- 这就是那个 bug ----
 
 await t('速览区有异常兜底（Panel 自己得有 guard，不能只有 Settings 有）', () => {

@@ -6,240 +6,205 @@
 
 import { T } from './theme.js';
 import { guarded, describeError } from './guard.js';
+import { icon } from './icons.js';
+import { blocklistEntries, unblockPageKey } from './blocklist.js';
 
 export const SETTINGS_CSS = `
-  .set{display:none} .set.on{display:block}
-  .grp{margin-bottom:18px}
-  .grp > h4{margin:0 0 8px;font-size:11px;font-weight:600;letter-spacing:.09em;
-            text-transform:uppercase;color:${T.quote}}
-  .f{margin-bottom:9px}
-  .f > label{display:block;font-size:11.5px;color:${T.inkSoft};margin-bottom:3px}
-  .f input,.f select{width:100%;border:1px solid ${T.line};border-radius:7px;
-      background:${T.paper};color:${T.ink};font:12.5px/1.5 ${T.sans};
-      padding:6px 8px;outline:none}
-  .f input:focus,.f select:focus{border-color:#d7cfbe;box-shadow:0 0 0 3px rgba(180,83,9,.07)}
-  .f .hint{font-size:11px;color:${T.quote};margin-top:3px}
-  .f2{display:flex;gap:6px;align-items:flex-end}
-  .f2 > .f{flex:1;margin-bottom:0}
-  .f2 > button{border:1px solid ${T.line};padding:6px 10px;font-size:12px;white-space:nowrap}
-  .save{display:flex;align-items:center;gap:8px;
-        padding-top:12px;border-top:1px solid ${T.line}}
-  .save > button{border:1px solid ${T.line};background:${T.sunk};padding:6px 14px;font-weight:600}
-  .save > button:hover{background:#ece7dd}
-  .msg{font-size:11.5px}
-  [data-be]{display:none}
-  [data-be].on{display:block}
-  .chk{display:flex;align-items:flex-start;gap:7px;cursor:pointer}
-  .chk input{width:auto;flex:0 0 auto;margin:2px 0 0;accent-color:${T.accent}}
-  .chk .t{font-size:12.5px;color:${T.ink}}
-  .chk .t .hint{margin-top:2px}
-  .profile{border:1px solid ${T.line};border-radius:8px;padding:9px;background:${T.paper}}
+  .set{display:none;margin:0 -18px -28px}.set.on{display:block}
+  [hidden]{display:none!important}
+  .folio{min-height:100%;font:13px/1.55 ${T.sans};color:${T.ink}}
+  .folio-kicker{display:flex;align-items:center;gap:8px;padding:17px 18px 13px;border-bottom:1px solid ${T.lineSoft};
+    color:${T.quote};font:700 10.5px/1 ${T.mono};letter-spacing:.14em;text-transform:uppercase}
+  .folio-kicker::before{content:'';width:17px;height:2px;background:${T.accent}}
+
+  /* 单页设置册：章节沿同一条阅读流展开，细装订线负责分层，不增加导航。 */
+  .chapter-deck{min-width:0;background:${T.paper}}
+  .chapter{display:block;padding:25px 18px 22px;border-bottom:1px solid ${T.lineSoft}}
+  .chapter:last-child{border-bottom:0;padding-bottom:28px}
+  .chapter-head{position:relative;padding:0 0 17px 14px;margin-bottom:19px;border-bottom:1px solid ${T.line}}
+  .chapter-head::before{content:'';position:absolute;left:0;top:3px;bottom:18px;width:2px;background:${T.accent}}
+  .chapter-eyebrow{display:block;margin-bottom:5px;color:${T.quote};font:700 10.5px/1 ${T.mono};letter-spacing:.12em;text-transform:uppercase}
+  .chapter-head h3{margin:0;color:${T.ink};font:650 15px/1.3 ${T.serif};letter-spacing:-.01em}
+  .chapter-summary{display:block;margin-top:5px;color:${T.quote};font:11.5px/1.45 ${T.mono};overflow-wrap:anywhere}
+  .chapter-intro{margin:0 0 17px;color:${T.inkSoft};font:12.5px/1.62 ${T.serif}}
+
+  .field{display:block;margin:0 0 14px;min-width:0}
+  .field-label,.field > legend{display:block;margin:0 0 6px;color:${T.inkSoft};font-size:12px;font-weight:680}
+  .field input,.field select{display:block;width:100%;min-width:0;min-height:39px;padding:8px 10px;
+    border:1px solid ${T.line};border-radius:6px;background:${T.paperRaised};color:${T.ink};
+    font:13px/1.45 ${T.sans};outline:none;transition:border-color .14s,box-shadow .14s,background .14s}
+  .field input:hover,.field select:hover{border-color:${T.lineStrong}}
+  .field input:focus,.field select:focus{border-color:${T.focusLine};background:${T.paper};box-shadow:0 0 0 3px ${T.focusRing}}
+  .field input::placeholder{color:${T.placeholder}}
+  .hint{display:block;margin-top:5px;color:${T.quote};font-size:11.5px;line-height:1.55;overflow-wrap:anywhere}
+  .hint code{font-family:${T.mono}}
+  .field-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:7px;align-items:end;margin-bottom:14px}
+  .field-row > .field{margin:0}
+  .field-row > button,.quiet-action{min-height:39px;padding:7px 10px;border:1px solid ${T.line};border-radius:6px;
+    background:${T.paperRaised};font-size:12px;white-space:nowrap}
+  .field-row > button:hover,.quiet-action:hover{border-color:${T.lineStrong};background:${T.hover}}
+  button[aria-busy=true]{cursor:wait;opacity:.7}
+
+  .disclosure{margin:4px 0 16px;border-top:1px solid ${T.lineSoft};border-bottom:1px solid ${T.lineSoft}}
+  .disclosure > summary{display:flex;align-items:center;gap:7px;padding:11px 1px;cursor:pointer;
+    color:${T.inkSoft};font-size:12px;font-weight:680;list-style:none}
+  .disclosure > summary::-webkit-details-marker{display:none}
+  .disclosure > summary::before{content:'+';display:grid;place-items:center;width:16px;height:16px;color:${T.accent};
+    font:500 15px/1 ${T.mono};transition:transform .16s ease}
+  .disclosure[open] > summary::before{content:'−'}
+  .disclosure-body{padding:4px 1px 3px}
+
+  [data-be]{display:none}[data-be].on{display:block}
+  .agent-box{padding-top:3px}
+  .check-row{display:flex;align-items:flex-start;gap:9px;cursor:pointer}
+  .check-row input{width:auto;min-height:0;flex:0 0 auto;margin:3px 0 0;accent-color:${T.accent}}
+  .check-copy{font-size:12.5px;color:${T.ink}}
+  .check-copy .hint{margin-top:2px}
+
+  .permission-set{min-width:0;margin:0 0 14px;padding:0;border:0}
+  .permission-set > legend{margin-bottom:7px}
+  .profile{position:relative;border:1px solid ${T.line};border-radius:7px;padding:10px;background:${T.paperRaised}}
   .profile + .profile{margin-top:7px}
-  .profile input[type=radio]{width:auto;margin:2px 7px 0 0;accent-color:${T.accent}}
-  .profile label{display:flex;align-items:flex-start;font-size:12.5px;cursor:pointer}
-  .profile .tag{margin-left:auto;font:10px/1.5 ${T.mono};color:#2f6b45;background:#eaf5ed;
-      border-radius:999px;padding:1px 6px}
-  .advanced{margin-top:7px;border:1px solid ${T.line};border-radius:8px;padding:0 9px}
-  .advanced > summary{cursor:pointer;padding:8px 0;font-size:12px;color:${T.inkSoft};font-weight:600}
-  .risk{margin:0 0 9px;padding:8px;border-left:3px solid #b45309;background:#fff8eb;
-      color:#7c2d12;font-size:11.5px;line-height:1.55}
-  .legacy{display:none;margin:0 0 8px;color:#991b1b;font-size:11.5px;font-weight:600}
-  .legacy.on{display:block}
+  .profile label{display:flex;align-items:flex-start;gap:8px;font-size:12.5px;cursor:pointer}
+  .profile input[type=radio]{width:auto;min-height:0;margin:3px 0 0;accent-color:${T.accent}}
+  .profile-copy{min-width:0;flex:1}.profile-copy .hint{margin-top:2px}
+  .profile .tag{margin-left:auto;border-radius:999px;padding:2px 6px;color:${T.ok};background:${T.sunk};
+    font:700 9.5px/1.4 ${T.mono};letter-spacing:.06em}
+  .profile .tag.full{color:${T.bad};background:${T.badSoft}}
+  .advanced{margin-top:7px;border:1px solid ${T.line};border-radius:7px;padding:0 9px;background:${T.paper}}
+  .advanced > summary{cursor:pointer;padding:9px 0;color:${T.inkSoft};font-size:12px;font-weight:680}
+  .risk{margin:0 0 9px;padding:9px 10px;border-left:2px solid ${T.bad};background:${T.badSoft};
+    color:${T.bad};font-size:11.5px;line-height:1.58}
+  .legacy{display:none;margin:0 0 8px;color:${T.bad};font-size:11.5px;font-weight:650}.legacy.on{display:block}
   .ack{display:none;margin:8px 0}.ack.on{display:flex}
+
+  .destination{position:relative;margin:2px 0 17px;padding:12px 11px 12px 14px;border-top:1px solid ${T.line};
+    border-bottom:1px solid ${T.line};background:${T.paperRaised}}
+  .destination::before{content:'';position:absolute;left:0;top:-1px;width:40px;height:2px;background:${T.accent}}
+  .destination strong{display:block;color:${T.ink};font:600 13px/1.35 ${T.serif}}
+  .destination span{display:block;margin-top:3px;color:${T.quote};font:11.5px/1.45 ${T.mono};overflow-wrap:anywhere}
+
+  .scope-actions{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:15px 0}
+  .scope-action{min-width:0;min-height:72px;padding:10px;border:1px solid ${T.line};border-radius:7px;background:${T.paperRaised};text-align:left}
+  .scope-action .ico{width:16px;height:16px;margin-bottom:7px;color:${T.accent}}
+  .scope-action strong{display:block;color:${T.ink};font-size:12px;font-weight:680}
+  .scope-action span{display:block;margin-top:3px;color:${T.quote};font-size:11px;line-height:1.45}
+  .scope-action:hover{border-color:${T.lineStrong};background:${T.hover}}
+  .block-list:empty{display:none}
+  .block-list{margin-top:17px;padding-top:14px;border-top:1px solid ${T.lineSoft};color:${T.quote};font-size:11.5px}
+  .blk{display:flex;align-items:center;gap:8px;margin-top:7px;padding:7px 0;border-bottom:1px solid ${T.lineSoft}}
+  .blk code{flex:1;min-width:0;color:${T.inkSoft};font:11px/1.5 ${T.mono};overflow:hidden;text-overflow:ellipsis;white-space:nowrap;direction:rtl}
+  .blk button{flex:0 0 auto;padding:4px 7px;font-size:11.5px}
+
+  .save{position:sticky;z-index:3;bottom:-28px;display:flex;align-items:center;justify-content:space-between;gap:10px;
+    margin:0;padding:11px 18px 13px;border-top:1px solid ${T.line};background:${T.paper}}
+  .save::before{content:'';position:absolute;left:18px;top:-1px;width:40px;height:2px;background:${T.accent}}
+  .save > button{flex:0 0 auto;min-height:36px;padding:7px 15px;border:1px solid ${T.accent};
+    border-radius:6px;background:${T.accent};color:${T.paperRaised};font-weight:680}
+  .save > button:hover{background:${T.accent};color:${T.paperRaised};filter:saturate(1.08) brightness(.94)}
+  .msg{min-width:0;color:${T.quote};font-size:11.5px;line-height:1.45}.msg.ok{color:${T.ok}}.msg.bad{color:${T.bad}}
+
+  @container (max-width:310px){
+    .set{margin-left:-14px;margin-right:-14px}.folio-kicker{padding-left:14px;padding-right:14px}
+    .chapter{padding:20px 14px 22px}.chapter-head{padding-left:12px}.chapter-head h3{font-size:14.5px}
+    .field-row{grid-template-columns:minmax(0,1fr)}.field-row > button{width:100%;text-align:center}
+    .scope-actions{grid-template-columns:minmax(0,1fr)}.scope-action{min-height:0;display:grid;grid-template-columns:18px 1fr;column-gap:8px}
+    .scope-action .ico{grid-row:1/3;margin:2px 0 0}.scope-action span{grid-column:2}
+    .save{padding-left:14px;padding-right:14px}
+  }
 `;
 
 const FORM = `
-  <div class="grp">
-    <h4>翻译</h4>
-    <div class="f">
-      <label>接口类型</label>
-      <select id="s-provider">
-        <option value="openai">OpenAI 兼容（/v1/chat/completions）</option>
-        <option value="anthropic">Anthropic（官方 SDK / 兼容网关）</option>
-      </select>
-    </div>
-    <div class="f">
-      <label>Base URL</label>
-      <input id="s-baseUrl" placeholder="https://api.anthropic.com" spellcheck="false">
-    </div>
-    <div class="f">
-      <label>API Key</label>
-      <input id="s-apiKey" type="password" spellcheck="false" autocomplete="off">
-      <div class="hint" id="s-keyHint"></div>
-    </div>
-    <div class="f2">
-      <div class="f">
-        <label>模型</label>
-        <input id="s-model" spellcheck="false" placeholder="点右侧「获取可选模型」">
-      </div>
-      <button id="s-fetchModels" title="从上游拉取可选模型">获取可选模型</button>
-    </div>
-    <div class="f" id="s-modelPickWrap" style="display:none">
-      <select id="s-modelPick"></select>
-    </div>
-    <div class="f">
-      <label>目标语言</label>
-      <input id="s-target" placeholder="简体中文">
-    </div>
-    <div class="f">
-      <label class="chk">
-        <input type="checkbox" id="s-thinking">
-        <span class="t">开启 think 模式
-          <div class="hint">翻译任务通常不需要推理，会明显增加延迟与费用。
-            上游若不支持该参数会自动退回不开。</div>
-        </span>
-      </label>
-    </div>
-    <div class="f">
-      <label>原文段上下文长度</label>
-      <input id="s-chunkChars" type="number" min="0" step="500" placeholder="5000">
-      <div class="hint">正文按这个字符数分段喂给模型，只喂到覆盖当前选区为止。
-        填 <code>0</code> 则不带正文上下文。</div>
-    </div>
-  </div>
+  <div class="folio">
+    <div class="folio-kicker">Settings</div>
+    <div class="chapter-deck">
+        <section class="chapter" id="s-chapter-translate">
+          <header class="chapter-head"><span class="chapter-eyebrow">Reading Voice</span><h3>翻译</h3><span class="chapter-summary" id="s-summary-translate"></span></header>
+          <p class="chapter-intro">决定译文如何说，也决定它需要读到多少原文。</p>
+          <label class="field"><span class="field-label">接口类型</span>
+            <select id="s-provider"><option value="openai">OpenAI 兼容（/v1/chat/completions）</option><option value="anthropic">Anthropic（官方 SDK / 兼容网关）</option></select></label>
+          <div class="field-row"><label class="field"><span class="field-label">模型</span><input id="s-model" spellcheck="false" placeholder="点右侧获取可选模型"></label>
+            <button id="s-fetchModels" type="button" title="从上游拉取可选模型">获取模型</button></div>
+          <div class="field" id="s-modelPickWrap" hidden><label class="field-label" for="s-modelPick">可选模型</label><select id="s-modelPick"></select></div>
+          <label class="field"><span class="field-label">目标语言</span><input id="s-target" placeholder="简体中文"></label>
+          <details class="disclosure" id="s-translateAdvanced"><summary>连接与上下文</summary><div class="disclosure-body">
+            <label class="field"><span class="field-label">Base URL</span><input id="s-baseUrl" placeholder="https://api.anthropic.com" spellcheck="false"></label>
+            <label class="field"><span class="field-label">API Key</span><input id="s-apiKey" type="password" spellcheck="false" autocomplete="off" aria-describedby="s-keyHint"><span class="hint" id="s-keyHint"></span></label>
+            <label class="field check-row"><input type="checkbox" id="s-thinking"><span class="check-copy">开启 think 模式<span class="hint">翻译通常不需要推理；开启后会增加延迟与费用，不支持时自动退回。</span></span></label>
+            <label class="field"><span class="field-label">原文段上下文长度</span><input id="s-chunkChars" type="number" min="0" step="500" placeholder="5000"><span class="hint">按字符数分段，只喂到覆盖当前选区为止；填 <code>0</code> 则不带正文。</span></label>
+          </div></details>
+        </section>
 
-  <div class="grp">
-    <h4>解释</h4>
-    <div class="f">
-      <label>后端</label>
-      <select id="s-exBackend">
-        <option value="llm">LLM（快，几秒）</option>
-        <option value="agent">本地 agent（慢，几十秒，但能读你的笔记）</option>
-      </select>
-    </div>
-    <div id="s-agentBox" style="display:none">
-      <div class="f2">
-        <div class="f">
-          <label>agent</label>
-          <select id="s-agent"><option value="">（点检测）</option></select>
-        </div>
-        <button id="s-detectAgent" title="探测本机已安装的 agent">检测</button>
-      </div>
-      <div class="f">
-        <label>笔记库</label>
-        <input id="s-notesDir" placeholder="/path/to/notes（留空则不授予任何目录）">
-      </div>
-      <div class="f">
-        <label>Agent 权限</label>
-        <div class="profile">
-          <label><input type="radio" name="agent-profile" id="s-profileSafe" value="safe">
-            <span>安全（推荐）<div class="hint">只读文件与检索工具；隔离写入、命令、MCP 和持久会话。</div></span>
-            <span class="tag">SAFE</span>
-          </label>
-        </div>
-        <div class="legacy" id="s-legacyFull">升级前行为已保留：当前为完整权限。建议切回安全档。</div>
-        <details class="advanced" id="s-advanced">
-          <summary>高级能力</summary>
-          <div class="profile">
-            <label><input type="radio" name="agent-profile" id="s-profileFull" value="full">
-              <span>完整权限<div class="hint">继承本地 Agent 的文件、命令、Git、MCP 与网络能力。</div></span>
-              <span class="tag" style="color:#991b1b;background:#fee2e2">FULL</span>
-            </label>
+        <section class="chapter" id="s-chapter-explain">
+          <header class="chapter-head"><span class="chapter-eyebrow">Thinking Partner</span><h3>解释</h3><span class="chapter-summary" id="s-summary-explain"></span></header>
+          <p class="chapter-intro">选择快速回答，或让本地 Agent 带着你的笔记一起思考。</p>
+          <label class="field"><span class="field-label">回答方式</span><select id="s-exBackend"><option value="llm">LLM（快，几秒）</option><option value="agent">本地 Agent（慢，但能读你的笔记）</option></select></label>
+          <div class="agent-box" id="s-agentBox" hidden>
+            <div class="field-row"><label class="field"><span class="field-label">本地 Agent</span><select id="s-agent"><option value="">（点检测）</option></select></label><button id="s-detectAgent" type="button" title="探测本机已安装的 agent">检测</button></div>
+            <label class="field"><span class="field-label">允许读取的笔记库</span><input id="s-notesDir" placeholder="/path/to/notes（留空则不授权目录）"><span class="hint">Safe 档只授予指定目录的只读访问。</span></label>
+            <fieldset class="permission-set field"><legend>Agent 权限</legend>
+              <div class="profile"><label><input type="radio" name="agent-profile" id="s-profileSafe" value="safe"><span class="profile-copy">安全<span class="hint">只读文件与检索；隔离写入、命令、MCP 和持久会话。</span></span><span class="tag">SAFE</span></label></div>
+              <div class="legacy" id="s-legacyFull">升级前行为已保留：当前为完整权限。建议切回安全档。</div>
+              <details class="advanced" id="s-advanced"><summary>高级能力</summary>
+                <div class="profile"><label><input type="radio" name="agent-profile" id="s-profileFull" value="full"><span class="profile-copy">完整权限<span class="hint">继承本地 Agent 的文件、命令、Git、MCP 与网络能力。</span></span><span class="tag full">FULL</span></label></div>
+                <div class="risk" id="s-fullWarning"></div>
+                <label class="check-row ack" id="s-fullAckWrap"><input type="checkbox" id="s-fullAck"><span class="check-copy">我理解网页和笔记内容可能包含 Prompt Injection，并确认开启完整权限</span></label>
+              </details>
+              <span class="hint" id="s-profileHint"></span>
+            </fieldset>
           </div>
-          <div class="risk" id="s-fullWarning"></div>
-          <label class="chk ack" id="s-fullAckWrap">
-            <input type="checkbox" id="s-fullAck">
-            <span class="t">我理解网页和笔记内容可能包含 Prompt Injection，并确认开启完整权限</span>
-          </label>
-        </details>
-        <div class="hint" id="s-profileHint"></div>
-      </div>
-    </div>
-  </div>
+        </section>
 
-  <div class="grp">
-    <h4>同步到笔记库</h4>
-    <div class="f">
-      <label>后端</label>
-      <select id="s-backend">
-        <option value="markdown">本地 Markdown（零依赖）</option>
-        <option value="obsidian">Obsidian（直接写 vault 文件）</option>
-        <option value="siyuan">思源笔记（kernel API）</option>
-      </select>
-    </div>
+        <section class="chapter" id="s-chapter-archive">
+          <header class="chapter-head"><span class="chapter-eyebrow">Knowledge Home</span><h3>归档</h3><span class="chapter-summary" id="s-summary-archive"></span></header>
+          <p class="chapter-intro">每篇文章持续写回同一份文档，目的地始终由你掌握。</p>
+          <label class="field"><span class="field-label">笔记后端</span><select id="s-backend"><option value="markdown">本地 Markdown（零依赖）</option><option value="obsidian">Obsidian（直接写 Vault）</option><option value="siyuan">思源笔记（Kernel API）</option></select></label>
+          <div class="destination" id="s-destination" role="status" aria-live="polite"><strong>本地 Markdown</strong><span>读取配置中…</span></div>
+          <div data-be="obsidian">
+            <div class="field-row"><label class="field"><span class="field-label">Vault</span><select id="s-vault"></select></label><button id="s-reloadVault" type="button" title="重新探测本机 Vault">探测</button></div>
+            <div class="field-row"><label class="field"><span class="field-label">Vault 内目录</span><select id="s-obsFolder"></select></label><button id="s-reloadObsDir" type="button" title="探测 Vault 内已有目录">探测</button></div>
+            <label class="field"><span class="field-label">或新建目录（填了以此为准）</span><input id="s-obsFolderCustom" placeholder="/阅读记录" spellcheck="false"><span class="hint">直接写入 Vault，不需要额外安装 Obsidian 插件。</span></label>
+          </div>
+          <div data-be="markdown">
+            <label class="field"><span class="field-label">导出根目录</span><input id="s-mdDir" placeholder="~/ContextFlow" spellcheck="false"></label>
+            <div class="field-row"><label class="field"><span class="field-label">子目录</span><select id="s-mdFolder"></select></label><button id="s-reloadMdDir" type="button" title="探测已有子目录">探测</button></div>
+            <label class="field"><span class="field-label">或新建目录（填了以此为准）</span><input id="s-mdFolderCustom" placeholder="/阅读记录" spellcheck="false"><span class="hint">按天生成标准 Markdown 文件，不依赖任何笔记软件。</span></label>
+          </div>
+          <div data-be="siyuan">
+            <label class="field"><span class="field-label">Kernel 地址</span><input id="s-origin" placeholder="http://127.0.0.1:6806" spellcheck="false"></label>
+            <label class="field"><span class="field-label">API Token</span><input id="s-syToken" type="password" spellcheck="false" autocomplete="off" aria-describedby="s-syHint"><span class="hint" id="s-syHint"></span></label>
+            <div class="field-row"><label class="field"><span class="field-label">笔记本</span><select id="s-notebook"></select></label><button id="s-reloadNb" type="button" title="重新拉取笔记本与目录">刷新</button></div>
+            <label class="field"><span class="field-label">落地目录</span><select id="s-path"></select></label>
+            <label class="field"><span class="field-label">或自定义目录（填了以此为准）</span><input id="s-pathCustom" placeholder="/阅读记录" spellcheck="false"></label>
+          </div>
+        </section>
 
-    <!-- Obsidian -->
-    <div data-be="obsidian">
-      <div class="f2">
-        <div class="f">
-          <label>Vault</label>
-          <select id="s-vault"></select>
-        </div>
-        <button id="s-reloadVault" title="重新探测本机 vault">探测</button>
-      </div>
-      <div class="f2">
-        <div class="f">
-          <label>vault 内目录</label>
-          <select id="s-obsFolder"></select>
-        </div>
-        <button id="s-reloadObsDir" title="探测 vault 内已有目录">探测</button>
-      </div>
-      <div class="f">
-        <label>或新建目录（填了以此为准）</label>
-        <input id="s-obsFolderCustom" placeholder="/阅读记录" spellcheck="false">
-        <div class="hint">不需要装任何 Obsidian 插件，直接写 .md 文件，Obsidian 会自动收录</div>
-      </div>
+        <section class="chapter" id="s-chapter-scope">
+          <header class="chapter-head"><span class="chapter-eyebrow">Reading Boundary</span><h3>可用范围</h3><span class="chapter-summary" id="s-summary-scope"></span></header>
+          <p class="chapter-intro">不是每个网页都需要阅读工具。把干扰挡在当前页面，或整个站点之外。</p>
+          <div class="scope-actions">
+            <button class="scope-action" id="s-blockPage" type="button">${icon('power')}<strong>仅停用此页面</strong><span>其他页面照常使用</span></button>
+            <button class="scope-action" id="s-blockSite" type="button">${icon('power')}<strong>停用整个站点</strong><span>同一来源下都不再启动</span></button>
+          </div>
+          <span class="hint">名单只保存在本站点的浏览器本地，不会写入服务端或笔记库。重新运行脚本或点扩展图标可恢复。</span>
+          <div class="block-list" id="s-blockList"></div>
+        </section>
     </div>
-
-    <!-- 本地 Markdown -->
-    <div data-be="markdown">
-      <div class="f">
-        <label>导出根目录</label>
-        <input id="s-mdDir" placeholder="~/ContextFlow" spellcheck="false">
-      </div>
-      <div class="f2">
-        <div class="f">
-          <label>子目录</label>
-          <select id="s-mdFolder"></select>
-        </div>
-        <button id="s-reloadMdDir" title="探测已有子目录">探测</button>
-      </div>
-      <div class="f">
-        <label>或新建目录（填了以此为准）</label>
-        <input id="s-mdFolderCustom" placeholder="/阅读记录" spellcheck="false">
-        <div class="hint">不依赖任何笔记软件，按天生成 <code>YYYY-MM-DD.md</code></div>
-      </div>
-    </div>
-
-    <!-- 思源 -->
-    <div data-be="siyuan">
-      <div class="f">
-        <label>kernel 地址</label>
-        <input id="s-origin" placeholder="http://127.0.0.1:6806" spellcheck="false">
-      </div>
-      <div class="f">
-        <label>API Token</label>
-        <input id="s-syToken" type="password" spellcheck="false" autocomplete="off">
-        <div class="hint" id="s-syHint"></div>
-      </div>
-      <div class="f2">
-        <div class="f">
-          <label>笔记本</label>
-          <select id="s-notebook"></select>
-        </div>
-        <button id="s-reloadNb" title="重新拉取笔记本与目录">刷新</button>
-      </div>
-      <div class="f">
-        <label>落地目录</label>
-        <select id="s-path"></select>
-      </div>
-      <div class="f">
-        <label>或自定义目录（填了以此为准）</label>
-        <input id="s-pathCustom" placeholder="/阅读记录" spellcheck="false">
-      </div>
-    </div>
-  </div>
-
-  <div class="save">
-    <button id="s-save">保存</button>
-    <span class="msg" id="s-msg"></span>
+    <div class="save"><span class="msg" id="s-msg" role="status" aria-live="polite" aria-atomic="true"></span><button id="s-save" type="button">保存更改</button></div>
   </div>
 `;
 
 export class Settings {
-  /** @param {ShadowRoot} sh  @param {HTMLElement} mount  @param {object} api */
-  constructor(sh, mount, api) {
-    this.sh = sh; this.api = api;
+  // Panel 用这枚能力标记启用非公开版的设置外壳；公开 Settings 不声明它，
+  // 因而仍保留原来的标题与阅读底栏。
+  static folio = true;
+
+  /**
+   * @param {ShadowRoot} sh  @param {HTMLElement} mount  @param {object} api
+   * @param {(scope:'page'|'site')=>void} [onBlock] 停用当前页面/站点（就地撤下，见 main.js）
+   */
+  constructor(sh, mount, api, onBlock = null) {
+    this.sh = sh; this.api = api; this.onBlock = onBlock;
     mount.innerHTML = FORM;
     this.$ = (id) => sh.getElementById(id);
 
@@ -248,29 +213,89 @@ export class Settings {
     // TypeError 后一切静默，用户只看到按钮毫无反应，连个线索都没有。
     const on = (id, evt, fn) => { this.$(id)[evt] = this.guard(fn); };
 
-    on('s-fetchModels', 'onclick', () => this.fetchModels());
-    on('s-detectAgent', 'onclick', () => this.detectAgents(true));
+
+    on('s-fetchModels', 'onclick', () => this.busy('s-fetchModels', '获取中…', () => this.fetchModels()));
+    on('s-detectAgent', 'onclick', () => this.busy('s-detectAgent', '检测中…', () => this.detectAgents(true)));
     on('s-exBackend', 'onchange', () => {
       this.toggleAgentBox();
+      this.refreshSummaries();
       // 切到 agent 且还没探测过时自动探一次 —— 否则下拉是空的，用户不知道要点检测
       if (this.$('s-exBackend').value === 'agent' && !this.agents) this.detectAgents(false);
     });
-    on('s-profileSafe', 'onchange', () => this.syncProfileUi());
-    on('s-profileFull', 'onchange', () => this.syncProfileUi());
+    on('s-profileSafe', 'onchange', () => { this.syncProfileUi(); this.refreshSummaries(); });
+    on('s-profileFull', 'onchange', () => { this.syncProfileUi(); this.refreshSummaries(); });
     on('s-agent', 'onchange', () => {
       this.wantAgent = this.$('s-agent').value;
       this.syncProfileUi();
+      this.refreshSummaries();
     });
-    on('s-reloadNb', 'onclick', () => this.loadSiyuan(true));
+    on('s-reloadNb', 'onclick', () => this.busy('s-reloadNb', '刷新中…', () => this.loadSiyuan(true)));
+    on('s-blockPage', 'onclick', () => this.onBlock?.('page'));
+    on('s-blockSite', 'onclick', () => this.onBlock?.('site'));
     on('s-save', 'onclick', () => this.save());
-    this.$('s-modelPick').onchange = (e) => this.pickModel(e.target.value);
-    this.$('s-notebook').onchange = () => this.loadPaths();
-    this.$('s-provider').onchange = () => this.syncProviderDefaults();
-    this.$('s-backend').onchange = () => this.showBackend();
-    this.$('s-reloadVault').onclick = () => this.loadVaults(true);
-    this.$('s-reloadObsDir').onclick = () => this.loadFolders('obsidian', true);
-    this.$('s-reloadMdDir').onclick = () => this.loadFolders('markdown', true);
-    this.$('s-vault').onchange = () => this.loadFolders('obsidian', false, true);
+    on('s-modelPick', 'onchange', (e) => this.pickModel(e.target.value));
+    on('s-notebook', 'onchange', () => this.loadPaths());
+    on('s-provider', 'onchange', () => { this.syncProviderDefaults(); this.refreshSummaries(); });
+    on('s-model', 'oninput', () => this.refreshSummaries());
+    on('s-backend', 'onchange', () => { this.showBackend(); this.refreshSummaries(); });
+    on('s-reloadVault', 'onclick', () => this.busy('s-reloadVault', '探测中…', () => this.loadVaults(true)));
+    on('s-reloadObsDir', 'onclick', () => this.busy('s-reloadObsDir', '探测中…', () => this.loadFolders('obsidian', true)));
+    on('s-reloadMdDir', 'onclick', () => this.busy('s-reloadMdDir', '探测中…', () => this.loadFolders('markdown', true)));
+    on('s-vault', 'onchange', () => { this.loadFolders('obsidian', false, true); this.refreshSummaries(); });
+    for (const id of ['s-mdDir', 's-mdFolder', 's-mdFolderCustom', 's-obsFolder',
+      's-obsFolderCustom', 's-notebook', 's-path', 's-pathCustom']) {
+      const el = this.$(id);
+      el.addEventListener(el.tagName === 'SELECT' ? 'change' : 'input', () => this.refreshSummaries());
+    }
+  }
+
+
+  refreshSummaries() {
+    const provider = this.$('s-provider').value === 'anthropic' ? 'Anthropic' : 'OpenAI 兼容';
+    const model = this.$('s-model').value.trim() || '未选模型';
+    const keyState = this.cfg?.translate?.apiKeySet
+      ? (this.cfg.translate.apiKeyFromEnv ? '环境变量密钥' : '密钥已配置') : '密钥未配置';
+    const translate = `${provider} · ${model} · ${keyState}`;
+
+    const isAgent = this.$('s-exBackend').value === 'agent';
+    const selected = this.agents?.find((a) => a.id === this.$('s-agent').value);
+    const agent = selected?.label || this.$('s-agent').value || this.wantAgent || '未选择 Agent';
+    const profile = this.$('s-profileFull').checked ? 'Full' : 'Safe';
+    const explain = isAgent ? `${agent} · ${profile}` : 'LLM · 快速回答';
+
+    const backend = this.$('s-backend').value;
+    const backendName = { markdown: '本地 Markdown', obsidian: 'Obsidian', siyuan: '思源笔记' }[backend] || backend;
+    const destination = backend === 'markdown'
+      ? [this.$('s-mdDir').value, this.$('s-mdFolderCustom').value || this.$('s-mdFolder').value].filter(Boolean).join(' · ')
+      : backend === 'obsidian'
+        ? [this.$('s-vault').selectedOptions?.[0]?.textContent || this.$('s-vault').value,
+          this.$('s-obsFolderCustom').value || this.$('s-obsFolder').value].filter(Boolean).join(' · ')
+        : [this.$('s-notebook').selectedOptions?.[0]?.textContent || this.$('s-notebook').value,
+          this.$('s-pathCustom').value || this.$('s-path').value].filter(Boolean).join(' · ');
+    const archive = `${backendName}${destination ? ` · ${destination}` : ' · 尚未选择位置'}`;
+
+    const pageCount = blocklistEntries().pages.length;
+    const scope = pageCount ? `当前可用 · 本站另有 ${pageCount} 个页面停用` : '当前页面可用';
+    const values = { translate, explain, archive, scope };
+    for (const [name, value] of Object.entries(values)) {
+      this.$(`s-summary-${name}`).textContent = value;
+    }
+    const dest = this.$('s-destination');
+    dest.querySelector('strong').textContent = backendName;
+    dest.querySelector('span').textContent = destination || '尚未选择位置';
+  }
+
+  async busy(id, label, fn) {
+    const button = this.$(id), old = button.textContent;
+    button.disabled = true;
+    button.setAttribute('aria-busy', 'true');
+    if (label) button.textContent = label;
+    try { return await fn(); }
+    finally {
+      button.disabled = false;
+      button.removeAttribute('aria-busy');
+      button.textContent = old;
+    }
   }
 
   /** 选中下拉项 → 回填输入框并立即落盘（用户预期「选了就生效」，不该再要求点保存） */
@@ -278,6 +303,30 @@ export class Settings {
     this.$('s-model').value = name;
     try { await this.persist({ silent: true }); this.msg(`已选用 ${name}`); }
     catch (e) { this.msg(`保存失败：${e.message}`, true); }
+  }
+
+  /**
+   * 本站点的页面级停用清单。
+   * 站点级停用是看不到的 —— 整站停用后插件不再启动，设置页自然无从打开；
+   * 它的解除走恢复卡片（见 blocklist.js），这里列出的永远只是其他页面。
+   * code 用 direction:rtl 截断时保住尾部：开头一大段是本站 origin，路径才有分辨力。
+   */
+  syncBlocklist() {
+    const box = this.$('s-blockList');
+    const { pages } = blocklistEntries();
+    if (!box || !pages.length) {
+      if (box) box.innerHTML = '';
+      this.refreshSummaries?.();
+      return;
+    }
+    box.innerHTML = `本站点已停用的页面：` + pages.map((p) => `<div class="blk">
+      <code title="${esc(p.key)}">${esc(p.key.replace(/^https?:\/\/[^/]+/, '') || '/')}</code>
+      <button type="button" data-k="${esc(p.key)}">恢复</button>
+    </div>`).join('');
+    for (const b of box.querySelectorAll('button[data-k]')) {
+      b.onclick = this.guard(() => { unblockPageKey(b.dataset.k); this.syncBlocklist(); });
+    }
+    this.refreshSummaries();
   }
 
   /** 把 handler 里的异常摊到消息条上（实现见 guard.js） */
@@ -292,6 +341,7 @@ export class Settings {
     const el = this.$('s-msg');
     el.textContent = text;
     el.className = `msg ${bad ? 'bad' : 'ok'}`;
+    el.setAttribute('role', bad ? 'alert' : 'status');
     if (text) setTimeout(() => { if (el.textContent === text) el.textContent = ''; }, 4000);
   }
 
@@ -305,7 +355,7 @@ export class Settings {
       : 'https://api.anthropic.com';
     if (!box.value && p === 'anthropic') box.value = 'https://api.anthropic.com';
     // 换了后端，之前拉的模型列表不再适用
-    this.$('s-modelPickWrap').style.display = 'none';
+    this.$('s-modelPickWrap').hidden = true;
   }
 
   /** 只显示当前后端相关的字段 */
@@ -337,6 +387,7 @@ export class Settings {
         `<option value="${esc(v.path)}">${esc(v.name)}${v.open ? '（当前打开）' : ''}</option>`).join('');
       const want = this.cfg?.obsidian?.vaultPath;
       if (want && vaults.some((v) => v.path === want)) sel.value = want;
+      this.refreshSummaries();
       if (verbose) this.msg(`探测到 ${vaults.length} 个 vault`);
     } catch (e) {
       sel.innerHTML = '<option value="">（探测失败）</option>';
@@ -359,6 +410,7 @@ export class Settings {
       sel.innerHTML = opts.map((f) =>
         `<option value="${esc(f)}">${esc(f === '/' ? '/（根目录）' : f)}</option>`).join('');
       if (want) sel.value = want;
+      this.refreshSummaries();
       if (verbose) this.msg(`${root} 下探测到 ${folders.length} 个目录`);
     } catch (e) {
       sel.innerHTML = `<option value="${esc(want || '/阅读记录')}">${esc(want || '/阅读记录')}</option>`;
@@ -409,6 +461,8 @@ export class Settings {
       this.$('s-pathCustom').value = '';
       this.syncProviderDefaults();
       this.showBackend();
+      this.syncBlocklist();
+      this.refreshSummaries();
     } catch (e) {
       this.msg(`读取配置失败：${e.message}`, true);
     }
@@ -423,6 +477,7 @@ export class Settings {
         `<option value="${n.id}">${esc(n.name)}</option>`).join('');
       sel.value = this.cfg?.siyuan.notebookId || notebooks[0]?.id || '';
       await this.loadPaths();
+      this.refreshSummaries();
       if (verbose) this.msg(`已拉取 ${notebooks.length} 个笔记本`);
     } catch (e) {
       sel.innerHTML = '<option value="">（思源不可达）</option>';
@@ -440,6 +495,7 @@ export class Settings {
       const opts = paths.includes(want) || !want ? paths : [want, ...paths];
       sel.innerHTML = opts.map((p) => `<option value="${esc(p)}">${esc(p)}</option>`).join('');
       if (want) sel.value = want;
+      this.refreshSummaries();
     } catch (e) {
       sel.innerHTML = '<option value="">（拉取失败）</option>';
     }
@@ -447,7 +503,7 @@ export class Settings {
 
   toggleAgentBox() {
     const on = this.$('s-exBackend').value === 'agent';
-    this.$('s-agentBox').style.display = on ? 'block' : 'none';
+    this.$('s-agentBox').hidden = !on;
   }
 
   syncProfileUi() {
@@ -471,16 +527,10 @@ export class Settings {
 
   /**
    * 探测本机可用的 agent。
-   * @param {boolean} verbose 手动点「检测」时给反馈；自动探测时保持安静
-   */
-  /**
    * @param {boolean} verbose 手动点「检测」：给反馈，并绕过服务端缓存
    *   （用户刚装了新 agent 就指望这个）。自动探测时保持安静并吃缓存。
    */
   async detectAgents(verbose) {
-    const btn = this.$('s-detectAgent');
-    const old = btn.textContent;
-    if (verbose) btn.textContent = '检测中…';
     try {
       const { agents } = await this.api.detectAgents(verbose);
       this.agents = agents;
@@ -495,7 +545,6 @@ export class Settings {
       // 自动探测失败不该弹提示：服务没起时面板本来就会显示"离线"
       if (verbose) this.msg(`检测失败：${e.message}`, true);
     }
-    btn.textContent = old;
   }
 
   /** 把探测结果填进下拉，并保住配置里已选的那个 */
@@ -523,12 +572,10 @@ export class Settings {
       || list.find((a) => a.available);
     if (pick) { sel.value = pick.id; this.wantAgent = pick.id; }
     this.syncProfileUi();
+    this.refreshSummaries();
   }
 
   async fetchModels() {
-    const btn = this.$('s-fetchModels');
-    const old = btn.textContent;
-    btn.textContent = '拉取中…';
     // 先把当前填的 url/key/provider 存下来，否则拉的是旧配置对应的上游
     try {
       await this.persist({ silent: true });
@@ -536,7 +583,7 @@ export class Settings {
       if (!models.length) { this.msg('上游未返回任何模型', true); return; }
       const pick = this.$('s-modelPick');
       pick.innerHTML = models.map((m) => `<option value="${esc(m)}">${esc(m)}</option>`).join('');
-      this.$('s-modelPickWrap').style.display = 'block';
+      this.$('s-modelPickWrap').hidden = false;
 
       // 关键：填充后下拉默认选中第一项，但 change 事件只在**用户改变**选项时触发。
       // 不在这里主动同步，界面就会出现「下拉显示 A、输入框还是 B」，
@@ -552,8 +599,6 @@ export class Settings {
       }
     } catch (e) {
       this.msg(`获取模型失败：${e.message}`, true);
-    } finally {
-      btn.textContent = old;
     }
   }
 
@@ -631,6 +676,7 @@ export class Settings {
       this.$(id).value = '';
       this.$(id).placeholder = set ? '已配置（留空不改）' : '未配置';
     }
+    this.refreshSummaries();
     if (!silent) this.msg('已保存');
     return this.cfg;
   }

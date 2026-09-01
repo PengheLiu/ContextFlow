@@ -37,6 +37,7 @@ export const T = {
   radius: '10px',
   sans: '-apple-system,BlinkMacSystemFont,"PingFang SC","Hiragino Sans GB",sans-serif',
   serif: 'Georgia,"Songti SC","Noto Serif CJK SC",serif',
+  mono: 'ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono",monospace',
 };
 
 /** 每个 Shadow Root 都要注入的基础样式 */

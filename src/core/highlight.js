@@ -133,6 +133,9 @@ export class Highlighter {
 
   clear() {
     this.items.clear();
+    // 与 supported() 同一套判定：不支持 CSS Custom Highlight 的环境本来就没画过，
+    // 停用时的"清场"（main.js stop()）在这里不该因此炸掉
+    if (typeof CSS === 'undefined' || !CSS.highlights) return;
     for (const name of CHANNELS) CSS.highlights.delete(`contextflow-${name}`);
   }
 

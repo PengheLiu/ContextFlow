@@ -10,6 +10,9 @@
 // 页面上只留一个划词工具条和查询浮层。高亮与查询标记都走 CSS Custom Highlight
 // API，零 DOM 侵入；点标记跳面板、点面板条目跳原文，双向定位。
 // 锚点解析的分层统计显示在面板底栏 —— 那是验证三层降级是否真在工作的唯一手段，别去掉。
+//
+// 不是每个页面都是阅读页：工具条末端的「停用」把整个插件按页面 / 站点关掉
+// （名单与恢复路径见 blocklist.js），boot() 会先查名单再决定要不要启动。
 
 import { buildTextIndex, serializeRange, resolveAnchor, charOffsetOf, boundaryOffset }
   from '../core/anchor.js';
@@ -27,24 +30,15 @@ import {
   saveOfflineEvents, tombstoneOfflineEvents, applyRemoteEvents, mutationStamp,
 } from '../core/offline-store.js';
 import { renderArticleMarkdown, safeMarkdownFilename } from '../core/markdown.js';
+import { urlKey } from '../core/urlkey.js';
+import {
+  blockedScope, blockPage, blockSite, showUnblockChip, BlockControl,
+} from './blocklist.js';
 
 const MIRROR = 'contextflow:v2:';
 
 // 会在原文留标记的 action。直接由 MARKS 派生，避免两处各写一份而走形。
 const MARKED = new Set(Object.keys(MARKS));
-
-export function urlKey(href = location.href) {
-  try {
-    const u = new URL(href);
-    const m = u.pathname.match(/\/(?:abs|pdf|html)\/(\d{4}\.\d{4,5})/);
-    if (/(^|\.)arxiv\.org$/.test(u.hostname) && m) return `arxiv:${m[1]}`;
-    for (const p of [...u.searchParams.keys()]) {
-      if (/^(utm_|fbclid|gclid|ref|spm|from)/.test(p)) u.searchParams.delete(p);
-    }
-    u.hash = '';
-    return (u.origin + u.pathname.replace(/\/+$/, '') + (u.search || '')).toLowerCase();
-  } catch { return href; }
-}
 
 const mGet = (k) => { try { return JSON.parse(localStorage.getItem(MIRROR + k) || '[]'); } catch { return []; } };
 const mSet = (k, v) => { try { localStorage.setItem(MIRROR + k, JSON.stringify(v)); } catch { /* 配额 */ } };
@@ -64,6 +58,7 @@ ${Object.entries(DARK_COLORS).map(([name, color]) => `  :host([data-theme=dark])
   .txt{display:inline-flex;align-items:center;gap:5px;min-height:31px;font-size:12.5px;font-weight:620;padding:5px 8px;background:transparent}
   .txt .ico{width:14px;height:14px;color:${T.quote}}
   .txt:hover .ico{color:${T.accent}}
+  .txt.off{padding:5px 7px}
 `;
 
 export class App {
@@ -90,6 +85,7 @@ export class App {
     if (!supported()) return console.error('[ContextFlow] 浏览器不支持 CSS Custom Highlight API');
     this.buildToolbar();
     this.markDelete = new MarkDeleteControl((id) => this.deleteMarked(id));
+    this.blockMenu = new BlockControl((scope) => this.blockHere(scope));
     this.panel = new Panel(this.handlers());
     // 浏览器 userscript首次运行要直接展开；只覆盖这一次启动，不改变扩展和侧边按钮
     // 对 localStorage 中 open 状态的正常记忆。若脚本在 DOMContentLoaded 前被连续点击，
@@ -114,6 +110,8 @@ export class App {
    * DOM 尚未 ready 时先记下意图，Panel 创建后再应用。
    */
   togglePanel() {
+    // 已停用的页面：重新执行userscript是用户的主动敲门，接住并给出恢复入口
+    if (this.stopped) return showUnblockChip();
     if (this.panel) {
       this.panel.toggle();
       return;
@@ -154,7 +152,50 @@ export class App {
         await this.sync();          // 同步后回读，刷新「待同步」计数
         return r;
       },
+      onBlock: (scope) => this.blockHere(scope),
     };
+  }
+
+  // ---------- 停用 ----------
+
+  /**
+   * 用户主动停用：落名单 → 就地撤下 → 弹恢复卡片。
+   * 卡片既是确认（看得见"已停用"），也是唯一的反悔出口。
+   */
+  blockHere(scope) {
+    if (scope === 'site') blockSite();
+    else blockPage();
+    this.stop();
+    showUnblockChip(scope);
+  }
+
+  /**
+   * 就地停用：撤下注入的全部 UI 与标记，但**不刷新页面** ——
+   * 被停用的往往不是阅读页（管理后台、编辑器），刷新可能丢掉用户正在编辑的状态。
+   * document 上的监听器无法逐个摘除，靠 this.stopped 让残余处理器立即返回；
+   * 轮询中的查询直接中止，晚到的结果不该写回一个已经停用的页面。
+   */
+  stop() {
+    this.stopped = true;
+    this.observer?.disconnect();
+    clearTimeout(this.timer);
+    for (const ctl of this.lookupRuns.values()) ctl.abort();
+    this.lookupRuns.clear();
+    this.hl.clear();
+    // push 模式的面板给 <html> 挂过 margin-right 挤开正文 —— 面板要撤了，
+    // 正文必须还回去，否则页面留着一条永远填不上的右白边。
+    // 不走 panel.toggle(false)：那会把「面板展开」的记忆也改掉，停用不该动它。
+    if (this.panel?.rootMarginBefore != null) {
+      const root = document.documentElement;
+      root.style.marginRight = this.panel.rootMarginBefore;
+      root.style.transition = this.panel.rootTransitionBefore || '';
+      this.panel.rootMarginBefore = null;
+      this.panel.rootTransitionBefore = null;
+    }
+    // 我们注入的所有宿主元素（工具条、面板、浮层、恢复卡片）都带 data-contextflow
+    // 标记，head 里那份高亮样式表也一样 —— 一网打尽，页面上不留痕
+    document.querySelectorAll('[data-contextflow]').forEach((el) => el.remove());
+    console.log('[ContextFlow] 已停用，恢复方式见恢复卡片或重新运行脚本');
   }
 
   // ---------- 服务对账 ----------
@@ -268,7 +309,10 @@ export class App {
     this.panel?.render();
   }
 
-  scheduleReanchor() { clearTimeout(this.timer); this.timer = setTimeout(() => this.reanchor(), 400); }
+  scheduleReanchor() {
+    if (this.stopped) return;
+    clearTimeout(this.timer); this.timer = setTimeout(() => this.reanchor(), 400);
+  }
 
   noteItem() { return this.items.find((e) => e.action === 'note'); }
   commentFor(id) { return this.items.find((e) => e.action === 'comment' && e.parentId === id && !e.deletedAt); }
@@ -290,6 +334,8 @@ export class App {
       <button class="txt" data-a="comment" title="高亮并写批注">${icon('comment')}<span>批注</span></button>
       <button class="txt" data-a="explain" title="就这段内容提问">${icon('explain')}<span>解释</span></button>
       <button class="txt" data-a="translate" title="翻译选中文本">${icon('translate')}<span>翻译</span></button>
+      <span class="sep" aria-hidden="true"></span>
+      <button class="txt off" data-a="disable" title="在此页面或站点停用 ContextFlow" aria-label="停用 ContextFlow">${icon('power')}</button>
     </div>`;
     this.tb = sh.getElementById('tb');
     // mousedown + preventDefault：点击若走 click 事件，选区已被清掉
@@ -297,6 +343,11 @@ export class App {
       const b = e.target.closest?.('button');
       if (!b) return;
       e.preventDefault();
+      if (b.dataset.a === 'disable') {
+        // 停用不需要选区，菜单锚定在按钮自身；工具条先留着，方便看清菜单贴着谁
+        this.blockMenu?.show(b.getBoundingClientRect());
+        return;
+      }
       const sel = getSelection();
       if (!sel || sel.isCollapsed) return;
       const range = sel.getRangeAt(0).cloneRange();
@@ -309,6 +360,7 @@ export class App {
 
   wire() {
     document.addEventListener('mouseup', () => setTimeout(() => {
+      if (this.stopped) return;
       const sel = getSelection();
       if (!sel || sel.isCollapsed || !sel.rangeCount) return this.hideTb();
       const range = sel.getRangeAt(0);
@@ -334,6 +386,7 @@ export class App {
     addEventListener('scroll', () => this.hideTb(), { passive: true });
 
     document.addEventListener('click', (e) => {
+      if (this.stopped) return;
       if (e.target?.closest?.('[data-contextflow]')) return;
       if (!getSelection()?.isCollapsed) { this.markDelete?.hide(); return; }
       const id = this.hl.hitTest(e.clientX, e.clientY);
@@ -358,13 +411,14 @@ export class App {
       });
     });
 
-    new MutationObserver((muts) => {
+    this.observer = new MutationObserver((muts) => {
       for (const m of muts) {
         const t = m.target, el = t.nodeType === 1 ? t : t.parentElement;
         if (el?.closest?.('[data-contextflow]')) continue;   // 忽略自己造成的变动
         return this.scheduleReanchor();
       }
-    }).observe(document.body, { childList: true, subtree: true, characterData: true });
+    });
+    this.observer.observe(document.body, { childList: true, subtree: true, characterData: true });
   }
 
   hideTb() { if (this.tb) this.tb.style.display = 'none'; }
@@ -983,6 +1037,21 @@ const PANEL_TOGGLE_EVENT = 'contextflow:toggle-panel';
  * @returns {App|null} 首次启动返回实例；已有实例时返回 null
  */
 export function boot({ initialPanelOpen = null, toggleExisting = false } = {}) {
+  // 停用名单优先于一切：不建 UI、不订阅、不上传正文，页面上不留任何痕迹。
+  const blocked = blockedScope();
+  if (blocked) {
+    // 首次执行（通常是页面加载）保持绝对安静 —— 否则停用本身就成了新的打扰。
+    // userscript载体的「重复执行」是用户主动敲门，这时才弹恢复卡片；
+    // 扩展载体的恢复入口在 ext/app.js（点工具栏图标）。
+    const loaded = document.documentElement.dataset[MARK];
+    if (toggleExisting && loaded === TOGGLE_MARK) {
+      showUnblockChip(blocked);
+      return null;
+    }
+    document.documentElement.dataset[MARK] = toggleExisting ? TOGGLE_MARK : '1';
+    console.log(`[ContextFlow] 此${blocked === 'site' ? '站点' : '页面'}在停用名单中，未启动`);
+    return null;
+  }
   const loaded = document.documentElement.dataset[MARK];
   if (loaded) {
     if (toggleExisting && loaded === TOGGLE_MARK) {

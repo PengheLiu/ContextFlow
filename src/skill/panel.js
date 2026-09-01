@@ -188,6 +188,7 @@ ${Object.entries(MARKS).map(([k, m]) => `  .item.k-${k} .src.lk{text-decoration-
   .note:focus{border-left-color:${T.accent};box-shadow:none}
 
   footer{flex:0 0 auto;padding:10px 16px 12px;border-top:1px solid ${T.line};background:${T.paper};font-variant-numeric:tabular-nums}
+  .wrap.settings-mode > footer{display:none}
   footer .r{justify-content:space-between;gap:8px}
   #sync{display:inline-flex;align-items:center;gap:6px;white-space:nowrap;font-size:12.5px;color:${T.inkSoft}}
   #sync .ico{width:14px;height:14px;color:${T.accent}}
@@ -278,7 +279,7 @@ export class Panel {
           <div class="title">
             <span class="brand">
               <span class="brand-seal">${brandMark()}</span>
-              <span class="brand-copy"><span class="brand-name">Context<em>Flow</em></span><span class="brand-sub">READING MARGIN</span></span>
+              <span class="brand-copy"><span class="brand-name">Context<em>Flow</em></span><span class="brand-sub" id="brandSub">READING MARGIN</span></span>
             </span>
             <span class="r">
               <button class="icon-action" id="cfg" title="配置翻译、解释与笔记同步" aria-label="配置">${icon('settings')}<span>配置</span></button>
@@ -366,6 +367,9 @@ export class Panel {
     const on = !this.settingsOpen;
     this.settingsOpen = on;
     this.toggle(true);
+    const folio = on && Settings.folio === true;
+    this.$('wrap').classList.toggle('settings-mode', folio);
+    this.$('brandSub').textContent = folio ? 'SETTINGS' : 'READING MARGIN';
     this.$('p-set').classList.toggle('on', on);
     const cfg = this.$('cfg');
     setButtonContent(cfg, on ? 'arrow-left' : 'settings', on ? '返回' : '配置');
@@ -374,7 +378,8 @@ export class Panel {
     for (const k of TAB_KEYS) this.$(`p-${k}`).classList.toggle('on', !on && this.tab === k);
     this.sh.querySelector('.tabs').style.display = on ? 'none' : 'flex';
     if (on) {
-      if (!this.settings) this.settings = new Settings(this.sh, this.$('p-set'), this.h.api);
+      // onBlock 交给 main.js 的 blockHere 做就地停用（撤 UI、落名单、弹恢复卡）
+      if (!this.settings) this.settings = new Settings(this.sh, this.$('p-set'), this.h.api, this.h.onBlock);
       this.settings.load();
     }
   }

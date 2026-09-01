@@ -8,6 +8,7 @@
 // 那边直接 fetch 并把 token 编译进产物；这边转发给 service worker，token 只在 SW 里。
 import { setTransport } from '../core/api.js';
 import { boot } from '../skill/main.js';
+import { blockedScope, showUnblockChip } from '../skill/blocklist.js';
 
 /**
  * 把请求转给 service worker。
@@ -46,6 +47,13 @@ const app = boot();
 
 // 点扩展图标切换面板。userscript 路径没有这个入口（只能点右缘把手），
 // 扩展有图标就顺手接上。
+// 实例不存在且页面在停用名单里时，图标点击就是恢复入口 —— 扩展载体没有
+// userscript那种"重复执行"的手势，用户主动点图标是唯一明确的敲门信号。
 chrome.runtime.onMessage.addListener((msg) => {
-  if (msg?.type === 'cf-toggle') app?.panel?.toggle();
+  if (msg?.type !== 'cf-toggle') return;
+  if (app) app.panel?.toggle();
+  else {
+    const scope = blockedScope();
+    if (scope) showUnblockChip(scope);
+  }
 });
