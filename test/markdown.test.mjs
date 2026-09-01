@@ -1,6 +1,6 @@
 // 纯浏览器 Markdown 导出。
 import assert from 'node:assert/strict';
-import { renderEventMarkdown, renderArticleMarkdown, safeMarkdownFilename } from '../src/core/markdown.js';
+import { renderEventMarkdown, renderArticleMarkdown, renderSourceMarkdown, safeMarkdownFilename } from '../src/core/markdown.js';
 
 let pass = 0;
 const t = (name, fn) => { try { fn(); console.log(`  ok   ${name}`); pass++; }
@@ -26,7 +26,16 @@ t('整篇按速览/翻译/解释/批注/总结组织', () => {
   ] });
   assert.ok(md.indexOf('## 速览') < md.indexOf('## 翻译'));
   assert.ok(md.indexOf('## 翻译') < md.indexOf('## 总结'));
-  assert.match(md, /> 来源：https:\/\/x/);
+  assert.match(md, /> 来源：<https:\/\/x\/>/);
+});
+
+
+t('来源链接只允许 http/https 并安全编码', () => {
+  assert.equal(renderSourceMarkdown('https://例子.test/a b?q=(x)#一'),
+    '> 来源：<https://xn--fsqu00a.test/a%20b?q=(x)#%E4%B8%80>');
+  assert.equal(renderSourceMarkdown('javascript:alert(1)'), '');
+  assert.equal(renderSourceMarkdown('data:text/html,x'), '');
+  assert.equal(renderSourceMarkdown('not a url'), '');
 });
 
 t('删除记录不导出', () => {

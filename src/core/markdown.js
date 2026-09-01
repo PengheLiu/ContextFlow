@@ -4,6 +4,17 @@
 const oneLine = (s) => String(s ?? '').replace(/\s*\n\s*/g, ' ').trim();
 const quote = (s) => oneLine(s).split('\n').map((l) => `> ${l}`).join('\n');
 
+/** 可见、可点击且不会被危险 scheme 伪装的原文链接。 */
+export function renderSourceMarkdown(raw) {
+  const value = String(raw || '').trim();
+  if (!value) return '';
+  try {
+    const url = new URL(value);
+    if (!['http:', 'https:'].includes(url.protocol)) return '';
+    return `> 来源：<${url.href}>`;
+  } catch { return ''; }
+}
+
 export const CATEGORIES = [
   { key: 'summary', label: '速览', actions: ['summary'] },
   { key: 'translate', label: '翻译', actions: ['translate'] },
@@ -52,7 +63,8 @@ export function renderEventMarkdown(ev) {
 }
 
 export function renderArticleMarkdown({ title, url, events }) {
-  const lines = [`# ${oneLine(title) || '未命名文章'}`, '', `> 来源：${url || ''}`];
+  const source = renderSourceMarkdown(url);
+  const lines = [`# ${oneLine(title) || '未命名文章'}`, ...(source ? ['', source] : [])];
   const groups = groupByCategory(events);
   for (const c of CATEGORIES) {
     const mine = groups.get(c.key);

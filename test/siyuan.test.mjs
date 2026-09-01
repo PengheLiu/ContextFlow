@@ -175,6 +175,18 @@ await t('首次同步：建 1 个文章文档 + 1 个日报文档', async () => 
   assert.equal(K.count('/api/filetree/createDocWithMd'), 2, '文档数不对');
 });
 
+
+await t('文章正文顶部有可点击原文链接且带受管属性', () => {
+  const docId = K.docs.get('/阅读/2026-08-19/Stealing Traces');
+  const sourceId = K.order.find((id) => K.attrs.get(id)?.['custom-contextflow-source'] === 'arxiv:1');
+  assert.ok(sourceId, '没有来源块');
+  assert.equal(K.mdOf(sourceId), '> 来源：<https://arxiv.org/abs/1>');
+  assert.equal(K.attrs.get(sourceId)['custom-contextflow-source-url'], 'https://arxiv.org/abs/1');
+  assert.equal(K.attrs.get(docId)['custom-contextflow-url'], 'https://arxiv.org/abs/1');
+  const firstHead = K.order.findIndex((id) => K.mdOf(id)?.startsWith('## '));
+  assert.ok(K.order.indexOf(sourceId) < firstHead, '来源链接应排在分类标题前');
+});
+
 await t('文章文档建在 /阅读/<首次阅读日>/<标题> 下', () =>
   assert.ok(K.docs.has('/阅读/2026-08-19/Stealing Traces'), [...K.docs.keys()].join()));
 

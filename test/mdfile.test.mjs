@@ -71,6 +71,8 @@ await t('首次同步：按标题建文件，四类各一个标题', async () =>
   const r = await syncAll(CFG);
   assert.equal(r.inserted, 5, `写入 ${r.inserted} 块`);
   const md = read(ART);
+  assert.match(md, /<!-- cf:source -->\n> 来源：<https:\/\/arxiv.org\/abs\/2608.09867>/);
+  assert.match(md, /url: "https:\/\/arxiv.org\/abs\/2608.09867"/);
   for (const h of ['## 翻译', '## 解释', '## 批注', '## 总结']) {
     assert.ok(md.includes(h), `缺标题 ${h}`);
   }
@@ -130,6 +132,19 @@ await t('再同步一次：不写盘、不重复', async () => {
   assert.equal(r.inserted, 0);
   assert.equal(r.updated, 0);
   assert.equal(read(ART), before, '文件内容被改动了');
+});
+
+
+await t('事件全 clean 时重新同步当前文章会补齐旧文件的原文链接', async () => {
+  const legacy = read(ART).replace(/\n<!-- cf:source -->\n> 来源：<[^>]+>/, '');
+  const { writeFileSync } = await import('node:fs');
+  writeFileSync(join(DIR, ART), legacy);
+  const r = await syncAll(CFG, { urlKey: 'arxiv:2608.09867' });
+  assert.equal(r.inserted, 0); assert.equal(r.updated, 0); assert.equal(r.sourceUpdated, 1);
+  assert.ok(r.files.includes(ART));
+  assert.equal((read(ART).match(/<!-- cf:source -->/g) || []).length, 1);
+  const again = await syncAll(CFG, { urlKey: 'arxiv:2608.09867' });
+  assert.equal(again.sourceUpdated, 0);
 });
 
 await t('日报索引不重复追加', () => {

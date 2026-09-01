@@ -28,7 +28,7 @@ import { mkdirSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import * as db from './db.mjs';
 import { CATEGORIES, LABEL_OF, groupByCategory, docName, contentHash } from './layout.mjs';
-import { renderEventMarkdown } from '../src/core/markdown.js';
+import { renderEventMarkdown, renderSourceMarkdown } from '../src/core/markdown.js';
 
 const err = (msg, code) => Object.assign(new Error(msg), { code });
 
@@ -36,6 +36,7 @@ const EV_MARK = (id) => `<!-- cf:${id} -->`;
 const ART_MARK = (urlKey) => `<!-- cf:art ${urlKey} -->`;
 const CAT_MARK = (key) => `<!-- cf:cat ${key} -->`;
 const IDX_MARK = (urlKey) => `<!-- cf:idx ${urlKey} -->`;
+const SOURCE_MARK = '<!-- cf:source -->';
 
 const ART_RE = /^<!-- cf:art (.+) -->$/;
 const CAT_RE = /^<!-- cf:cat ([a-z]+) -->$/;
@@ -79,11 +80,11 @@ function parse(lines) {
 
   lines.forEach((line, i) => {
     const t = line.trim();
-    if (ART_RE.test(t) || CAT_RE.test(t) || IDX_RE.test(t) || isHeading(t)) bounds.push(i);
+    if (ART_RE.test(t) || CAT_RE.test(t) || IDX_RE.test(t) || t === SOURCE_MARK || isHeading(t)) bounds.push(i);
     const c = t.match(CAT_RE);
     if (c) cats.set(c[1], { markerAt: i, endAt: lines.length - 1 });
     const m = t.match(EV_RE);
-    if (m && !ART_RE.test(t) && !CAT_RE.test(t) && !IDX_RE.test(t)) {
+    if (m && !ART_RE.test(t) && !CAT_RE.test(t) && !IDX_RE.test(t) && t !== SOURCE_MARK) {
       marks.push({ at: i, id: m[1] });
       bounds.push(i);
     }
@@ -111,13 +112,14 @@ function newFile(art) {
   const title = oneLine(art.title) || art.urlKey;
   return [
     '---',
-    ...(art.url ? [`url: ${art.url}`] : []),
+    ...(art.url ? [`url: ${JSON.stringify(String(art.url))}`] : []),
     `first_read: ${art.firstDay}`,
     'tags: [reading, contextflow]',
     '---',
     '',
     `# ${mdEscape(title)}`,
     ART_MARK(art.urlKey),
+    ...(renderSourceMarkdown(art.url) ? ['', SOURCE_MARK, renderSourceMarkdown(art.url)] : []),
     '',
   ];
 }
@@ -154,6 +156,32 @@ function stamp(md, id) {
   return [EV_MARK(id), ...md.split('\n')];
 }
 
+/** 文章级来源块独立于事件同步；只改写 ContextFlow 自己的 marker 后一行。 */
+function ensureSource(lines, art) {
+  const desired = renderSourceMarkdown(art.url);
+  if (!desired) return false;
+  const marks = [];
+  for (let i = 0; i < lines.length; i++) if (lines[i].trim() === SOURCE_MARK) marks.push(i);
+  if (!marks.length) {
+    const artAt = lines.findIndex((line) => line.trim() === ART_MARK(art.urlKey));
+    const at = artAt >= 0 ? artAt + 1 : Math.max(0, lines.findIndex((line) => /^#\s/.test(line)) + 1);
+    lines.splice(at, 0, '', SOURCE_MARK, desired, '');
+    return true;
+  }
+  let changed = false;
+  const first = marks[0];
+  if (lines[first + 1]?.trim() !== desired) {
+    if (lines[first + 1]?.trim().startsWith('> 来源：')) lines[first + 1] = desired;
+    else lines.splice(first + 1, 0, desired);
+    changed = true;
+  }
+  for (let i = marks.length - 1; i > 0; i--) {
+    const at = marks[i], n = lines[at + 1]?.trim().startsWith('> 来源：') ? 2 : 1;
+    lines.splice(at, n); changed = true;
+  }
+  return changed;
+}
+
 function resolveDir(backend, root, folder) {
   if (!root) {
     throw err(backend === 'obsidian'
@@ -174,21 +202,20 @@ function resolveDir(backend, root, folder) {
  */
 export async function syncAll({ backend, root, folder }, opts = {}) {
   const dir = resolveDir(backend, root, folder);
-  const articles = opts.urlKey
-    ? db.articlesToSync(backend).filter((a) => a.urlKey === opts.urlKey)
-    : db.articlesToSync(backend);
+  const current = opts.urlKey ? db.articleForSync(opts.urlKey) : null;
+  const articles = opts.urlKey ? (current ? [current] : []) : db.articlesToSync(backend);
 
-  let inserted = 0, updated = 0;
+  let inserted = 0, updated = 0, sourceUpdated = 0;
   const details = [];
   const files = [];
 
   for (const art of articles) {
     const r = syncArticle({ backend, dir, art });
-    inserted += r.inserted; updated += r.updated;
-    if (r.inserted || r.updated) files.push(r.name);
+    inserted += r.inserted; updated += r.updated; sourceUpdated += r.sourceChanged ? 1 : 0;
+    if (r.inserted || r.updated || r.sourceChanged) files.push(r.name);
     details.push({ urlKey: art.urlKey, title: art.title, ...r });
   }
-  return { articles: articles.length, inserted, updated, files, details };
+  return { articles: articles.length, inserted, updated, sourceUpdated, files, details };
 }
 
 function syncArticle({ backend, dir, art }) {
@@ -202,6 +229,7 @@ function syncArticle({ backend, dir, art }) {
   const file = join(dir, name);
 
   let lines = existsSync(file) ? readFileSync(file, 'utf8').split('\n') : newFile(art);
+  const sourceChanged = ensureSource(lines, art);
   const seen = parse(lines);
 
   const events = db.eventsForArticle(art.urlKey, backend);
@@ -235,13 +263,13 @@ function syncArticle({ backend, dir, art }) {
     }
   }
 
-  if (!inserted && !updated) return { name, inserted: 0, updated: 0 };
+  if (!inserted && !updated && !sourceChanged) return { name, inserted: 0, updated: 0, sourceChanged: false };
 
   mkdirSync(dirname(file), { recursive: true });
   writeFileSync(file, lines.join('\n').replace(/\n{3,}/g, '\n\n'), 'utf8');
   db.putArtDoc(art.urlKey, backend, name);
   writeIndex({ backend, dir, art, name });
-  return { name, inserted, updated };
+  return { name, inserted, updated, sourceChanged };
 }
 
 /**

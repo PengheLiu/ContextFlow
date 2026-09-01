@@ -281,6 +281,20 @@ export function articlesToSync(backend) {
 }
 
 /**
+ * 用户显式同步当前文章时，即使事件都已同步也要返回文章元数据，
+ * 让写入端有机会补齐/更新文章级来源链接。
+ */
+export function articleForSync(urlKey) {
+  const r = open().prepare(`
+    SELECT urlKey, title, url, createdAt AS firstAt
+    FROM events
+    WHERE urlKey = ? AND deletedAt IS NULL
+    ORDER BY createdAt, id
+    LIMIT 1`).get(urlKey);
+  return r ? { ...r, firstDay: dayOf(r.firstAt) } : null;
+}
+
+/**
  * 某文章的全部事件，附带它在该后端的同步状态。
  *
  * 刻意**不**在 SQL 里过滤掉已同步的：写入端要靠 syncedRef / syncedHash 判断

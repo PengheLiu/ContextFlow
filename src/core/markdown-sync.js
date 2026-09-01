@@ -1,16 +1,19 @@
-import { CATEGORIES, groupByCategory, renderEventMarkdown, safeMarkdownFilename } from './markdown.js';
+import { CATEGORIES, groupByCategory, renderEventMarkdown, renderSourceMarkdown, safeMarkdownFilename } from './markdown.js';
 import { hashKey } from './lookupkey.js';
 
 const artMark = (key) => `<!-- cf:art ${key} -->`;
 const catMark = (key) => `<!-- cf:cat ${key} -->`;
 const eventMark = (id) => `<!-- cf:${id} -->`;
 const idxMark = (key) => `<!-- cf:idx ${key} -->`;
+const SOURCE_MARK = '<!-- cf:source -->';
 const labels = new Map(CATEGORIES.map((c) => [c.key, c.label]));
 
 const escapeYaml = (s) => JSON.stringify(String(s || ''));
 export function newArticleDocument({ title, url, urlKey, firstDay }) {
+  const source = renderSourceMarkdown(url);
   return ['---', `url: ${escapeYaml(url)}`, `first_read: ${firstDay}`, 'tags: [reading, contextflow]', '---', '',
-    `# ${String(title || urlKey).replace(/\s+/g, ' ').trim()}`, artMark(urlKey), ''].join('\n');
+    `# ${String(title || urlKey).replace(/\s+/g, ' ').trim()}`, artMark(urlKey),
+    ...(source ? ['', SOURCE_MARK, source] : []), ''].join('\n');
 }
 
 function parse(text) {
@@ -18,9 +21,9 @@ function parse(text) {
   const boundaries = [];
   lines.forEach((line, i) => {
     const t = line.trim(), cat = t.match(/^<!-- cf:cat ([a-z]+) -->$/), ev = t.match(/^<!-- cf:([A-Za-z0-9_:.-]+) -->$/);
-    if (/^#{1,6}\s/.test(t) || /^<!-- cf:(?:art|cat) /.test(t)) boundaries.push(i);
+    if (/^#{1,6}\s/.test(t) || /^<!-- cf:(?:art|cat) /.test(t) || t === SOURCE_MARK) boundaries.push(i);
     if (cat) cats.set(cat[1], { markerAt: i, endAt: lines.length - 1 });
-    if (ev && !/^<!-- cf:(?:art|cat|idx) /.test(t)) { boundaries.push(i); events.set(ev[1], { from: i, to: lines.length - 1 }); }
+    if (ev && !/^<!-- cf:(?:art|cat|idx) /.test(t) && t !== SOURCE_MARK) { boundaries.push(i); events.set(ev[1], { from: i, to: lines.length - 1 }); }
   });
   const marks = [...events.entries()].sort((a, b) => a[1].from - b[1].from);
   for (let i = 0; i < marks.length; i++) {
@@ -30,6 +33,36 @@ function parse(text) {
   const sections = [...cats.entries()].sort((a, b) => a[1].markerAt - b[1].markerAt);
   sections.forEach(([, v], i) => { if (sections[i + 1]) v.endAt = sections[i + 1][1].markerAt - 2; });
   return { lines, events, cats };
+}
+
+
+/** 只维护带 cf:source 标记的来源行；用户自己的“来源”文字永远不碰。 */
+function ensureSource(lines, article) {
+  const desired = renderSourceMarkdown(article.url);
+  if (!desired) return false;
+  const marks = [];
+  for (let i = 0; i < lines.length; i++) if (lines[i].trim() === SOURCE_MARK) marks.push(i);
+  if (!marks.length) {
+    const artAt = lines.findIndex((line) => line.trim() === artMark(article.urlKey));
+    const at = artAt >= 0 ? artAt + 1 : Math.max(0, lines.findIndex((line) => /^#\s/.test(line)) + 1);
+    lines.splice(at, 0, '', SOURCE_MARK, desired, '');
+    return true;
+  }
+  let changed = false;
+  const first = marks[0];
+  if (lines[first + 1]?.trim() !== desired) {
+    if (lines[first + 1]?.trim().startsWith('> 来源：')) lines[first + 1] = desired;
+    else lines.splice(first + 1, 0, desired);
+    changed = true;
+  }
+  // 从后往前移除重复的受管来源对，不影响没有来源格式的相邻用户内容。
+  for (let i = marks.length - 1; i > 0; i--) {
+    const at = marks[i];
+    const n = lines[at + 1]?.trim().startsWith('> 来源：') ? 2 : 1;
+    lines.splice(at, n);
+    changed = true;
+  }
+  return changed;
 }
 
 function place(lines, key, block) {
@@ -42,6 +75,8 @@ function place(lines, key, block) {
 
 export function mergeArticleDocument(text, article, events, previous = new Map()) {
   let current = text || newArticleDocument(article), parsed = parse(current), lines = parsed.lines;
+  const sourceChanged = ensureSource(lines, article);
+  if (sourceChanged) parsed = parse(lines.join('\n'));
   let inserted = 0, updated = 0, deleted = 0, preserved = 0, conflicts = 0;
   const states = [], live = new Map(events.filter((e) => !e.deletedAt).map((e) => [e.id, e]));
   const tombstones = new Set(events.filter((e) => e.deletedAt).map((e) => e.id));
@@ -69,7 +104,7 @@ export function mergeArticleDocument(text, article, events, previous = new Map()
     }
   }
   return { text: lines.join('\n').replace(/\n{3,}/g, '\n\n').trimEnd() + '\n', states,
-    inserted, updated, deleted, preserved, conflicts };
+    inserted, updated, deleted, preserved, conflicts, sourceChanged };
 }
 
 export function mergeDateIndex(text, { firstDay, urlKey, title, fileName, mode }) {

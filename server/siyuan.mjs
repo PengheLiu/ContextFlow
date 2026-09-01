@@ -16,6 +16,7 @@
 //   · insertBlock 只给 parentID 是插到**开头**，追加到末尾必须用 previousID
 import * as db from './db.mjs';
 import { LABEL_OF, groupByCategory, docName, contentHash } from './layout.mjs';
+import { renderSourceMarkdown } from '../src/core/markdown.js';
 
 class SiYuanError extends Error {
   constructor(msg, code) { super(msg); this.code = code ?? 'SIYUAN'; }
@@ -90,24 +91,25 @@ export async function syncAll(cfg, opts = {}) {
   }
   const call = opts.call || makeClient({ origin, token });
 
-  const all = db.articlesToSync('siyuan');
-  const articles = opts.urlKey ? all.filter((a) => a.urlKey === opts.urlKey) : all;
+  const current = opts.urlKey ? db.articleForSync(opts.urlKey) : null;
+  const articles = opts.urlKey ? (current ? [current] : []) : db.articlesToSync('siyuan');
 
-  let inserted = 0, updated = 0;
+  let inserted = 0, updated = 0, sourceUpdated = 0;
   const details = [];
   const docs = [];
 
   for (const art of articles) {
     const r = await syncArticle(call, { art, notebookId, docPathPrefix });
-    inserted += r.inserted; updated += r.updated;
-    if (r.inserted || r.updated) docs.push(r.docId);
+    inserted += r.inserted; updated += r.updated; sourceUpdated += r.sourceChanged ? 1 : 0;
+    if (r.inserted || r.updated || r.sourceChanged) docs.push(r.docId);
     details.push({ urlKey: art.urlKey, title: art.title, ...r });
   }
-  return { articles: articles.length, inserted, updated, docs, details };
+  return { articles: articles.length, inserted, updated, sourceUpdated, docs, details };
 }
 
 async function syncArticle(call, { art, notebookId, docPathPrefix }) {
-  const docId = await ensureArticleDoc(call, { art, notebookId, docPathPrefix });
+  const { docId, sourceChanged, sourceBlockId } = await ensureArticleDoc(call,
+    { art, notebookId, docPathPrefix });
   const events = db.eventsForArticle(art.urlKey, 'siyuan');
   let inserted = 0, updated = 0;
 
@@ -131,7 +133,7 @@ async function syncArticle(call, { art, notebookId, docPathPrefix }) {
         console.warn(`[sync] 块 ${ev.syncedRef} 已不存在，改为重新插入`);
       }
 
-      if (!head) head = await ensureHead(call, { docId, art, catKey });
+      if (!head) head = await ensureHead(call, { docId, art, catKey, sourceBlockId });
       let prev = head.cursor, atCursor = true;
 
       // 后补的评论要插到它自己那条高亮之后，而不是分类末尾
@@ -157,8 +159,8 @@ async function syncArticle(call, { art, notebookId, docPathPrefix }) {
     if (head) db.putHead(art.urlKey, 'siyuan', catKey, head.blockId, head.cursor);
   }
 
-  if (inserted || updated) await writeIndex(call, { art, notebookId, docPathPrefix, docId });
-  return { docId, inserted, updated };
+  if (inserted || updated || sourceChanged) await writeIndex(call, { art, notebookId, docPathPrefix, docId });
+  return { docId, inserted, updated, sourceChanged };
 }
 
 /**
@@ -169,7 +171,6 @@ async function syncArticle(call, { art, notebookId, docPathPrefix }) {
  */
 async function ensureArticleDoc(call, { art, notebookId, docPathPrefix }) {
   const known = db.getArtDoc(art.urlKey, 'siyuan');
-  if (known) return known;                       // 空串是被重置过的坏落点，当作没有
 
   // 反查必须限定 b.type='d'（文档块）。
   //
@@ -178,12 +179,15 @@ async function ensureArticleDoc(call, { art, notebookId, docPathPrefix }) {
   // "heading is a leaf block and cannot have children"。真机才暴露得出来。
   //
   // 同时认改名前的 custom-ctxit-urlkey：已写进用户思源里的旧文档只带旧属性名。
-  const rows = await call('/api/query/sql', {
-    stmt: 'SELECT a.block_id FROM attributes a JOIN blocks b ON b.id = a.block_id'
-      + " WHERE a.name IN ('custom-contextflow-urlkey','custom-ctxit-urlkey')"
-      + ` AND a.value='${sqlLit(art.urlKey)}' AND b.type='d' LIMIT 1`,
-  });
-  let id = rows?.[0]?.block_id;
+  let id = known;
+  if (!id) {
+    const rows = await call('/api/query/sql', {
+      stmt: 'SELECT a.block_id FROM attributes a JOIN blocks b ON b.id = a.block_id'
+        + " WHERE a.name IN ('custom-contextflow-urlkey','custom-ctxit-urlkey')"
+        + ` AND a.value='${sqlLit(art.urlKey)}' AND b.type='d' LIMIT 1`,
+    });
+    id = rows?.[0]?.block_id;
+  }
 
   if (!id) {
     // 同名冲突要问内核，不能查 artdoc —— 思源那边存的是 docId，拿不到文档名。
@@ -203,31 +207,63 @@ async function ensureArticleDoc(call, { art, notebookId, docPathPrefix }) {
     id = await call('/api/filetree/createDocWithMd',
       { notebook: notebookId, path: hpath, markdown: '' });
     if (!id) throw new SiYuanError(`创建文档失败：${art.urlKey}`);
-    await call('/api/attr/setBlockAttrs', {
-      id,
-      attrs: {
-        'custom-contextflow-urlkey': art.urlKey,
-        'custom-contextflow-url': art.url || '',
-        'custom-contextflow-first-read': art.firstDay,
-      },
-    });
   }
+  await call('/api/attr/setBlockAttrs', {
+    id,
+    attrs: {
+      'custom-contextflow-urlkey': art.urlKey,
+      'custom-contextflow-url': art.url || '',
+      'custom-contextflow-first-read': art.firstDay,
+    },
+  });
   db.putArtDoc(art.urlKey, 'siyuan', id);
-  return id;
+  const source = await ensureSourceBlock(call, { docId: id, art });
+  return { docId: id, ...source };
+}
+
+async function ensureSourceBlock(call, { docId, art }) {
+  const markdown = renderSourceMarkdown(art.url);
+  if (!markdown) return { sourceChanged: false, sourceBlockId: null };
+  const rows = await call('/api/query/sql', {
+    stmt: 'SELECT a.block_id FROM attributes a JOIN blocks b ON b.id = a.block_id'
+      + " WHERE a.name='custom-contextflow-source'"
+      + ` AND a.value='${sqlLit(art.urlKey)}' AND b.root_id='${sqlLit(docId)}' LIMIT 1`,
+  });
+  let id = rows?.[0]?.block_id;
+  if (id) {
+    // 直接按期望 URL 匹配属性，避免依赖思源不同版本对 attributes.value 投影的差异。
+    const current = await call('/api/query/sql', {
+      stmt: 'SELECT a.block_id FROM attributes a JOIN blocks b ON b.id = a.block_id'
+        + " WHERE a.name='custom-contextflow-source-url'"
+        + ` AND a.value='${sqlLit(art.url)}' AND b.root_id='${sqlLit(docId)}' LIMIT 1`,
+    });
+    if (current?.[0]?.block_id === id) return { sourceChanged: false, sourceBlockId: id };
+    if (!await updateBlock(call, id, markdown)) id = null;
+  }
+  if (!id) {
+    id = newBlockId(await call('/api/block/insertBlock',
+      { dataType: 'markdown', data: markdown, parentID: docId }));
+    if (!id) throw new SiYuanError(`创建原文链接失败：${art.urlKey}`);
+  }
+  await call('/api/attr/setBlockAttrs', { id, attrs: {
+    'custom-contextflow-source': art.urlKey,
+    'custom-contextflow-source-url': art.url,
+  } });
+  return { sourceChanged: true, sourceBlockId: id };
 }
 
 /**
  * 分类标题块。返回 { blockId, cursor } —— cursor 是"上一块"，
  * 跨同步批次靠它接着往后插（标题是 leaf block，只能这样串）。
  */
-async function ensureHead(call, { docId, art, catKey }) {
+async function ensureHead(call, { docId, art, catKey, sourceBlockId = null }) {
   const local = db.getHead(art.urlKey, 'siyuan', catKey);
   if (local) return { blockId: local.blockId, cursor: local.lastBlockId || local.blockId };
 
   const md = `## ${LABEL_OF.get(catKey)}`;
   // insertBlock 只给 parentID 是插到开头，所以四个标题按建立顺序会**倒序**排。
   // 用已存在的最后一个标题的游标作 previousID，才能保持 CATEGORIES 的顺序。
-  const prev = lastHeadCursor(art.urlKey, catKey);
+  const prev = lastHeadCursor(art.urlKey, catKey) || sourceBlockId;
   let id = prev ? await insertAfter(call, md, prev) : null;
   if (!id) {
     try {

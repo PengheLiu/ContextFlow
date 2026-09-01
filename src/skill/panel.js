@@ -393,7 +393,8 @@ export class Panel {
       const r = await this.h.onSync();
       // 新增与改写要分开报：只报总数的话，"改了总结再同步"看起来像什么都没发生
       const bits = [r.inserted ? `新增 ${r.inserted}` : null,
-        r.updated ? `改写 ${r.updated}` : null].filter(Boolean);
+        r.updated ? `改写 ${r.updated}` : null,
+        r.sourceUpdated ? `更新原文链接 ${r.sourceUpdated}` : null].filter(Boolean);
       label.textContent = bits.length ? '已同步' : '已是最新';
       const where = (r.files || r.docs || []).join('、');
       if (bits.length && where) this.syncMsg(`${r.articles} 篇 → ${where}`, 'ok');

@@ -173,7 +173,8 @@ export async function syncToFileTarget(urlKey) {
       deleted: merged.deleted,
       preserved: merged.preserved,
       conflicts: merged.conflicts,
-      files: changed || index.changed ? [fileName, indexName] : [],
+      sourceChanged: merged.sourceChanged,
+      files: changed || merged.sourceChanged || index.changed ? [fileName, indexName] : [],
     };
   });
 }

@@ -37,13 +37,28 @@ await t('首次同步建立一文一档与日期索引', async () => {
   await store.saveOfflineEvents([event('sm:1', 'summary', '速览'), event('tr:1', 'translate', '译文'), event('note:1', 'note', '我的总结')], { queue: false });
   const r = await sync.syncToFileTarget('fs:u'); assert.equal(r.inserted, 3);
   assert.ok(dir.files.has('Article.md')); const md = dir.files.get('Article.md');
-  assert.match(md, /cf:art fs:u/); assert.ok(md.indexOf('## 速览') < md.indexOf('## 翻译')); assert.match(md, /## 总结/);
+  assert.match(md, /cf:art fs:u/); assert.match(md, /<!-- cf:source -->\n> 来源：<https:\/\/x\/>/);
+  assert.equal((md.match(/<!-- cf:source -->/g) || []).length, 1);
+  assert.ok(md.indexOf('## 速览') < md.indexOf('## 翻译')); assert.match(md, /## 总结/);
   assert.match(dir.files.get('1970-01-01.md'), /\[\[Article\]\].*cf:idx fs:u/);
 });
 
 await t('重复同步不重复', async () => {
   const before = dir.files.get('Article.md'); const r = await sync.syncToFileTarget('fs:u');
   assert.equal(r.inserted, 0); assert.equal(r.updated, 0); assert.equal(dir.files.get('Article.md'), before);
+});
+
+
+await t('旧文件补齐原文链接且重复同步不追加', async () => {
+  dir.files.set('Article.md', dir.files.get('Article.md').replace(/\n<!-- cf:source -->\n> 来源：<[^>]+>/, ''));
+  const first = await sync.syncToFileTarget('fs:u');
+  assert.equal(first.sourceChanged, true);
+  assert.ok(first.files.includes('Article.md'));
+  const once = dir.files.get('Article.md');
+  assert.equal((once.match(/<!-- cf:source -->/g) || []).length, 1);
+  const second = await sync.syncToFileTarget('fs:u');
+  assert.equal(second.sourceChanged, false);
+  assert.equal(dir.files.get('Article.md'), once);
 });
 
 await t('内容修改原地更新', async () => {

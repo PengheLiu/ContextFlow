@@ -76,6 +76,13 @@ t('全部同步完后该文章不再入选', () => {
   assert.equal(db.articlesToSync('siyuan').length, 0);
 });
 
+
+t('显式同步当前文章时，即使事件 clean 也返回最早记录的原始链接', () => {
+  const art = db.articleForSync('art:1');
+  assert.equal(art.url, 'https://x/1');
+  assert.equal(art.firstDay, '2026-08-19');
+});
+
 // ---- 改动回写：总结/评论是会被反复编辑的 ----
 
 t('改了内容后重新入选（否则总结同步一次就冻住）', () => {
