@@ -262,6 +262,43 @@ await t('速览文本经过转义，页面标题里的尖括号不会变成标�
   assert.match(el.textContent, /<img/);
 });
 
+
+await t('成功速览渲染 Markdown，HTML 仍保持为文字', () => {
+  const p = mk();
+  p.renderBrief({ state: 'ok', text: '**重点**\n\n- [主页](https://example.com)\n- <img src=x onerror=alert(1)>' });
+  const body = p.sh.querySelector('#brief .txt');
+  assert.equal(body.querySelector('strong').textContent, '重点');
+  assert.equal(body.querySelector('a').href, 'https://example.com/');
+  assert.equal(body.querySelectorAll('img').length, 0);
+  assert.match(body.textContent, /<img/);
+});
+
+await t('运行和错误态不解释 Markdown', () => {
+  const p = mk();
+  p.renderBrief({ state: 'run', text: '**运行中**' });
+  assert.equal(p.sh.querySelectorAll('#brief .txt strong').length, 0);
+  assert.equal(p.sh.querySelector('#brief .txt').textContent.includes('**运行中**'), true);
+  p.renderBrief({ state: 'err', text: '[失败](https://example.com)' });
+  assert.equal(p.sh.querySelectorAll('#brief .txt a').length, 0);
+});
+
+
+await t('解释列表成功答案渲染 Markdown 且不执行 HTML', () => {
+  const answer = '**重点**\n\n- [主页](https://example.com)\n- <img src=x onerror=alert(1)>';
+  const p = mk({
+    getLookups: (kind) => kind === 'explain' ? [{
+      id: 'ex-md', action: 'explain', text: 'source', value: answer,
+      anchor: { start: 1 }, createdAt: 1, extra: { question: 'Q' },
+    }] : [],
+  });
+  p.toggle(true, false); p.select('explain');
+  const el = p.sh.querySelector('[data-id="ex-md"] .ans');
+  assert.equal(el.querySelector('strong').textContent, '重点');
+  assert.equal(el.querySelector('a').href, 'https://example.com/');
+  assert.equal(el.querySelectorAll('img').length, 0);
+  assert.match(el.textContent, /<img/);
+});
+
 // ---- 打开面板的时刻 ----
 
 await t('恢复上次展开状态时不在构造阶段触发 onOpen；之后手动展开仍通知一次', () => {

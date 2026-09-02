@@ -105,6 +105,17 @@ await t('body / foot 写入与清空', () => {
   assert.equal(pop.sh.getElementById('b').textContent, '');
 });
 
+
+await t('成功答案渲染 Markdown，进度与错误仍是纯文本', () => {
+  pop.answer('**重点** · [主页](https://example.com)');
+  assert.equal(pop.sh.querySelector('#b strong').textContent, '重点');
+  assert.equal(pop.sh.querySelector('#b a').href, 'https://example.com/');
+  pop.body('**仍在运行** <img src=x>', 'prog');
+  assert.equal(pop.sh.querySelectorAll('#b strong,#b img').length, 0);
+  assert.equal(pop.sh.getElementById('b').textContent, '**仍在运行** <img src=x>');
+  assert.equal(pop.sh.getElementById('b').className, 'prog');
+});
+
 await t('「重新解释」默认隐藏，命中本地缓存时才露出', () => {
   const again = pop.sh.getElementById('again');
   pop.showRefresh(false);

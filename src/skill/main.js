@@ -601,7 +601,7 @@ export class App {
         await api.translate(text, undefined, this.key, offset);
       if (target) this.target = target;
       const ms = tk.stop();
-      pop.body(translation).foot(this.meta({ cached, usage, model, truncated, ms, ctx }));
+      pop.answer(translation).foot(this.meta({ cached, usage, model, truncated, ms, ctx }));
       this.saveLookup('translate', { text, value: translation, anchor,
         extra: { target: this.target || '' } });
     } catch (e) {
@@ -629,7 +629,7 @@ export class App {
     // 这一段之前问过 / 正在问，打开时就把状态摆出来，别让人以为什么都没发生
     const prev = this.items.find((e) => e.action === 'explain' && !e.deletedAt
       && lookupKey(e) === lookupKey({ action: 'explain', text, extra: { question: '' } }));
-    if (prev?.value) pop.body(prev.value).foot('之前的回答 · 可直接提问覆盖').showRefresh(true);
+    if (prev?.value) pop.answer(prev.value).foot('之前的回答 · 可直接提问覆盖').showRefresh(true);
     else if (prev && prev.extra?.status === 'running') pop.body('这段正在解释中…', 'prog');
     pop.focus();
   }
@@ -724,7 +724,7 @@ export class App {
         extra: { question: r.question || draft.question || '' },
       });
       if (live()) {
-        pop.body(r.answer).foot(this.meta({ ...r, ms })).showRefresh(r.cached === 'local');
+        pop.answer(r.answer).foot(this.meta({ ...r, ms })).showRefresh(r.cached === 'local');
       }
     } catch (e) {
       tk?.stop();
@@ -763,7 +763,7 @@ export class App {
             text: draft.text, value: job.result.answer, anchor: draft.anchor,
             extra: { question: draft.question || '' },
           });
-          if (live()) pop.body(job.result.answer).foot(this.meta({ ...job.result, ms }));
+          if (live()) pop.answer(job.result.answer).foot(this.meta({ ...job.result, ms }));
           return;
         }
         if (job.status === 'error' || job.status === 'canceled') {
@@ -938,33 +938,21 @@ export class App {
     }
   }
 
-  meta({ cached, usage, model, truncated, thinking, ms, ctx, via, agentMeta }) {
-    // 'local' = 命中本地库里已有的答案（没打上游、没起 agent）
+  meta({ cached, model, truncated, thinking, ctx, via }) {
+    // 默认界面只保留会影响用户判断/操作的信息；token、耗时、cache read、
+    // 会话续接和 Agent 成本仍在服务端结果与日志里，不再把回答区做成调试控制台。
     if (cached === 'local') {
       const when = ctx?.cachedAt ? new Date(ctx.cachedAt).toLocaleString('zh-CN', { hour12: false }) : '';
-      return `本地已有答案${when ? ` · ${when}` : ''} · ${ms}ms · 未计费`;
+      return `本地已有答案${when ? ` · ${when}` : ''}`;
     }
-    if (cached) return `缓存命中 · ${ms}ms · 未计费`;
+    if (cached) return '缓存命中';
     return [
-      via?.startsWith('agent') ? `${model}（本地 agent）` : model,
-      usage ? `${usage.in}→${usage.out} tok` : null,
-      // 连续对话是否真的命中了缓存 —— 不显示出来就没人能验证"稳定命中 KV-Cache"
-      usage?.cacheRead ? `cache ${usage.cacheRead}` : null,
-      ctx?.hasArticle
-        ? `正文 ${ctx.chunks ?? '?'}/${ctx.totalChunks ?? '?'} 段 · ${ctx.turns ?? 0} 轮`
-        : (ctx ? '无正文上下文' : null),
-      ctx?.articleTruncated ? `⚠ 正文超过 400k，仅使用 ${ctx.storedChars ?? 400000}/${ctx.originalChars ?? '?'} 字符` : null,
-      ctx?.truncated ? '⚠ 上下文预算已截断' : null,
-      // 不能续接的 agent 每次都要重发整段对话，这会直接反映在耗时上，
-      // 与其让人纳闷"为什么不走缓存"，不如写清楚
-      agentMeta && agentMeta.resumed === false ? '未续接会话（每次重发对话）' : null,
-      ctx?.dropped ? `⚠ 已丢弃 ${ctx.dropped} 轮旧历史` : null,
-      agentMeta?.turns ? `${agentMeta.turns} 轮` : null,
-      agentMeta?.costUsd ? `$${agentMeta.costUsd.toFixed(3)}` : null,
-      `${ms}ms`,
-      thinking === 'on' ? 'think' : null,
-      thinking === 'unsupported' ? '⚠ 上游不支持 think，已退回' : null,
-      truncated ? '⚠ 已达 max_tokens，可能截断' : null,
+      via?.startsWith('agent') ? `${model}（本地 Agent）` : model,
+      ctx?.articleTruncated ? '⚠ 正文过长，仅使用前 400k 字符' : null,
+      ctx?.truncated ? '⚠ 上下文已截断' : null,
+      ctx?.dropped ? `⚠ 已省略 ${ctx.dropped} 轮较早记录` : null,
+      thinking === 'unsupported' ? '⚠ 当前模型不支持 think，已自动关闭' : null,
+      truncated ? '⚠ 回答可能不完整' : null,
     ].filter(Boolean).join(' · ');
   }
 

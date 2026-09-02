@@ -561,11 +561,8 @@ export class Settings {
       sel.value = this.wantAgent || '';
       return;
     }
-    sel.innerHTML = list.map((a) => {
-      const risk = a.verified ? '' : ' · 未实测';
-      return `<option value="${esc(a.id)}"${a.available ? '' : ' disabled'}>`
-        + `${esc(a.label)}${a.available ? ` ${esc(a.version)}` : '（未安装）'}${risk}</option>`;
-    }).join('');
+    sel.innerHTML = list.map((a) => `<option value="${esc(a.id)}"${a.available ? '' : ' disabled'}>`
+      + `${esc(a.label)}${a.available ? ` ${esc(a.version)}` : '（未安装）'}</option>`).join('');
     // 已配置的优先；否则挑第一个可用的，且偏向 OS 级沙箱那个
     const pick = list.find((a) => a.id === this.wantAgent && a.available)
       || list.find((a) => a.available && a.verified)

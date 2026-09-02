@@ -17,6 +17,7 @@ import { MARKS } from '../core/highlight.js';
 import { byPosition } from '../core/order.js';
 import { Settings, SETTINGS_CSS } from './settings.js';
 import { brandMark, icon } from './icons.js';
+import { MARKDOWN_CSS, renderMarkdownInto } from './markdown-view.js';
 
 // tab 的顺序、内部键、显示名集中在这里 —— 此前散落在 HTML、select()、
 // toggleSettings() 和四个 onclick 里，改一次顺序要同步改四处。
@@ -158,7 +159,7 @@ ${Object.entries(MARKS).map(([k, m]) => `  .item.k-${k} .src.lk{text-decoration-
   .st button{border:1px solid ${T.line};background:transparent;padding:3px 8px;font-size:12px}
   .st button:hover{background:${T.hover}}
   .item.pend .src.lk{text-decoration-style:dotted;text-decoration-color:${T.line}}
-  .ans{margin-top:10px;font:13.5px/1.7 ${T.sans};color:${T.ink};white-space:pre-wrap;overflow-wrap:anywhere}
+  .ans{margin-top:10px}
   .tools .muted{margin-right:auto;font-variant-numeric:tabular-nums}
 
   /* 速览像编辑批注，不另铺一张卡片。 */
@@ -171,7 +172,6 @@ ${Object.entries(MARKS).map(([k, m]) => `  .item.k-${k} .src.lk{text-decoration-
   .brief .brief-label{display:inline-flex;align-items:center;gap:6px}
   .brief .brief-label .ico{width:14px;height:14px;color:${T.accent}}
   .brief .hd2 button{font-size:12px;padding:3px 6px;letter-spacing:0}
-  .brief .txt{white-space:pre-wrap}
   .brief .ft{margin-top:9px;font-size:12px;color:${T.quote};font-variant-numeric:tabular-nums}
   .brief.run .txt{color:${T.quote};display:flex;align-items:baseline;gap:7px}
   .brief.run .dot2{width:6px;height:6px;border-radius:50%;background:${T.accent};flex:0 0 auto;position:relative;top:-1px;animation:cfpulse 1.1s ease-in-out infinite}
@@ -238,6 +238,7 @@ ${Object.entries(MARKS).map(([k, m]) => `  .item.k-${k} .src.lk{text-decoration-
   }
   @media (hover:none){.tools{opacity:1}}
 ${SETTINGS_CSS}
+${MARKDOWN_CSS}
 `;
 
 /**
@@ -585,13 +586,15 @@ export class Panel {
     if (!el) return;
     if (!o) { el.className = 'brief'; el.innerHTML = ''; return; }
     el.className = `brief ${o.state === 'ok' ? '' : o.state}`;
-    // 运行态给一个脉动点：否则进度文字（"…不支持会话续接，每次发完整对话…"）
-    // 读起来像最终结果，看不出还在跑
+    // 运行态给一个脉动点：否则进度文字读起来像最终结果，看不出还在跑
     const dot = o.state === 'run' ? '<span class="dot2"></span>' : '';
     el.innerHTML = `<div class="hd2"><span class="brief-label">${icon('sparkle')}<span>AI 速览</span></span>`
       + `${o.retry ? `<button class="with-icon" data-act="rebrief">${icon('retry')}<span>重新生成</span></button>` : ''}</div>`
-      + `<div class="txt">${dot}${esc(o.text || '')}</div>`
+      + `<div class="txt">${dot}</div>`
       + `${o.meta ? `<div class="ft">${esc(o.meta)}</div>` : ''}`;
+    const body = el.querySelector('.txt');
+    if (o.state === 'ok') renderMarkdownInto(body, o.text || '');
+    else body.append(document.createTextNode(o.text || ''));
     const b = el.querySelector('[data-act=rebrief]');
     if (b) b.onclick = this.guard(() => this.h.onSummarize?.(true));
   }
@@ -666,7 +669,7 @@ export class Panel {
           >${esc((it.text || '').slice(0, 200))}</span>
         ${q ? `<div class="q2">${icon('help')}<span>${esc(q)}</span></div>` : ''}
         ${status}
-        ${pending ? '' : `<div class="ans">${esc(it.value)}</div>`}
+        ${pending ? '' : '<div class="ans"></div>'}
         <div class="tools">
           <span class="muted">${formatTime(it.createdAt)}</span>
           <button class="with-icon" data-act="del">${icon('trash')}<span>删除</span></button>
@@ -677,6 +680,9 @@ export class Panel {
       const id = el.dataset.id;
       // 失锚的不挂 onclick：点了也跳不动，留个可点样式只会让人反复试
       if (!this.h.isOrphan(id)) el.querySelector('.src').onclick = () => this.h.onLocate(id);
+      const item = items.find((it) => it.id === id);
+      const answer = el.querySelector('.ans');
+      if (answer && item?.value) renderMarkdownInto(answer, item.value);
       el.querySelector('[data-act=del]').onclick = () => this.h.onDeleteLookup(id);
       const retry = el.querySelector('[data-act=retry]');
       if (retry) retry.onclick = () => this.h.onRetryLookup(id);

@@ -184,4 +184,14 @@ await t('样式含窄面板断点且没有章节 tab，风险态只用主题 tok
   assert.doesNotMatch(css, /#fff8eb|#fee2e2|#eaf5ed/);
 });
 
+
+await t('Agent 下拉只展示名称版本，不暴露内部验证标签', () => {
+  const s = make();
+  assert.ok(!s.$('s-agent').textContent.includes('未实测'));
+  assert.match(s.$('s-agent').textContent, /DeepSeek Harness/);
+  s.$('s-agent').value = 'dsh';
+  s.syncProfileUi();
+  assert.match(s.$('s-profileHint').textContent, /安全权限边界未验证/);
+});
+
 console.log(`\n${pass} 项通过`);

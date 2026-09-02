@@ -9,6 +9,7 @@
 //    工具条是另一个 shadow host，只放行自己同样会误关。
 import { T, FLOAT, shadowHost } from './theme.js';
 import { brandMark, icon } from './icons.js';
+import { MARKDOWN_CSS, renderMarkdownInto } from './markdown-view.js';
 
 const UI_KEY = 'contextflow:pop';
 const MIN_W = 300, MIN_H = 200;
@@ -73,6 +74,7 @@ const CSS = `${FLOAT}
   .response .eyebrow .ico{width:14px;height:14px;color:${T.accent}}
   #b{flex:1 1 auto;min-height:0;padding:8px 0 4px;font-size:13.5px;line-height:1.72;
      white-space:pre-wrap;overflow-y:auto;overflow-wrap:anywhere}
+  #b.md{white-space:normal}
   #b:empty::before{content:'答案会显示在这里';color:${T.placeholder};font:italic 13px/1.7 ${T.serif}}
   #b.prog{color:${T.quote};font-variant-numeric:tabular-nums}
   #again{flex:0 0 auto;padding:5px 0 0}
@@ -91,6 +93,7 @@ const CSS = `${FLOAT}
     .source,.response{margin-left:14px;margin-right:14px}.ask{padding-left:14px;padding-right:14px}
     .hd-copy small{display:none}.ask{grid-template-columns:1fr}.ask button{justify-self:end}
   }
+${MARKDOWN_CSS}
 `;
 
 export class Popover {
@@ -275,7 +278,13 @@ export class Popover {
     });
   }
 
-  body(text, cls = '') { const b = this.$('b'); b.textContent = text; b.className = cls; return this; }
+  /** 进度、错误和异常必须按纯文本显示，绝不解释其中的 Markdown / HTML。 */
+  body(text, cls = '') {
+    const b = this.$('b'); b.replaceChildren(document.createTextNode(text || '')); b.className = cls;
+    return this;
+  }
+  /** 只有成功答案走安全 Markdown 预览；原始字符串仍由调用方原样持久化。 */
+  answer(text) { const b = this.$('b'); b.className = ''; renderMarkdownInto(b, text); return this; }
   /** 命中本地缓存时才露出「重新解释」—— 平时不该占位置 */
   showRefresh(on) { const el = this.$('again'); if (el) el.style.display = on ? 'block' : 'none'; return this; }
   foot(text) { this.$('f').textContent = text; return this; }

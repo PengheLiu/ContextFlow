@@ -243,8 +243,7 @@ async function askAgent({ urlKey, draft, system, cfg, onProgress }) {
     prompt = flatten(built.messages);
     chunks = built.chunks;
     turnsIncluded = Math.max(0, history.length - built.dropped);
-    note = agent.AGENTS[id].resumable ? '首次提问：交出正文与历史…'
-      : `${agent.AGENTS[id].label} 不支持会话续接，每次发完整对话…`;
+    note = '正在准备上下文…';
   }
   prompt = `${canResume ? '' : `${system}\n\n---\n\n`}${prompt}`;
   onProgress?.(note);
@@ -259,14 +258,9 @@ async function askAgent({ urlKey, draft, system, cfg, onProgress }) {
     maxTurns: a.maxTurns || 12,
     timeoutMs: a.timeoutMs || 240000,
     env: a.env || {},
-    // stderr 里混着上游的警告与调试行，它们不是"进度"。只放行看起来像
-    // 工具活动的行，否则浮层上会一直挂着一句无关的 warning。
-    onProgress: (sErr) => {
-      const line = String(sErr).split('\n').map((x) => x.trim())
-        .filter((x) => x && !/^(warning|warn|deprecat|permission deny rule)/i.test(x))
-        .pop();
-      if (line) onProgress?.(line.slice(0, 120));
-    },
+    // Agent stderr 只进服务端日志/错误诊断，不再直接透传到用户界面。
+    // 各 CLI 的 warning、工具日志和调试输出不具备稳定的用户语义。
+    onProgress: null,
   });
 
   if (urlKey && r.sessionId) {
