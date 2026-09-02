@@ -101,15 +101,18 @@ export async function syncAll(cfg, opts = {}) {
   for (const art of articles) {
     const r = await syncArticle(call, { art, notebookId, docPathPrefix });
     inserted += r.inserted; updated += r.updated; sourceUpdated += r.sourceChanged ? 1 : 0;
-    if (r.inserted || r.updated || r.sourceChanged) docs.push(r.docId);
+    if (r.inserted || r.updated || r.sourceChanged || r.indexChanged) docs.push(r.docId);
     details.push({ urlKey: art.urlKey, title: art.title, ...r });
   }
   return { articles: articles.length, inserted, updated, sourceUpdated, docs, details };
 }
 
 async function syncArticle(call, { art, notebookId, docPathPrefix }) {
+  // 日期父文档必须先确定并缓存。若先建 `/日期/文章`，思源会隐式创建父文档；
+  // 紧接着用尚未刷新的 SQL 查日期又会认为不存在，从而造出第二个同名日期文档。
+  const idx = await ensureIndexDoc(call, { art, notebookId, docPathPrefix });
   const { docId, sourceChanged, sourceBlockId } = await ensureArticleDoc(call,
-    { art, notebookId, docPathPrefix });
+    { art, notebookId, docPathPrefix, parentID: idx.docId });
   const events = db.eventsForArticle(art.urlKey, 'siyuan');
   let inserted = 0, updated = 0;
 
@@ -159,8 +162,54 @@ async function syncArticle(call, { art, notebookId, docPathPrefix }) {
     if (head) db.putHead(art.urlKey, 'siyuan', catKey, head.blockId, head.cursor);
   }
 
-  if (inserted || updated || sourceChanged) await writeIndex(call, { art, notebookId, docPathPrefix, docId });
-  return { docId, inserted, updated, sourceChanged };
+  // 日期文档是当天阅读目录。即使文章正文事件早已同步完，也要幂等检查目录链接；
+  // 这样重复日期节点被人工清理、idxdoc 重建或索引块被删后，下一次显式同步能自愈。
+  const indexChanged = await writeIndex(call, { art, idx, docId });
+  return { docId, inserted, updated, sourceChanged, indexChanged };
+}
+
+// 同一进程里两个同步请求可能同时碰到新日期；合并日期文档的解析/创建。
+const indexDocRuns = new Map();
+
+async function ensureIndexDoc(call, { art, notebookId, docPathPrefix }) {
+  const hpath = `${docPathPrefix}/${art.firstDay}`;
+  const key = `${notebookId}\u001f${hpath}`;
+  if (indexDocRuns.has(key)) return indexDocRuns.get(key);
+  const run = resolveIndexDoc(call, { hpath, notebookId });
+  indexDocRuns.set(key, run);
+  try { return await run; }
+  finally { if (indexDocRuns.get(key) === run) indexDocRuns.delete(key); }
+}
+
+async function resolveIndexDoc(call, { hpath, notebookId }) {
+  const cached = db.getIdxDoc(hpath);
+  const found = await call('/api/filetree/getIDsByHPath', { notebook: notebookId, path: hpath });
+  const ids = [...new Set(Array.isArray(found) ? found : (found?.ids || []))].filter(Boolean).sort();
+  let docId = cached && ids.includes(cached.docId) ? cached.docId : null;
+
+  if (!docId && ids.length === 1) docId = ids[0];
+  if (!docId && ids.length > 1) {
+    // 本地缓存丢失时优先选已经承载 ContextFlow 日报索引的那个文档。
+    for (const id of ids) {
+      const rows = await call('/api/query/sql', {
+        stmt: "SELECT block_id FROM attributes WHERE name='custom-contextflow-idx'"
+          + ` AND root_id='${sqlLit(id)}' LIMIT 1`,
+      });
+      if (rows?.[0]?.block_id) { docId = id; break; }
+    }
+    docId ||= ids[0];
+    console.warn(`[sync] 日期文档 ${hpath} 存在重复节点 ${ids.join(', ')}；继续使用 ${docId}，未自动删除其他节点`);
+  }
+
+  if (!docId) {
+    docId = await call('/api/filetree/createDocWithMd',
+      { notebook: notebookId, path: hpath, markdown: '' });
+    if (!docId) throw new SiYuanError(`创建日期文档失败：${hpath}`);
+  }
+  const tailBlockId = cached?.docId === docId ? cached.tailBlockId : null;
+  // 必须在创建文章子文档前落盘；文章创建失败后重试也能复用这一个父文档。
+  db.putIdxDoc(hpath, docId, tailBlockId);
+  return { hpath, docId, tailBlockId };
 }
 
 /**
@@ -169,7 +218,7 @@ async function syncArticle(call, { art, notebookId, docPathPrefix }) {
  * 三级回落缺一不可 ——
  * 少了属性反查，换机/删库后会给同一篇文章重复建文档。
  */
-async function ensureArticleDoc(call, { art, notebookId, docPathPrefix }) {
+async function ensureArticleDoc(call, { art, notebookId, docPathPrefix, parentID }) {
   const known = db.getArtDoc(art.urlKey, 'siyuan');
 
   // 反查必须限定 b.type='d'（文档块）。
@@ -205,7 +254,7 @@ async function ensureArticleDoc(call, { art, notebookId, docPathPrefix }) {
     // 日期文档同时是目录节点（下面可挂子文档）与当天的索引页。
     const hpath = `${docPathPrefix}/${art.firstDay}/${name}`;
     id = await call('/api/filetree/createDocWithMd',
-      { notebook: notebookId, path: hpath, markdown: '' });
+      { notebook: notebookId, path: hpath, parentID, markdown: '' });
     if (!id) throw new SiYuanError(`创建文档失败：${art.urlKey}`);
   }
   await call('/api/attr/setBlockAttrs', {
@@ -297,30 +346,14 @@ function lastHeadCursor(urlKey, catKey) {
  * 日报索引：往「文章最早一条记录所在那天」的日报文档里追加一行链接。
  * 用最早那天而不是同步当天 —— 一次性补同步历史文章时才不会全挤到今天。
  */
-async function writeIndex(call, { art, notebookId, docPathPrefix, docId }) {
-  const hpath = `${docPathPrefix}/${art.firstDay}`;
-  // 按 hpath 查，不按 day —— 只按 day 会在改了 docPathPrefix 之后把索引行
-  // 写回旧路径下的那个文档里（实测踩过一次）
-  let idx = db.getIdxDoc(hpath);
-  if (!idx) {
-    const rows = await call('/api/query/sql', {
-      stmt: `SELECT id FROM blocks WHERE type='d' AND box='${sqlLit(notebookId)}'`
-        + ` AND hpath='${sqlLit(hpath)}' LIMIT 1`,
-    });
-    const id = rows?.[0]?.id
-      || await call('/api/filetree/createDocWithMd',
-        { notebook: notebookId, path: hpath, markdown: '' });
-    if (!id) return;
-    db.putIdxDoc(hpath, id, null);
-    idx = { docId: id, tailBlockId: null };
-  }
-
+async function writeIndex(call, { art, idx, docId }) {
+  // 日期文档已由 ensureIndexDoc 确定；这里绝不再查询或创建同 hpath 文档。
   // 该文章是否已索引过：靠属性查，不靠文本匹配（用户可能改过链接文字）
   const seen = await call('/api/query/sql', {
     stmt: "SELECT block_id FROM attributes WHERE name='custom-contextflow-idx'"
       + ` AND value='${sqlLit(art.urlKey)}' AND root_id='${sqlLit(idx.docId)}' LIMIT 1`,
   });
-  if (seen?.[0]?.block_id) return;
+  if (seen?.[0]?.block_id) return false;
 
   const title = oneLine(art.title) || art.urlKey;
   const md = `- [${mdEscape(title)}](siyuan://blocks/${docId})`;
@@ -329,10 +362,11 @@ async function writeIndex(call, { art, notebookId, docPathPrefix, docId }) {
     id = newBlockId(await call('/api/block/insertBlock',
       { dataType: 'markdown', data: md, parentID: idx.docId }));
   }
-  if (!id) return;
+  if (!id) return false;
   await call('/api/attr/setBlockAttrs',
     { id, attrs: { 'custom-contextflow-idx': art.urlKey } });
-  db.putIdxDoc(hpath, idx.docId, id);
+  db.putIdxDoc(idx.hpath, idx.docId, id);
+  return true;
 }
 
 /** 同批次里某事件已拿到的块 id（用于把后补的评论插到它自己那条高亮之后） */

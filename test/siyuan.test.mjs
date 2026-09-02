@@ -31,29 +31,49 @@ const CFG = {
 function fakeKernel() {
   let seq = 0;
   const calls = [];
-  const docs = new Map();      // hpath → docId
-  const blocks = new Map();    // blockId → { md, root, type }
-  const attrs = new Map();     // blockId → { name: value }
+  const docsById = new Map(); // docId → { hpath, parentID }
+  const idsByHpath = new Map();
+  const blocks = new Map();  // blockId → { md, root, type }
+  const attrs = new Map();
   const order = [];
 
+  const addDoc = (hpath, parentID = null) => {
+    const id = `doc-${++seq}`;
+    docsById.set(id, { hpath, parentID });
+    const ids = idsByHpath.get(hpath) || [];
+    ids.push(id); idsByHpath.set(hpath, ids);
+    return id;
+  };
+  const first = (hpath) => idsByHpath.get(hpath)?.[0];
+  const docs = { // 兼容旧测试的 Map-like 读法，但不会覆盖重复 hpath
+    get: first,
+    has: (hpath) => !!first(hpath),
+    keys: () => idsByHpath.keys(),
+    values: () => docsById.keys(),
+  };
   const rootOf = (id) => (blocks.has(id) ? blocks.get(id).root : id);
 
   const call = async (path, payload = {}) => {
     calls.push({ path, payload });
     switch (path) {
+      case '/api/filetree/getIDsByHPath':
+        return [...(idsByHpath.get(payload.path) || [])];
       case '/api/filetree/createDocWithMd': {
-        const id = `doc-${++seq}`;
-        docs.set(payload.path, id);
-        return id;
+        // 真实内核会补齐缺失祖先；最终路径本身每次调用都新建，不是 get-or-create。
+        const parts = payload.path.split('/').filter(Boolean);
+        let prefix = '', parent = payload.parentID || null;
+        for (const part of parts.slice(0, -1)) {
+          prefix += `/${part}`;
+          parent = first(prefix) || addDoc(prefix, parent);
+        }
+        return addDoc(payload.path, payload.parentID || parent);
       }
       case '/api/block/insertBlock': {
         const { previousID, parentID, data } = payload;
-        if (previousID && !blocks.has(previousID) && rootOf(previousID) !== previousID) {
+        if (previousID && !blocks.has(previousID) && !docsById.has(previousID)) {
           throw new Error(`previousID ${previousID} 不存在`);
         }
         const id = `blk-${++seq}`;
-        // 类型是必要的：思源的标题是 leaf block，不能当 parentID 用。
-        // 假内核不建模类型，就模拟不出真机那条 "cannot have children" 报错。
         blocks.set(id, { md: data, root: parentID ?? rootOf(previousID),
           type: /^#{1,6}\s/.test(String(data)) ? 'h' : 'p' });
         order.push(id);
@@ -67,40 +87,35 @@ function fakeKernel() {
       case '/api/attr/setBlockAttrs':
         attrs.set(payload.id, { ...(attrs.get(payload.id) || {}), ...payload.attrs });
         return {};
-      case '/api/query/sql':
-        return query(payload.stmt);
-      default:
-        return {};
+      case '/api/query/sql': return query(payload.stmt);
+      default: return {};
     }
   };
 
-  const typeOf = (id) => (blocks.has(id) ? blocks.get(id).type
-    : ([...docs.values()].includes(id) ? 'd' : null));
-
+  const typeOf = (id) => (blocks.has(id) ? blocks.get(id).type : (docsById.has(id) ? 'd' : null));
   function query(st) {
-    // SELECT id FROM blocks ... hpath='X'
-    const hp = st.match(/hpath='([^']*)'/);
-    if (hp) return docs.has(hp[1]) ? [{ id: docs.get(hp[1]) }] : [];
-
-    // SELECT block_id FROM attributes WHERE name(=|IN) ... AND value='V' [AND root_id='R']
+    // 文档创建后 SQL 索引可以延迟；fake 不靠 hpath SQL 暴露刚创建的文档。
+    if (/SELECT id FROM blocks/.test(st) && /hpath=/.test(st)) return [];
     const names = st.match(/name IN \(([^)]*)\)/)
       ? st.match(/name IN \(([^)]*)\)/)[1].split(',').map((x) => x.trim().replace(/'/g, ''))
       : (st.match(/name='([^']*)'/) ? [st.match(/name='([^']*)'/)[1]] : null);
     const val = st.match(/value='([^']*)'/)?.[1];
     const root = st.match(/root_id='([^']*)'/)?.[1];
-    if (!names || val === undefined) return [];
+    if (!names) return [];
     const wantType = st.match(/b\.type='([a-z])'/)?.[1] ?? null;
-
     for (const [bid, a] of attrs) {
       if (root && rootOf(bid) !== root && bid !== root) continue;
       if (wantType && typeOf(bid) !== wantType) continue;
-      for (const n of names) if (a[n] === val) return [{ block_id: bid }];
+      for (const n of names) {
+        if (val === undefined ? Object.hasOwn(a, n) : a[n] === val) return [{ block_id: bid }];
+      }
     }
     return [];
   }
 
-  return { call, calls, docs, blocks, attrs, order,
-    count: (p) => calls.filter((c) => c.path === p).length,
+  return { call, calls, docs, docsById, idsByHpath, blocks, attrs, order,
+    idsAt: (hpath) => [...(idsByHpath.get(hpath) || [])],
+    count: (path) => calls.filter((c) => c.path === path).length,
     mdOf: (id) => blocks.get(id)?.md };
 }
 
@@ -176,6 +191,17 @@ await t('首次同步：建 1 个文章文档 + 1 个日报文档', async () => 
 });
 
 
+await t('首次同步先建日期再建文章，SQL 延迟时日期仍只有一个 ID', () => {
+  const creates = K.calls.filter((c) => c.path === '/api/filetree/createDocWithMd');
+  assert.equal(creates[0].payload.path, '/阅读/2026-08-19');
+  assert.equal(creates[1].payload.path, '/阅读/2026-08-19/Stealing Traces');
+  assert.equal(K.idsAt('/阅读/2026-08-19').length, 1);
+  const dayId = K.idsAt('/阅读/2026-08-19')[0];
+  const articleId = K.docs.get('/阅读/2026-08-19/Stealing Traces');
+  assert.equal(K.docsById.get(articleId).parentID, dayId);
+  assert.equal(db.getIdxDoc('/阅读/2026-08-19').docId, dayId);
+});
+
 await t('文章正文顶部有可点击原文链接且带受管属性', () => {
   const docId = K.docs.get('/阅读/2026-08-19/Stealing Traces');
   const sourceId = K.order.find((id) => K.attrs.get(id)?.['custom-contextflow-source'] === 'arxiv:1');
@@ -217,6 +243,19 @@ await t('再同步一次：一次内核写操作都不发生', async () => {
   assert.equal(r.updated, 0);
   assert.equal(K.count('/api/filetree/createDocWithMd'), before.doc, '又建了文档');
   assert.equal(K.count('/api/block/insertBlock'), before.ins, '又插了块');
+});
+
+
+await t('日期目录索引被删后，文章无改动的同步也会自动补回', async () => {
+  const idx = [...K.attrs.entries()].find(([, a]) => a['custom-contextflow-idx'] === 'arxiv:1');
+  assert.ok(idx, '测试前没有索引块');
+  K.attrs.delete(idx[0]); K.blocks.delete(idx[0]);
+  const before = K.blocks.size;
+  const r = await syncAll(CFG, { call: K.call, urlKey: 'arxiv:1' });
+  assert.equal(r.inserted, 0); assert.equal(r.updated, 0);
+  assert.equal(r.details[0].indexChanged, true);
+  assert.equal(K.blocks.size, before + 1);
+  assert.ok([...K.attrs.values()].some((a) => a['custom-contextflow-idx'] === 'arxiv:1'));
 });
 
 // ---- 跨天：用户报告的核心问题 ----
