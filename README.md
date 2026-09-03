@@ -207,22 +207,32 @@ ContextFlow 负责理解眼前正在发生的阅读；本地 agent 负责关联�
 git clone https://github.com/PengheLiu/ContextFlow.git
 cd ContextFlow
 npm install
-npm run server        # 终端 A：首次运行生成 ~/.contextflow/config.json
-
-# 新开终端 B
+npm run service       # macOS：安装并启动常驻服务，登录后自动启动
 npm run build:ext     # 构建扩展，并打印固定扩展 ID 与 chrome-extension:// 来源
 ```
 
 然后：
 
 1. 将 `build:ext` 打印的 `chrome-extension://<id>` 加入 `~/.contextflow/config.json` 的 `allowedOrigins`；
-2. 重启本地服务，让新的来源白名单生效；
+2. 运行 `npm run service -- restart`，让新的来源白名单生效；
 3. 打开 `chrome://extensions`，开启“开发者模式”；
 4. 选择“加载已解压的扩展程序”，加载 `extension/dist`；
 5. 打开任意正文网页，在 ContextFlow 面板中进入“配置”；
 6. 配置翻译所用的 LLM、笔记位置，以及需要使用的本地 agent。
 
 如果希望 agent 使用个人笔记，在配置中点击“检测”，选择本机 agent，并明确指定允许读取的笔记目录。
+
+macOS 常驻服务命令：
+
+```bash
+npm run service -- status          # 查看 launchd 与 HTTP 健康状态
+npm run service -- restart         # 更新代码或配置后重启
+npm run service -- logs            # 查看最近日志；加 --follow 持续查看
+npm run service -- uninstall       # 卸载自启动，但保留 ~/.contextflow 中的全部数据
+npm run server                     # 前台运行，仅用于开发和排错
+```
+
+服务在登录后自动启动；合盖休眠期间 macOS 会暂停处理请求，唤醒后恢复。仓库位置或 Node 可执行文件变化后，重新运行 `npm run service` 刷新绝对路径。
 
 <details>
 <summary><strong>配置项速查</strong></summary>

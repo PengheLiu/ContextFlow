@@ -207,22 +207,32 @@ Requires **Node.js ≥ 22.5** and a **Chromium 111+** browser.
 git clone https://github.com/PengheLiu/ContextFlow.git
 cd ContextFlow
 npm install
-npm run server        # terminal A: creates ~/.contextflow/config.json on first run
-
-# Open terminal B
+npm run service       # macOS: install and start the persistent login service
 npm run build:ext     # prints the stable extension ID and chrome-extension:// origin
 ```
 
 Then:
 
 1. Add the printed `chrome-extension://<id>` to `allowedOrigins` in `~/.contextflow/config.json`;
-2. Restart the local service so the updated origin allowlist takes effect;
+2. Run `npm run service -- restart` so the updated origin allowlist takes effect;
 3. Open `chrome://extensions` and enable Developer mode;
 4. Choose **Load unpacked** and select `extension/dist`;
 5. Open an article and enter **Settings** in the ContextFlow side panel;
 6. Configure the LLM used for translation, your note backend, and an optional local agent.
 
 To let an agent use personal notes, click **Detect**, choose an installed agent, and explicitly select the notes directory it may read.
+
+macOS service commands:
+
+```bash
+npm run service -- status          # inspect launchd and HTTP health
+npm run service -- restart         # restart after code or config changes
+npm run service -- logs            # show recent logs; add --follow to stream
+npm run service -- uninstall       # remove autostart while preserving ~/.contextflow
+npm run server                     # foreground mode for development and debugging
+```
+
+The service starts after login. macOS pauses requests while the computer sleeps and resumes it after wake. Run `npm run service` again after moving the checkout or changing the Node executable so the absolute paths are refreshed.
 
 > The current interface and generated note headings are primarily Chinese. Contributions that extract strings into an English locale are welcome.
 

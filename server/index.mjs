@@ -248,3 +248,18 @@ server.listen(cfg.port, '127.0.0.1', () => {
     ? `  来源 所有 origin（allowAnyOrigin=true）· token 校验${cfg.requireToken ? '已开启' : ' ⚠ 未开启：任何网页都可读写'}`
     : `  来源 白名单 ${cfg.allowedOrigins.join(', ')}`);
 });
+
+let stopping = false;
+const shutdown = (signal) => {
+  if (stopping) return;
+  stopping = true;
+  console.log(`[server] 收到 ${signal}，正在停止…`);
+  const force = setTimeout(() => process.exit(1), 5000);
+  force.unref();
+  server.close(() => {
+    clearTimeout(force);
+    process.exit(0);
+  });
+};
+process.once('SIGTERM', () => shutdown('SIGTERM'));
+process.once('SIGINT', () => shutdown('SIGINT'));
