@@ -205,6 +205,24 @@ export class Highlighter {
   }
 
   /**
+   * 让浏览器滚动 Range 所在的真实容器。
+   *
+   * 不能只用 window.scrollTo：不少文章站把正文放在 overflow:auto 的内部容器中，
+   * 此时 Range 坐标有效、状态也会显示“已定位”，但滚动 window 完全不会移动正文。
+   */
+  scrollIntoView(id) {
+    const it = this.items.get(id);
+    if (!it) return false;
+    try {
+      const node = it.range.startContainer;
+      const el = node?.nodeType === 1 ? node : node?.parentElement;
+      if (!el?.scrollIntoView) return false;
+      el.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'smooth' });
+      return true;
+    } catch { return false; }
+  }
+
+  /**
    * 用于原文上的删除按钮：返回选区**最后一个视觉片段**。
    *
    * 多行 Range 的 getBoundingClientRect() 是所有行的 union，right/top 并不代表

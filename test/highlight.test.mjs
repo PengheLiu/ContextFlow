@@ -165,6 +165,22 @@ t('rectOf 保留 union rect（面板→原文滚动用）', () => {
   assert.equal(h.rectOf('a'), union);
 });
 
+t('scrollIntoView 通过 Range 起点滚动实际正文容器', () => {
+  const h = fresh();
+  let options = null;
+  const parentElement = { scrollIntoView: (value) => { options = value; } };
+  h.set('a', { startContainer: { nodeType: 3, parentElement } }, 'explain');
+  assert.equal(h.scrollIntoView('a'), true);
+  assert.deepEqual(options, { block: 'center', inline: 'nearest', behavior: 'smooth' });
+});
+
+t('scrollIntoView 没有 Range 或可滚动元素时返回 false', () => {
+  const h = fresh();
+  assert.equal(h.scrollIntoView('missing'), false);
+  h.set('detached', { startContainer: null }, 'explain');
+  assert.equal(h.scrollIntoView('detached'), false);
+});
+
 t('endRectOf 返回最后一个非空 client rect（多行选区视觉末端）', () => {
   const h = fresh();
   const r1 = { left: 10, top: 10, right: 200, bottom: 28, width: 190, height: 18 };

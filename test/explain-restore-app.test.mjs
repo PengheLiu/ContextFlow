@@ -7,6 +7,7 @@ for (const k of ['window', 'document', 'location', 'localStorage', 'Node', 'Node
   global[k] = dom.window[k];
 }
 global.performance = { now: () => Date.now() };
+global.innerHeight = 900;
 global.scrollY = 0;
 global.scrollTo = () => {};
 global.getSelection = () => ({ isCollapsed: true });
@@ -57,6 +58,50 @@ const range = {
 };
 
 console.log('App：恢复历史解释\n');
+
+await t('侧栏定位优先滚动 Range 所在正文容器并闪烁标记', () => {
+  const { app } = bare([]);
+  const calls = [];
+  app.hl = {
+    rectOf(id) { calls.push(['rect', id]); return { top: 630, width: 20, height: 10 }; },
+    scrollIntoView(id) { calls.push(['into-view', id]); return true; },
+    flash(id) { calls.push(['flash', id]); },
+  };
+  global.scrollTo = (options) => calls.push(['window-scroll', options]);
+  app.handlers().onLocate('explained');
+  assert.deepEqual(calls, [
+    ['rect', 'explained'],
+    ['into-view', 'explained'],
+    ['flash', 'explained'],
+  ]);
+});
+
+await t('Range 元素不能滚动时回退到 window 坐标定位', () => {
+  const { app } = bare([]);
+  const calls = [];
+  app.hl = {
+    rectOf: () => ({ top: 630, width: 20, height: 10 }),
+    scrollIntoView: () => false,
+    flash: (id) => calls.push(['flash', id]),
+  };
+  global.scrollY = 120;
+  global.scrollTo = (options) => calls.push(['scroll', options]);
+  app.locate('explained');
+  assert.deepEqual(calls, [
+    ['scroll', { top: 435, behavior: 'smooth' }],
+    ['flash', 'explained'],
+  ]);
+});
+
+await t('侧栏定位没有可用 Range 时不伪造滚动', () => {
+  const { app } = bare([]);
+  let scrolled = false, flashed = false;
+  app.hl = { rectOf: () => null, flash: () => { flashed = true; } };
+  global.scrollTo = () => { scrolled = true; };
+  app.handlers().onLocate('orphan');
+  assert.equal(scrolled, false);
+  assert.equal(flashed, false);
+});
 
 await t('重开同一选区恢复最近一次问题和答案', () => {
   const old = event('old', '旧问题？', '旧答案', 10);

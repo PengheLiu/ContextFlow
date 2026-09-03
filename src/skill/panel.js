@@ -116,6 +116,7 @@ const PANEL_CSS = `
   .item.k-translate{--rail:${T.blue}}
   .item-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px;
         color:${T.quote};font-size:12px;font-weight:680;letter-spacing:.065em}
+  .item-head.loc{cursor:pointer}.item-head.loc:hover{color:${T.inkSoft}}
   .item-head .kind{color:${T.inkSoft}}
   .item-head .seq{font-variant-numeric:tabular-nums;letter-spacing:.04em}
   .item-head .orphan{color:${T.bad};letter-spacing:0;font-weight:600}
@@ -662,7 +663,7 @@ export class Panel {
           : `<div class="st run"><span class="dot2"></span>`
             + `<span>${esc(it.extra?.progress || '进行中…')}</span></div>`;
       return `<div class="item k-${kind}${pending ? ' pend' : ''}" data-id="${it.id}">
-        <div class="item-head"><span class="kind">${kind === 'explain' ? '解释' : '翻译'} / ${seq(index)}</span>`
+        <div class="item-head${orphan ? '' : ' loc'}" title="${orphan ? '' : '点击跳到原文'}"><span class="kind">${kind === 'explain' ? '解释' : '翻译'} / ${seq(index)}</span>`
         + `<span class="seq">${orphan ? '<span class="orphan">未定位</span>' : '原文位置'}</span></div>
         <span class="src lk${orphan ? ' off' : ''}" title="${orphan
           ? '原文已找不到，可能页面改版或内容尚未加载' : '点击跳到原文'}"
@@ -676,19 +677,9 @@ export class Panel {
         </div>
       </div>`;
     }).join('');
+    this.bindSourceNavigation(pane);
     for (const el of pane.querySelectorAll('.item')) {
       const id = el.dataset.id;
-      // 轮询进度会重建整个列表；若恰好发生在按下与松开之间，click 会随旧节点一起丢失。
-      // pointerdown 先完成定位，键盘/脚本触发的 click(detail=0) 仍保留。
-      if (!this.h.isOrphan(id)) {
-        const src = el.querySelector('.src');
-        src.onpointerdown = (e) => {
-          if (e.button !== 0) return;
-          e.preventDefault();
-          this.h.onLocate(id);
-        };
-        src.onclick = (e) => { if (e.detail === 0) this.h.onLocate(id); };
-      }
       const item = items.find((it) => it.id === id);
       const answer = el.querySelector('.ans');
       if (answer && item?.value) renderMarkdownInto(answer, item.value);
@@ -719,7 +710,7 @@ export class Panel {
     pane.innerHTML = items.map((it, index) => {
       const orphan = this.h.isOrphan(it.id);
       return `<div class="item comment" data-id="${it.id}" style="--mark:${this.h.colorOf(it.id)}">
-        <div class="item-head"><span class="kind">批注 / ${seq(index)}</span>`
+        <div class="item-head${orphan ? '' : ' loc'}" title="${orphan ? '' : '点击跳到原文'}"><span class="kind">批注 / ${seq(index)}</span>`
         + `<span class="seq">${orphan ? '<span class="orphan">未定位</span>' : '原文位置'}</span></div>
         <span class="src${orphan ? ' off' : ''}" title="${orphan ? '原文已改动，无法定位' : '点击跳到原文'}">
           ${esc(it.text || '')}
@@ -740,16 +731,31 @@ export class Panel {
         t = setTimeout(() => { this.h.onCommentChange(id, ta.value); this.renderStatus(); }, 500);
       });
       ta.addEventListener('blur', () => { clearTimeout(t); this.h.onCommentChange(id, ta.value); });
-      if (!this.h.isOrphan(id)) {
-        const src = el.querySelector('.src');
-        src.onpointerdown = (e) => {
+      el.querySelector('[data-act=del]').onclick = () => this.h.onDelete(id);
+    }
+    this.bindSourceNavigation(pane);
+  }
+
+  /**
+   * mousedown 先于 click 定位，避免进度刷新在按下与松开之间替换列表、吞掉 click。
+   * 普通 click 仍是必要兜底；用 press 标记避免同一次鼠标手势定位两次。
+   */
+  bindSourceNavigation(pane) {
+    for (const el of pane.querySelectorAll('.item')) {
+      const id = el.dataset.id;
+      if (this.h.isOrphan(id)) continue;
+      for (const target of el.querySelectorAll('.item-head,.src')) {
+        let locatedOnPress = false;
+        target.onmousedown = (e) => {
           if (e.button !== 0) return;
-          e.preventDefault();
+          locatedOnPress = true;
           this.h.onLocate(id);
         };
-        src.onclick = (e) => { if (e.detail === 0) this.h.onLocate(id); };
+        target.onclick = (e) => {
+          if (!locatedOnPress || e.detail === 0) this.h.onLocate(id);
+          locatedOnPress = false;
+        };
       }
-      el.querySelector('[data-act=del]').onclick = () => this.h.onDelete(id);
     }
   }
 }

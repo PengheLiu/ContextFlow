@@ -299,7 +299,7 @@ await t('解释列表成功答案渲染 Markdown 且不执行 HTML', () => {
   assert.match(el.textContent, /<img/);
 });
 
-await t('底部任务轮询重绘时，已完成解释在 pointerdown 就跳转原文', () => {
+await t('底部任务轮询重绘时，已完成解释在 mousedown 就跳转原文', () => {
   const items = [{
     id: 'done', action: 'explain', text: 'BBH', value: '答案',
     anchor: { start: 1 }, createdAt: 1, extra: { question: 'Q' },
@@ -313,16 +313,22 @@ await t('底部任务轮询重绘时，已完成解释在 pointerdown 就跳转�
     onLocate: (id) => located.push(id),
   });
   p.toggle(true, false); p.select('explain');
-  const oldSource = p.sh.querySelector('[data-id="done"] .src');
-  oldSource.dispatchEvent(new dom.window.PointerEvent('pointerdown', { bubbles: true, button: 0 }));
+  const oldItem = p.sh.querySelector('[data-id="done"]');
+  oldItem.querySelector('.kind').dispatchEvent(
+    new dom.window.MouseEvent('mousedown', { bubbles: true, button: 0 }));
+  oldItem.querySelector('.seq').dispatchEvent(
+    new dom.window.MouseEvent('mousedown', { bubbles: true, button: 0 }));
+  const oldSource = oldItem.querySelector('.src');
+  oldSource.dispatchEvent(new dom.window.MouseEvent('mousedown', { bubbles: true, button: 0 }));
   items[1].extra.progress = '正在生成…';
   p.render();
   oldSource.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true, detail: 1 }));
-  assert.deepEqual(located, ['done']);
+  assert.deepEqual(located, ['done', 'done', 'done'], '标签、原文位置和引文都应立即跳转且不重复');
 
   const currentSource = p.sh.querySelector('[data-id="done"] .src');
+  currentSource.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true, detail: 1 }));
   currentSource.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true, detail: 0 }));
-  assert.deepEqual(located, ['done', 'done'], '键盘 click 仍应跳转');
+  assert.deepEqual(located, ['done', 'done', 'done', 'done', 'done'], '普通鼠标和键盘 click 都应兜底跳转');
 });
 
 await t('失锚解释不响应原文定位手势', () => {
@@ -334,7 +340,8 @@ await t('失锚解释不响应原文定位手势', () => {
   });
   p.toggle(true, false); p.select('explain');
   const src = p.sh.querySelector('[data-id="lost"] .src');
-  src.dispatchEvent(new dom.window.PointerEvent('pointerdown', { bubbles: true, button: 0 }));
+  src.dispatchEvent(new dom.window.MouseEvent('mousedown', { bubbles: true, button: 0 }));
+  src.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true, detail: 1 }));
   src.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true, detail: 0 }));
   assert.equal(located, 0);
 });

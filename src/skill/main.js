@@ -320,7 +320,11 @@ export class App {
   locate(id) {
     const rect = this.hl.rectOf(id);
     if (!rect) return;
-    scrollTo({ top: scrollY + rect.top - innerHeight * 0.35, behavior: 'smooth' });
+    // 优先让 Range 所在元素自行进入视口：它能同时处理 window 和正文内部滚动容器。
+    // 极少数 Range 没有可滚动元素时，再退回页面级坐标定位。
+    if (!this.hl.scrollIntoView(id)) {
+      scrollTo({ top: scrollY + rect.top - innerHeight * 0.35, behavior: 'smooth' });
+    }
     this.hl.flash(id);
   }
 
