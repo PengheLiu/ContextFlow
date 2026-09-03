@@ -23,7 +23,7 @@ import { Panel } from './panel.js';
 import { Popover, ticker } from './popover.js';
 import { MarkDeleteControl } from './mark-delete.js';
 import { icon } from './icons.js';
-import { lookupKey, lookupId } from '../core/lookupkey.js';
+import { cleanQuestion, lookupKey, lookupId, normalizeLookupPart } from '../core/lookupkey.js';
 import { reconcile } from '../core/reconcile.js';
 import {
   available as offlineAvailable, migrateArticleMirror, listOfflineEvents,
@@ -626,12 +626,20 @@ export class App {
     this.hideTbSoon();
     const pop = this.tipFor('explain').open(this.explainCtx.rect, text)
       .body('').foot('').showRefresh(false);
-    // 这一段之前问过 / 正在问，打开时就把状态摆出来，别让人以为什么都没发生
-    const prev = this.items.find((e) => e.action === 'explain' && !e.deletedAt
-      && lookupKey(e) === lookupKey({ action: 'explain', text, extra: { question: '' } }));
-    if (prev?.value) pop.answer(prev.value).foot('之前的回答 · 可直接提问覆盖').showRefresh(true);
-    else if (prev && prev.extra?.status === 'running') pop.body('这段正在解释中…', 'prog');
-    pop.focus();
+    // 同一段可以问多个问题；重开时恢复最近那次，而不是只找“空问题”的记录。
+    const subject = normalizeLookupPart(text);
+    const prev = this.items
+      .map((e, index) => ({ e, index }))
+      .filter(({ e }) => e.action === 'explain' && !e.deletedAt
+        && normalizeLookupPart(e.text) === subject)
+      .sort((a, b) => (b.e.updatedAt || b.e.createdAt || 0) - (a.e.updatedAt || a.e.createdAt || 0)
+        || b.index - a.index)[0]?.e;
+    const question = cleanQuestion(prev?.extra?.question);
+    if (prev?.value) pop.answer(prev.value).foot('本地已有回答 · 可修改问题后再提问').showRefresh(true);
+    else if (prev?.extra?.status === 'running') pop.body(prev.extra.progress || '这段正在解释中…', 'prog');
+    else if (prev?.extra?.status === 'deferred') pop.body('当前离线，记录已保留', 'bad');
+    else if (prev?.extra?.status === 'error') pop.body(`解释失败：${prev.extra.error || '未知错误'}`, 'bad');
+    pop.focus(question);
   }
 
   async runExplain(question, fresh = false) {
@@ -640,6 +648,15 @@ export class App {
     // 静默 return 会表现成"点了提问毫无反应"，和卡死无从区分
     if (!ctx) {
       pop.body('选区已丢失，请重新划选后再提问。', 'bad').foot('');
+      return;
+    }
+    question = cleanQuestion(question);
+    const seed = { action: 'explain', text: ctx.text, extra: { question } };
+    const prev = this.items.find((e) => e.action === 'explain' && !e.deletedAt
+      && lookupKey(e) === lookupKey(seed));
+    // 已在当前页面镜像里的完整答案无需再经过服务端缓存，更不能先被 pending 覆盖。
+    if (!fresh && prev?.value) {
+      pop.focus(question).answer(prev.value).foot('本地已有回答').showRefresh(true);
       return;
     }
     await this.uploadArticle();        // 按需：只为真正查过的页面存正文

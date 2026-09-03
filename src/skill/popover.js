@@ -302,10 +302,12 @@ export class Popover {
     q.style.height = `${Math.min(q.scrollHeight + 2, cap)}px`;
   }
 
-  focus() {
+  focus(value = '') {
     if (!this.o.input) return this;
     const q = this.$('q');
-    q.value = ''; q.style.height = 'auto';
+    q.value = String(value ?? '');
+    q.style.height = 'auto';
+    this.growInput();
     setTimeout(() => q.focus(), 0);
     return this;
   }

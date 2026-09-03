@@ -124,6 +124,14 @@ await t('「重新解释」默认隐藏，命中本地缓存时才露出', () =>
   assert.equal(again.style.display, 'block');
 });
 
+await t('focus 可预填旧问题，无参数时仍清空', () => {
+  pop.focus('为什么重要？');
+  assert.equal(pop.question(), '为什么重要？');
+  assert.notEqual(pop.sh.getElementById('q').style.height, 'auto');
+  pop.focus();
+  assert.equal(pop.question(), '');
+});
+
 await t('提交回调拿到输入框内容', () => {
   let got = null;
   const p2 = new Popover({ name: 'tip-t2', title: 'T', input: true, onSubmit: (v) => { got = v; } });

@@ -3,7 +3,7 @@ import {
   saveOfflineEvents, mutationStamp, listOfflineEvents, operationCount,
   putOfflineArticle, getOfflineArticle,
 } from '../core/offline-store.js';
-import { lookupKey } from '../core/lookupkey.js';
+import { cleanQuestion, lookupKey } from '../core/lookupkey.js';
 import { buildMessages, flatten } from '../../server/convo.mjs';
 import { syncToFileTarget } from './file-sync.js';
 
@@ -149,7 +149,8 @@ export async function translate(text, target = '简体中文', urlKey, offset) {
 }
 
 export async function explain({ text, question, urlKey, offset, fresh, signal, onProgress }) {
-  const current = { action: 'explain', text, offset, extra: { question: question || '' } };
+  question = cleanQuestion(question);
+  const current = { action: 'explain', text, offset, extra: { question } };
   const c = await contextFor(urlKey, current), hit = !fresh && cacheOf(c.events, current);
   if (hit) return { answer: hit.value, question: hit.extra?.question || question || '',
     cached: 'local', via: 'llmbridge', model: MODEL, ctx: { ...c.ctx, cachedAt: hit.createdAt } };

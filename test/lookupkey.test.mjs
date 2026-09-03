@@ -1,7 +1,9 @@
 // 查询记录去重键。
 // 去重是"稳定 id + upsert"实现的，因此这个键的口径直接决定列表里会不会重复。
 import assert from 'node:assert/strict';
-import { lookupKey, lookupId, hashKey } from '../src/core/lookupkey.js';
+import {
+  cleanQuestion, lookupKey, lookupId, hashKey, normalizeLookupPart,
+} from '../src/core/lookupkey.js';
 
 let pass = 0;
 const t = (name, fn) => {
@@ -32,6 +34,17 @@ t('同段不同问题 → 分开（这是有价值的两条记录，不该合并
 
 t('留空问题与有问题 → 分开', () =>
   assert.ok(!same(ex('abc', ''), ex('abc', '为什么？'))));
+
+t('选区恢复与完整键共用同一归一化规则', () => {
+  assert.equal(normalizeLookupPart(' 「Threat   model」。 '), normalizeLookupPart('Threat model'));
+  assert.ok(same(ex(' 「Threat   model」。 ', '为什么？'), ex('Threat model', '为什么')));
+});
+
+t('问题清理与服务端一致：trim 且最多 1000 字符', () => {
+  assert.equal(cleanQuestion('  为什么？  '), '为什么？');
+  assert.equal(cleanQuestion('x'.repeat(1005)).length, 1000);
+  assert.ok(same(ex('abc', cleanQuestion('x'.repeat(1005))), ex('abc', 'x'.repeat(1000))));
+});
 
 t('翻译与解释同段 → 分开', () =>
   assert.ok(!same(tr('abc', 'x'), ex('abc', 'x'))));

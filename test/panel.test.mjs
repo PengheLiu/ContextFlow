@@ -299,6 +299,46 @@ await t('解释列表成功答案渲染 Markdown 且不执行 HTML', () => {
   assert.match(el.textContent, /<img/);
 });
 
+await t('底部任务轮询重绘时，已完成解释在 pointerdown 就跳转原文', () => {
+  const items = [{
+    id: 'done', action: 'explain', text: 'BBH', value: '答案',
+    anchor: { start: 1 }, createdAt: 1, extra: { question: 'Q' },
+  }, {
+    id: 'running', action: 'explain', text: 'EvalPlus', value: '',
+    anchor: { start: 2 }, createdAt: 2, extra: { status: 'running', progress: '准备上下文…' },
+  }];
+  const located = [];
+  const p = mk({
+    getLookups: (kind) => kind === 'explain' ? items : [],
+    onLocate: (id) => located.push(id),
+  });
+  p.toggle(true, false); p.select('explain');
+  const oldSource = p.sh.querySelector('[data-id="done"] .src');
+  oldSource.dispatchEvent(new dom.window.PointerEvent('pointerdown', { bubbles: true, button: 0 }));
+  items[1].extra.progress = '正在生成…';
+  p.render();
+  oldSource.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true, detail: 1 }));
+  assert.deepEqual(located, ['done']);
+
+  const currentSource = p.sh.querySelector('[data-id="done"] .src');
+  currentSource.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true, detail: 0 }));
+  assert.deepEqual(located, ['done', 'done'], '键盘 click 仍应跳转');
+});
+
+await t('失锚解释不响应原文定位手势', () => {
+  let located = 0;
+  const p = mk({
+    getLookups: () => [{ id: 'lost', text: 'lost', value: 'answer', createdAt: 1 }],
+    isOrphan: () => true,
+    onLocate: () => { located++; },
+  });
+  p.toggle(true, false); p.select('explain');
+  const src = p.sh.querySelector('[data-id="lost"] .src');
+  src.dispatchEvent(new dom.window.PointerEvent('pointerdown', { bubbles: true, button: 0 }));
+  src.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true, detail: 0 }));
+  assert.equal(located, 0);
+});
+
 // ---- 打开面板的时刻 ----
 
 await t('恢复上次展开状态时不在构造阶段触发 onOpen；之后手动展开仍通知一次', () => {

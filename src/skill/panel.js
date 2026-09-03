@@ -678,8 +678,17 @@ export class Panel {
     }).join('');
     for (const el of pane.querySelectorAll('.item')) {
       const id = el.dataset.id;
-      // 失锚的不挂 onclick：点了也跳不动，留个可点样式只会让人反复试
-      if (!this.h.isOrphan(id)) el.querySelector('.src').onclick = () => this.h.onLocate(id);
+      // 轮询进度会重建整个列表；若恰好发生在按下与松开之间，click 会随旧节点一起丢失。
+      // pointerdown 先完成定位，键盘/脚本触发的 click(detail=0) 仍保留。
+      if (!this.h.isOrphan(id)) {
+        const src = el.querySelector('.src');
+        src.onpointerdown = (e) => {
+          if (e.button !== 0) return;
+          e.preventDefault();
+          this.h.onLocate(id);
+        };
+        src.onclick = (e) => { if (e.detail === 0) this.h.onLocate(id); };
+      }
       const item = items.find((it) => it.id === id);
       const answer = el.querySelector('.ans');
       if (answer && item?.value) renderMarkdownInto(answer, item.value);
@@ -731,7 +740,15 @@ export class Panel {
         t = setTimeout(() => { this.h.onCommentChange(id, ta.value); this.renderStatus(); }, 500);
       });
       ta.addEventListener('blur', () => { clearTimeout(t); this.h.onCommentChange(id, ta.value); });
-      if (!this.h.isOrphan(id)) el.querySelector('.src').onclick = () => this.h.onLocate(id);
+      if (!this.h.isOrphan(id)) {
+        const src = el.querySelector('.src');
+        src.onpointerdown = (e) => {
+          if (e.button !== 0) return;
+          e.preventDefault();
+          this.h.onLocate(id);
+        };
+        src.onclick = (e) => { if (e.detail === 0) this.h.onLocate(id); };
+      }
       el.querySelector('[data-act=del]').onclick = () => this.h.onDelete(id);
     }
   }

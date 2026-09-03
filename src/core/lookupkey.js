@@ -21,7 +21,7 @@ const EDGE_PUNCT = /^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu;
 // 写成转义序列而非字面控制字符：字面 NUL 会让 git 把整个源文件判成二进制。
 const SEP = '\u001f';
 
-const norm = (s) => {
+export const normalizeLookupPart = (s) => {
   // 先折叠空白（\n \t \r 都在 \s 内），再剥掉残余控制字符 ——
   // 否则正文里若真出现 SEP，字段边界就会被伪造出来。
   const flat = String(s ?? '').replace(/\s+/g, ' ').replace(/[\u0000-\u001f]/g, '').trim();
@@ -30,15 +30,18 @@ const norm = (s) => {
   return trimmed || flat;
 };
 
+/** 与服务端解释入口一致：展示文本保留标点，只限制首尾空白与最大长度。 */
+export const cleanQuestion = (s) => String(s ?? '').trim().slice(0, 1000);
+
 /** 从事件或待保存的载荷里取出去重口径 */
 export function lookupKey(ev) {
-  const text = norm(ev.text);
+  const text = normalizeLookupPart(ev.text);
   // 速览是"整篇一条"，没有选区也没有问题 —— 键里只有 action。
   // 不让它落进翻译那条分支：那样 id 会带 tr: 前缀，而这个 id 会出现在笔记的
   // 标记注释里（<!-- cf:tr:xxx -->），把速览标成翻译是误导。
   if (ev.action === 'summary') return `sm${SEP}`;
-  if (ev.action === 'explain') return `ex${SEP}${text}${SEP}${norm(ev.extra?.question)}`;
-  return `tr${SEP}${text}${SEP}${norm(ev.extra?.target)}`;
+  if (ev.action === 'explain') return `ex${SEP}${text}${SEP}${normalizeLookupPart(ev.extra?.question)}`;
+  return `tr${SEP}${text}${SEP}${normalizeLookupPart(ev.extra?.target)}`;
 }
 
 /**
