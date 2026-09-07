@@ -508,12 +508,12 @@ export class Settings {
 
   syncProfileUi() {
     const full = this.$('s-profileFull').checked;
-    const legacy = full && this.cfg?.agent?.profileSource === 'legacy-migrated';
+    const legacy = full && this.preservesLegacyFull();
     const selected = this.agents?.find((a) => a.id === this.$('s-agent').value);
     const unsupported = selected?.safeSupport === 'unsupported';
     this.$('s-advanced').open = full || legacy || unsupported;
     this.$('s-legacyFull').classList.toggle('on', legacy);
-    const alreadyAcknowledged = this.cfg?.agent?.fullAccessAcknowledged
+    const alreadyAcknowledged = this.cfg?.agent?.profile === 'full' && this.cfg?.agent?.fullAccessAcknowledged
       && this.cfg?.agent?.id === this.$('s-agent').value;
     const needAck = full && !legacy && !alreadyAcknowledged;
     this.$('s-fullAckWrap').classList.toggle('on', needAck);
@@ -599,6 +599,12 @@ export class Settings {
     }
   }
 
+  preservesLegacyFull() {
+    const previous = this.cfg?.agent;
+    return previous?.profile === 'full' && previous.profileSource === 'legacy-migrated'
+      && previous.id === this.$('s-agent').value.trim();
+  }
+
   /** 收集表单 → PATCH。密钥留空即不提交该字段。 */
   patch() {
     const profile = this.$('s-profileFull').checked ? 'full' : 'safe';
@@ -607,7 +613,7 @@ export class Settings {
     const acknowledged = previous.fullAccessAcknowledged && previous.profile === 'full'
       && previous.id === agentId;
     let fullAccessAcknowledgement;
-    if (profile === 'full' && !acknowledged && previous.profileSource !== 'legacy-migrated') {
+    if (profile === 'full' && !acknowledged && !this.preservesLegacyFull()) {
       if (!this.$('s-fullAck').checked) {
         throw Object.assign(new Error('请先勾选完整权限风险确认'), { code: 'AGENT_FULL_ACK' });
       }
@@ -638,8 +644,7 @@ export class Settings {
         id: agentId,
         notesDir: this.$('s-notesDir').value.trim(),
         profile,
-        profileSource: profile === 'full' && previous.profileSource === 'legacy-migrated'
-          && previous.id === agentId ? 'legacy-migrated' : 'user',
+        profileSource: profile === 'full' && this.preservesLegacyFull() ? 'legacy-migrated' : 'user',
         ...(fullAccessAcknowledgement ? { fullAccessAcknowledgement } : {}),
       },
       sync: { backend: this.$('s-backend').value },

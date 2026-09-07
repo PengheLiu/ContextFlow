@@ -107,6 +107,26 @@ await t('legacy Full 保持可用但持续红色警告', () => {
 });
 
 
+await t('legacy Full 更换 Agent 后显示并提交新的风险确认', () => {
+  const s = make();
+  s.cfg.agent.profile = 'full';
+  s.cfg.agent.profileSource = 'legacy-migrated';
+  s.$('s-profileFull').checked = true;
+  s.$('s-agent').value = 'codex';
+  s.$('s-agent').dispatchEvent(new Event('change'));
+  assert.equal(s.$('s-legacyFull').classList.contains('on'), false);
+  assert.equal(s.$('s-fullAckWrap').classList.contains('on'), true);
+  assert.throws(() => s.patch(), (e) => e.code === 'AGENT_FULL_ACK');
+  s.$('s-fullAck').checked = true;
+  const p = s.patch();
+  assert.equal(p.agent.profileSource, 'user');
+  assert.equal(p.agent.fullAccessAcknowledgement.agentId, 'codex');
+  s.$('s-agent').value = 'claude';
+  s.$('s-agent').dispatchEvent(new Event('change'));
+  assert.equal(s.$('s-fullAckWrap').classList.contains('on'), false);
+  assert.equal(s.patch().agent.profileSource, 'legacy-migrated');
+});
+
 await t('四个设置章节在同一页面连续展示', () => {
   const s = make();
   const chapters = [...s.sh.querySelectorAll('.chapter')];
