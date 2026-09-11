@@ -17,13 +17,16 @@
 import * as db from './db.mjs';
 import { LABEL_OF, groupByCategory, docName, contentHash } from './layout.mjs';
 import { renderSourceMarkdown } from '../src/core/markdown.js';
+import { assetIds, replaceAssetTokens } from '../src/core/assets.js';
+import { getAsset } from './assets.mjs';
+import { readFileSync } from 'node:fs';
 
 class SiYuanError extends Error {
   constructor(msg, code) { super(msg); this.code = code ?? 'SIYUAN'; }
 }
 
 export function makeClient({ origin, token }) {
-  return async function call(path, payload = {}) {
+  const call = async function call(path, payload = {}) {
     let res;
     try {
       res = await fetch(origin + path, {
@@ -43,6 +46,42 @@ export function makeClient({ origin, token }) {
     if (body.code !== 0) throw new SiYuanError(`${path}: ${body.msg || `code ${body.code}`}`);
     return body.data;
   };
+  call.uploadAsset = async (asset) => {
+    const form = new FormData();
+    form.append('assetsDirPath', '/assets/');
+    form.append('file[]', new Blob([readFileSync(asset.path)], { type: asset.mime }), `${asset.id}.${asset.ext}`);
+    let res;
+    try {
+      res = await fetch(origin + '/api/asset/upload', {
+        method: 'POST', headers: { Authorization: `Token ${token}` }, body: form,
+      });
+    } catch (e) {
+      throw new SiYuanError(`上传图片到思源失败：${e.message}`, 'SIYUAN_DOWN');
+    }
+    const body = await res.json().catch(() => null);
+    const path = body?.data?.succMap?.[`${asset.id}.${asset.ext}`];
+    if (!res.ok || body?.code !== 0 || !path) throw new SiYuanError(body?.msg || '思源未返回图片路径');
+    return path;
+  };
+  return call;
+}
+
+async function renderWithAssets(ev, call) {
+  const md = render(ev);
+  if (!assetIds(md).length) return md;
+  const refs = new Map();
+  for (const id of assetIds(md)) {
+    let ref = db.getAssetRef(id, 'siyuan');
+    if (!ref) {
+      const asset = getAsset(id);
+      if (!asset) throw new SiYuanError(`附件不存在：${id}`, 'ASSET_MISSING');
+      if (!call.uploadAsset) throw new SiYuanError('当前思源连接不支持图片上传', 'SIYUAN');
+      ref = await call.uploadAsset(asset);
+      db.putAssetRef(id, 'siyuan', ref);
+    }
+    refs.set(id, ref);
+  }
+  return replaceAssetTokens(md, (id) => refs.get(id));
 }
 
 /** insertBlock 的返回结构较深，新块 id 藏在 doOperations 里 */
@@ -120,7 +159,7 @@ async function syncArticle(call, { art, notebookId, docPathPrefix }) {
     let head = null;      // 延迟到确有内容要写时才建标题，避免留空标题
 
     for (const ev of group) {
-      const md = render(ev);
+      const md = await renderWithAssets(ev, call);
       if (!md) continue;
       const hash = contentHash(md);
 
@@ -402,7 +441,9 @@ export function render(ev) {
     case 'explain': {
       if (!v) return '';
       const q = oneLine(ev.extra?.question) || '这段在讲什么';
-      return `**❓ ${q}**\n*${src}*\n${v}`;
+      const supplement = oneBlock(ev.extra?.supplement);
+      return `**❓ ${q}**\n*${src}*\n${v}`
+        + (supplement ? `\n**我的补充**\n${supplement}` : '');
     }
     default: return '';
   }

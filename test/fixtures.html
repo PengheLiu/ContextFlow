@@ -63,6 +63,23 @@
 </div>
 
 <script>
+  // 本地浏览器回归可用 ?contextflow=1 自动装载刚构建的 userscript；普通手工测试不受影响。
+  const fixtureParams = new URLSearchParams(location.search);
+  if (fixtureParams.has('demo-explain')) {
+    const key = location.href;
+    localStorage.setItem(`contextflow:v2:${key}`, JSON.stringify([{
+      id: 'ex:fixture', urlKey: key, url: key, title: document.title,
+      action: 'explain', text: 'The model achieves state of the art results on the benchmark.',
+      value: '这是本地 fixture 的解释答案。', color: null, anchor: null, parentId: null,
+      extra: { question: '', supplement: '' }, createdAt: Date.now(),
+    }]));
+  }
+  if (fixtureParams.has('contextflow')) {
+    const script = document.createElement('script');
+    script.src = '../dist/skill.js';
+    script.onload = () => document.documentElement.dataset.contextflowFixtureReady = 'true';
+    document.head.appendChild(script);
+  }
   let n = 0;
   function prepend() {
     const p = document.createElement('p');

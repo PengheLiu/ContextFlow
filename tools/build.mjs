@@ -184,8 +184,8 @@ if (process.argv.includes('--watch')) {
       sourceDateEpoch: process.env.SOURCE_DATE_EPOCH || null,
       artifact: { path: 'skill.js', bytes: skill.length, sha256 },
       requirements: { chromium: '>=110', browserHost: 'LLMBridge + File System Access API' },
-      limits: { indexedDbSchema: 3, articleChars: 400000, bridgeTimeoutMs: 60000 },
-      capabilities: ['llmbridge-ai', 'anchors', 'annotations', 'indexeddb', 'markdown-copy-download', 'obsidian-markdown-folder-sync'],
+      limits: { indexedDbSchema: 4, articleChars: 400000, bridgeTimeoutMs: 60000, imageBytes: 8388608 },
+      capabilities: ['llmbridge-ai', 'anchors', 'annotations', 'pasted-image-attachments', 'indexeddb', 'markdown-copy-download', 'obsidian-markdown-folder-sync'],
       excluded: ['mcp', 'siyuan', 'local-service', 'local-agent', 'api-key'],
     };
     const readme = readFileSync('PUBLIC_README.md', 'utf8').replace(/^\*\*版本：.*$/m, `**版本：${version}**`);

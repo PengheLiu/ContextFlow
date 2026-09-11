@@ -16,9 +16,11 @@ import * as jobs from './jobs.mjs';
 import { originAllowed, EXT_ORIGIN_RE } from './origin.mjs';
 import { detect as detectAgents } from './agent.mjs';
 import { detectVaults, listFolders } from './obsidian.mjs';
+import { getAsset, saveAsset } from './assets.mjs';
 
 let cfg = loadConfig();   // POST /config 会热替换
 const MAX_BODY = 2 * 1024 * 1024;
+const MAX_ASSET_BODY = 12 * 1024 * 1024; // 8 MB 图片经 Base64/JSON 传输后的上限
 
 const json = (res, code, obj) => {
   const body = Buffer.from(JSON.stringify(obj));
@@ -47,12 +49,12 @@ function applyCors(req, res) {
   return true;
 }
 
-function readBody(req) {
+function readBody(req, max = MAX_BODY) {
   return new Promise((resolve, reject) => {
     let n = 0; const chunks = [];
     req.on('data', (c) => {
       n += c.length;
-      if (n > MAX_BODY) { reject(Object.assign(new Error('请求体过大'), { code: 'TOO_LARGE' })); req.destroy(); return; }
+      if (n > max) { reject(Object.assign(new Error('请求体过大'), { code: 'TOO_LARGE' })); req.destroy(); return; }
       chunks.push(c);
     });
     req.on('end', () => {
@@ -101,6 +103,17 @@ const server = createServer(async (req, res) => {
       const list = Array.isArray(body) ? body : (body.events || []);
       const ids = db.upsertEvents(list);
       return json(res, 200, { ok: true, saved: ids.length, ids });
+    }
+
+    if (path === '/assets' && req.method === 'POST') {
+      const body = await readBody(req, MAX_ASSET_BODY);
+      return json(res, 200, { asset: saveAsset(body) });
+    }
+
+    if (path.startsWith('/assets/') && req.method === 'GET') {
+      const id = decodeURIComponent(path.slice('/assets/'.length));
+      const asset = getAsset(id, { includeData: true });
+      return asset ? json(res, 200, { asset }) : json(res, 404, { error: '附件不存在' });
     }
 
     if (path.startsWith('/events/') && req.method === 'DELETE') {
@@ -226,6 +239,7 @@ const server = createServer(async (req, res) => {
                   NO_MODEL: 503, NO_BASEURL: 503, UPSTREAM: 502,
                   NO_TARGET: 503, BAD_TARGET: 400, BAD_BACKEND: 400,
                   AGENT_FULL_ACK: 400, AGENT_SAFE_UNSUPPORTED: 400,
+                  BAD_ASSET: 400, ASSET_TOO_LARGE: 413, ASSET_MISSING: 404,
                   REFUSAL: 422, EMPTY: 502 };
     const code = map[e.code] || (e.status >= 400 && e.status < 600 ? e.status : 500);
     console.error(`[err] ${req.method} ${path} → ${code}: ${e.message}`);

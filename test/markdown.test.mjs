@@ -1,6 +1,7 @@
 // 纯浏览器 Markdown 导出。
 import assert from 'node:assert/strict';
 import { renderEventMarkdown, renderArticleMarkdown, renderSourceMarkdown, safeMarkdownFilename } from '../src/core/markdown.js';
+import { assetToken } from '../src/core/assets.js';
 
 let pass = 0;
 const t = (name, fn) => { try { fn(); console.log(`  ok   ${name}`); pass++; }
@@ -12,6 +13,14 @@ console.log('浏览器 Markdown 导出\n');
 t('翻译与解释保留原文和问题', () => {
   assert.equal(renderEventMarkdown({ ...base, action: 'translate', text: 'source', value: '译文' }), '> source\n译文');
   assert.match(renderEventMarkdown({ ...base, action: 'explain', text: 'source', value: '答案', extra: { question: '为什么' } }), /为什么.*> source.*答案/s);
+});
+
+t('解释的人工图文补充跟在 AI 答案后面', () => {
+  const id = 'b'.repeat(64);
+  const md = renderEventMarkdown({ ...base, action: 'explain', text: 'source', value: '答案',
+    extra: { question: '为什么', supplement: `补充\n\n${assetToken(id, '图表')}` } });
+  assert.match(md, /答案\n\n\*\*我的补充\*\*\n补充/);
+  assert.ok(md.includes(assetToken(id, '图表')));
 });
 
 t('deferred 明确导出占位，不伪装成答案', () => {

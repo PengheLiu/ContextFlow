@@ -86,6 +86,17 @@ await t('文章正文写入、去重、截断并可读回', async () => {
   assert.equal(hugeRow.storedChars, 400_000);
 });
 
+await t('图片 Blob 独立保存、内容去重并记录待上传状态', async () => {
+  const first = await store.saveOfflineAsset(new Blob(['same-image'], { type: 'image/png' }), { name: 'a.png' });
+  const second = await store.saveOfflineAsset(new Blob(['same-image'], { type: 'image/png' }), { name: 'b.png' });
+  assert.equal(first.id, second.id);
+  assert.equal((await store.getOfflineAsset(first.id)).blob.size, 10);
+  assert.ok((await store.listPendingAssets()).some((x) => x.id === first.id));
+  await store.markOfflineAssetUploaded(first.id, 123);
+  assert.equal((await store.getOfflineAsset(first.id)).uploadedAt, 123);
+  assert.ok(!(await store.listPendingAssets()).some((x) => x.id === first.id));
+});
+
 await t('旧 localStorage outbox 迁移后保留 queued 操作并幂等', async () => {
   const old = [ev('outbox-old', { urlKey: 'outbox-u', createdAt: 40 })];
   assert.equal(await store.migrateLegacyOutbox(old), true);

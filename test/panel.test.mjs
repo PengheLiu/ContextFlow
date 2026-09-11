@@ -42,6 +42,8 @@ function handlers(over = {}) {
     isOrphan: () => false,
     colorOf: () => '#ffd60a',
     commentOf: () => '',
+    onCommentInput: () => {},
+    onCommentChange: () => {},
     getLookups: () => [],
     api: {},
     ...over,
@@ -187,6 +189,58 @@ await t('设置模式切换控制册副标题并暂时收起阅读底栏', () =>
   assert.equal(sub.textContent, 'READING MARGIN');
 });
 
+await t('侧栏批注输入即时通知共享草稿，原位修改也能无重绘地镜像回来', () => {
+  const inputs = [], commits = [];
+  const p = mk({
+    getItems: () => [{ id: 'h-sync', text: '同步原文', color: 'yellow' }],
+    commentOf: () => '旧内容',
+    onCommentInput: (id, value) => inputs.push([id, value]),
+    onCommentChange: (id, value) => commits.push([id, value]),
+  });
+  p.toggle(true, false); p.select('comments');
+  let ta = p.sh.querySelector('[data-id="h-sync"] .cmt .rc-text');
+  ta.value = '侧栏正在输入';
+  ta.dispatchEvent(new window.Event('input', { bubbles: true }));
+  assert.deepEqual(inputs, [['h-sync', '侧栏正在输入']], '共享草稿没有即时收到侧栏输入');
+  ta.dispatchEvent(new window.Event('blur'));
+  assert.deepEqual(commits, [['h-sync', '侧栏正在输入']]);
+
+  p.updateCommentDraft('h-sync', '原位编辑器的新内容');
+  ta = p.sh.querySelector('[data-id="h-sync"] .cmt .rc-text');
+  assert.equal(ta.value, '原位编辑器的新内容');
+  assert.equal(p.sh.querySelector('[data-id="h-sync"]'), ta.closest('.item'), '镜像时不应重建批注条目');
+
+  p.markCommentEditing('h-sync', true);
+  const item = ta.closest('.item');
+  assert.ok(item.classList.contains('editing'));
+  assert.match(item.querySelector('.edit-state').textContent, /原文旁编辑/);
+  p.markCommentEditing('h-sync', false);
+  assert.ok(!item.classList.contains('editing'));
+  assert.equal(item.querySelector('.item-head .seq').textContent, '原文位置');
+
+  ta.dispatchEvent(new window.Event('blur'));
+  assert.deepEqual(commits, [['h-sync', '侧栏正在输入']], '原位镜像应由原位编辑器提交，侧栏不重复保存');
+});
+
+await t('总结笔记使用图文编辑器，普通输入仍按原协议自动保存', () => {
+  const inputs = [], commits = [];
+  const p = mk({
+    getNote: () => '原有总结',
+    onNoteInput: (value) => inputs.push(value),
+    onNoteChange: (value) => commits.push(value),
+  });
+  p.toggle(true, false); p.select('note');
+  const mount = p.sh.getElementById('note');
+  const ta = mount.querySelector('.rc-text');
+  assert.equal(ta.value, '原有总结');
+  assert.match(mount.querySelector('.rc-hint').textContent, /可粘贴截图或图片/);
+  ta.value = '带图总结之前的文字';
+  ta.dispatchEvent(new window.Event('input', { bubbles: true }));
+  ta.dispatchEvent(new window.Event('blur'));
+  assert.deepEqual(inputs, ['带图总结之前的文字']);
+  assert.deepEqual(commits, ['带图总结之前的文字']);
+});
+
 // ---- 这就是那个 bug ----
 
 await t('速览区有异常兜底（Panel 自己得有 guard，不能只有 Settings 有）', () => {
@@ -297,6 +351,34 @@ await t('解释列表成功答案渲染 Markdown 且不执行 HTML', () => {
   assert.equal(el.querySelector('a').href, 'https://example.com/');
   assert.equal(el.querySelectorAll('img').length, 0);
   assert.match(el.textContent, /<img/);
+});
+
+await t('解释的“我的补充”与原文旁面板双向镜像', () => {
+  const inputs = [], commits = [];
+  const item = {
+    id: 'ex-supp', action: 'explain', text: 'source', value: 'AI 答案',
+    anchor: { start: 1 }, createdAt: 1, extra: { question: 'Q', supplement: '旧补充' },
+  };
+  const p = mk({
+    getLookups: (kind) => kind === 'explain' ? [item] : [],
+    getLookupSupplement: () => item.extra.supplement,
+    onLookupSupplementInput: (id, value) => inputs.push([id, value]),
+    onLookupSupplementChange: (id, value) => commits.push([id, value]),
+  });
+  p.toggle(true, false); p.select('explain');
+  let ta = p.sh.querySelector('[data-id="ex-supp"] .supp-editor .rc-text');
+  assert.equal(ta.value, '旧补充');
+  ta.value = '右栏补充';
+  ta.dispatchEvent(new window.Event('input', { bubbles: true }));
+  assert.deepEqual(inputs, [['ex-supp', '右栏补充']]);
+  ta.dispatchEvent(new window.Event('blur'));
+  assert.deepEqual(commits, [['ex-supp', '右栏补充']]);
+
+  p.updateLookupSupplement('ex-supp', '原文旁的新补充');
+  ta = p.sh.querySelector('[data-id="ex-supp"] .supp-editor .rc-text');
+  assert.equal(ta.value, '原文旁的新补充');
+  ta.dispatchEvent(new window.Event('blur'));
+  assert.deepEqual(commits, [['ex-supp', '右栏补充']], '镜像内容由原文旁面板提交，不应从右栏重复提交');
 });
 
 await t('底部任务轮询重绘时，已完成解释在 mousedown 就跳转原文', () => {

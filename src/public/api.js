@@ -134,6 +134,11 @@ export async function deleteEvent(event) {
   return true;
 }
 export const flushOutbox = async () => 0;
+// 公开版没有本地 HTTP 服务：图片已经由 App 写入 IndexedDB，目录同步时会直接复制 Blob。
+// 保留与私有版一致的接口，使共享 UI 不需要按载体分支。
+export const pushAsset = async (asset) => asset;
+export const flushAssets = async () => 0;
+export const fetchAsset = () => unavailable('公开userscript无法从本地服务取回附件', 'ASSET_MISSING');
 export const outboxSize = (urlKey) => operationCount(urlKey);
 export const putArticle = putOfflineArticle;
 

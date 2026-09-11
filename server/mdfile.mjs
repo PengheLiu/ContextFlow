@@ -29,6 +29,8 @@ import { dirname, join, resolve } from 'node:path';
 import * as db from './db.mjs';
 import { CATEGORIES, LABEL_OF, groupByCategory, docName, contentHash } from './layout.mjs';
 import { renderEventMarkdown, renderSourceMarkdown } from '../src/core/markdown.js';
+import { assetIds, replaceAssetTokens } from '../src/core/assets.js';
+import { copyAsset } from './assets.mjs';
 
 const err = (msg, code) => Object.assign(new Error(msg), { code });
 
@@ -59,6 +61,15 @@ export function localDay(d = new Date()) {
  * 翻译与解释都带上原文引用 —— 脱离网页后，只看译文/答案根本不知道在说哪一段。
  */
 export function render(ev) { return renderEventMarkdown(ev); }
+
+function renderForFile(ev, dir) {
+  const md = render(ev);
+  if (!assetIds(md).length) return md;
+  return replaceAssetTokens(md, (id) => {
+    const asset = copyAsset(id, join(dir, 'assets', 'contextflow'));
+    return encodeURI(`assets/contextflow/${asset.name}`);
+  });
+}
 
 /**
  * 把文件内容按标记解析成结构。
@@ -238,7 +249,7 @@ function syncArticle({ backend, dir, art }) {
   for (const [catKey, group] of groupByCategory(events)) {
     const fresh = [];
     for (const ev of group) {
-      const md = render(ev);
+      const md = renderForFile(ev, dir);
       if (!md) continue;
       const hash = contentHash(md);
       const where = seen.events.get(ev.id);

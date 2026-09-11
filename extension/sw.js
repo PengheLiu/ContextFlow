@@ -34,7 +34,7 @@ const HEADERS = {
  * 所以只在扩展上炸，很容易漏（/summary 就漏过一次）。
  * test/extbuild.test.mjs 会拿 server/index.mjs 里的路由与这份名单对账。
  */
-const OK_PATH = /^\/(health|events|article|translate|explain|summary|jobs|config|llm|agents|obsidian|fs|siyuan|sync)(\/|\?|$)/;
+const OK_PATH = /^\/(health|events|assets|article|translate|explain|summary|jobs|config|llm|agents|obsidian|fs|siyuan|sync)(\/|\?|$)/;
 
 async function forward({ path, init }) {
   if (typeof path !== 'string' || !OK_PATH.test(path)) {

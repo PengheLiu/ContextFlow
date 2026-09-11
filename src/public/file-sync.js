@@ -8,8 +8,10 @@ import {
   saveFileTarget, getFileTarget, forgetFileTarget, moveFileTarget, getFileArticle,
   saveFileArticle, getFileEventStates, replaceFileEventStates, listOfflineEvents,
   getOfflineArticle,
+  getOfflineAsset,
 } from '../core/offline-store.js';
 import { mergeArticleDocument, mergeDateIndex, initialFileName, hasArticleMarker } from '../core/markdown-sync.js';
+import { assetIds, replaceAssetTokens } from '../core/assets.js';
 
 const LEGACY_TARGET = 'default';
 const FILE_MODE_KEY = 'contextflow:file-target-mode';
@@ -62,6 +64,29 @@ const day = (ms) => {
 const readFile = async (dir, name) => {
   try { return await (await (await dir.getFileHandle(name)).getFile()).text(); }
   catch (e) { if (e.name === 'NotFoundError') return ''; throw e; }
+};
+const assetEventsForTarget = async (events, dir) => {
+  const ids = [...new Set(events.flatMap((event) => [
+    ...assetIds(event.value), ...assetIds(event.extra?.supplement),
+  ]))];
+  if (!ids.length) return events;
+  const assets = new Map();
+  let folder = await dir.getDirectoryHandle('assets', { create: true });
+  folder = await folder.getDirectoryHandle('contextflow', { create: true });
+  for (const id of ids) {
+    const asset = await getOfflineAsset(id);
+    if (!asset?.blob) throw err(`附件不存在：${id}`, 'ASSET_MISSING');
+    const ext = asset.mime === 'image/png' ? 'png' : asset.mime === 'image/webp' ? 'webp' : 'jpg';
+    const name = `${id}.${ext}`, handle = await folder.getFileHandle(name, { create: true });
+    const writable = await handle.createWritable(); await writable.write(asset.blob); await writable.close();
+    assets.set(id, encodeURI(`assets/contextflow/${name}`));
+  }
+  return events.map((event) => ({
+    ...event,
+    value: replaceAssetTokens(event.value, (id) => assets.get(id)),
+    extra: event.extra ? { ...event.extra,
+      supplement: replaceAssetTokens(event.extra.supplement, (id) => assets.get(id)) } : event.extra,
+  }));
 };
 const writeFile = async (dir, name, text) => {
   const fh = await dir.getFileHandle(name, { create: true }), w = await fh.createWritable();
@@ -146,12 +171,13 @@ export async function syncToFileTarget(urlKey) {
     }
     const before = await readFile(target.handle, fileName);
     const previous = new Map(allStates.map((x) => [x.eventId, x]));
+    const exportedEvents = await assetEventsForTarget(events, target.handle);
     const merged = mergeArticleDocument(before, {
       title: article?.title || events[0]?.title,
       url: article?.url || events[0]?.url,
       urlKey,
       firstDay,
-    }, events, previous);
+    }, exportedEvents, previous);
     if (merged.text !== before) await writeFile(target.handle, fileName, merged.text);
     await saveFileArticle({ targetId, urlKey, fileName, firstDay, updatedAt: Date.now() });
     await replaceFileEventStates(targetId, urlKey, merged.states);

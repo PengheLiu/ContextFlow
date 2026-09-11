@@ -3,7 +3,7 @@
 import {
   available as offlineAvailable, saveOfflineEvents, tombstoneOfflineEvents,
   claimOperations, acknowledgeOperations, releaseOperations, operationCount,
-  migrateLegacyOutbox,
+  migrateLegacyOutbox, listPendingAssets, markOfflineAssetUploaded, saveOfflineAsset,
 } from './offline-store.js';
 
 const BASE = 'http://127.0.0.1:7317';
@@ -67,6 +67,47 @@ async function call(path, init = {}) {
 }
 
 export async function health() { return call('/health'); }
+
+const blobToBase64 = async (blob) => {
+  const bytes = new Uint8Array(await blob.arrayBuffer());
+  let binary = '';
+  for (let at = 0; at < bytes.length; at += 0x8000) {
+    binary += String.fromCharCode(...bytes.subarray(at, at + 0x8000));
+  }
+  return btoa(binary);
+};
+
+const base64ToBlob = (data, mime) => {
+  const binary = atob(String(data || '')), bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return new Blob([bytes], { type: mime });
+};
+
+/** 附件与事件分开上传，避免图片 Base64 进入事件流、SQLite 文本列和 outbox。 */
+export async function pushAsset(asset) {
+  const data = await blobToBase64(asset.blob);
+  const { asset: saved } = await call('/assets', {
+    method: 'POST', body: JSON.stringify({ id: asset.id, mime: asset.mime, name: asset.name, data }),
+  });
+  await markOfflineAssetUploaded(asset.id);
+  return saved;
+}
+
+export async function flushAssets() {
+  const pending = await listPendingAssets();
+  let uploaded = 0;
+  for (const asset of pending) {
+    try { await pushAsset(asset); uploaded++; }
+    catch { break; }
+  }
+  return uploaded;
+}
+
+export async function fetchAsset(id) {
+  const { asset } = await call(`/assets/${encodeURIComponent(id)}`);
+  if (!asset?.data) throw new Error('附件响应缺少图片数据');
+  return saveOfflineAsset(base64ToBlob(asset.data, asset.mime), { ...asset, uploadedAt: Date.now() });
+}
 
 export async function fetchEvents(urlKey) {
   const { events } = await call(`/events?urlKey=${encodeURIComponent(urlKey)}`);

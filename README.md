@@ -105,6 +105,7 @@ AI 不只回答“这段在讲什么”，还可以结合你已经积累的材�
     <td width="33%" valign="top">
       <strong>阅读现场</strong><br><br>
       四色高亮与批注<br>
+      截图 / 原文图片直接粘贴进批注、解释补充与总结<br>
       全文上下文翻译<br>
       文章速览与总结<br>
       选区解释与连续追问<br>
@@ -183,6 +184,9 @@ ContextFlow 负责理解眼前正在发生的阅读；本地 agent 负责关联�
 
 当前结论支持你此前关于“召回时机”的判断，但与另一项实验存在冲突。
 两个来源的任务和评测口径不同，目前还不能互相证明。
+
+**我的补充**
+![论文中的实验图](assets/contextflow/example.png)
 
 ## 批注
 > attackers can only query the model through its public API

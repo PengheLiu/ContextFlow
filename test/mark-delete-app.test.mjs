@@ -38,7 +38,12 @@ function bare(items = []) {
   const a = new App();
   a.items = items;
   a.markDelete = { hideCalls: 0, hide() { this.hideCalls++; } };
-  a.panel = { render() {}, renderStatus() {} };
+  a.panel = {
+    render() {}, renderStatus() {}, focusItem() {},
+    updateCommentDraft(id, value) { a.panelDraft = [id, value]; },
+    updateLookupSupplement(id, value) { a.panelSupplement = [id, value]; },
+    markCommentEditing(id, on) { a.panelEditing = [id, on]; },
+  };
   a.reanchor = () => { a.reanchored = (a.reanchored || 0) + 1; };
   a.tipFor = () => ({ close() { a.closed = true; } });
   return a;
@@ -89,6 +94,88 @@ await t('删除高亮连带删除它的 comment', async () => {
   assert.deepEqual(calls.map((x) => x.path).sort(), ['/events/c', '/events/h']);
   assert.ok(a.reanchored);
   assert.ok(a.markDelete.hideCalls);
+});
+
+await t('原位与侧栏输入共享同一份批注草稿并双向镜像', () => {
+  const h = ev('h-sync', 'highlight');
+  const a = bare([h]);
+  a.commentPop = {
+    open$: true, id: h.id,
+    setValue(id, value) { a.popDraft = [id, value]; },
+    markSaved(id) { a.popSaved = id; },
+  };
+  a.editingCommentId = h.id;
+
+  a.updateCommentDraft(h.id, '原位输入', 'popover');
+  assert.deepEqual(a.panelDraft, [h.id, '原位输入']);
+  assert.equal(a.handlers().commentOf(h.id), '原位输入');
+
+  a.handlers().onCommentInput(h.id, '侧栏输入');
+  assert.deepEqual(a.popDraft, [h.id, '侧栏输入']);
+  assert.equal(a.handlers().commentOf(h.id), '侧栏输入');
+});
+
+await t('批注草稿提交后仍沿用原有 comment 子记录协议', () => {
+  const h = ev('h-save', 'highlight');
+  const a = bare([h]);
+  const persisted = [];
+  a.persist = (events) => persisted.push(...events);
+  a.commitCommentDraft(h.id, '  一条批注  ', 'popover');
+  const comment = a.commentFor(h.id);
+  assert.ok(comment);
+  assert.equal(comment.action, 'comment');
+  assert.equal(comment.parentId, h.id);
+  assert.equal(comment.value, '一条批注');
+  assert.deepEqual(persisted, [comment]);
+  assert.equal(a.commentDrafts.has(h.id), false);
+});
+
+await t('解释补充在原文旁与右栏共用记录，并在重新解释后保留', () => {
+  const explanation = ev('ex-supp', 'explain', { question: '为什么', supplement: '旧补充' });
+  const a = bare([explanation]);
+  const persisted = [];
+  a.persist = (events) => persisted.push(...events);
+  a.pops = { explain: { setSupplementValue(id, value) { a.popSupplement = [id, value]; } } };
+
+  a.updateLookupSupplement(explanation.id, '原文旁输入', false, 'popover');
+  assert.deepEqual(a.panelSupplement, [explanation.id, '原文旁输入']);
+  assert.equal(explanation.extra.supplement, '原文旁输入');
+  assert.equal(persisted.length, 0, '输入阶段不应逐字持久化');
+
+  a.updateLookupSupplement(explanation.id, '右栏提交', true, 'panel');
+  assert.deepEqual(a.popSupplement, [explanation.id, '右栏提交']);
+  assert.deepEqual(persisted, [explanation]);
+
+  persisted.length = 0;
+  a.saveLookup('explain', {
+    text: explanation.text, value: '新答案', anchor: explanation.anchor,
+    extra: { question: '为什么' },
+  });
+  assert.equal(a.items[0].extra.supplement, '右栏提交');
+  assert.equal(persisted[0].extra.supplement, '右栏提交');
+});
+
+await t('点击工具条批注创建高亮后打开原位编辑器，不再强制跳右栏', () => {
+  document.body.innerHTML = '<p>alpha beta gamma</p>';
+  const text = document.querySelector('p').firstChild;
+  const range = document.createRange();
+  range.setStart(text, 6); range.setEnd(text, 10);
+  range.getBoundingClientRect = () => ({ left: 80, top: 120, right: 150, bottom: 142, width: 70, height: 22 });
+  const a = bare([]);
+  a.persist = () => {};
+  a.reanchor = () => {};
+  a.hideTbSoon = () => {};
+  let opened = null, sideFocus = 0;
+  a.openCommentEditor = (item, rect) => { opened = { item, rect }; };
+  a.panel.focusItem = () => { sideFocus++; };
+  const oldSelection = global.getSelection;
+  global.getSelection = () => ({ removeAllRanges() {} });
+  try { a.addHighlight(range, 'yellow', true); } finally { global.getSelection = oldSelection; }
+  assert.equal(a.items.length, 1);
+  assert.equal(a.items[0].text, 'beta');
+  assert.equal(opened.item.id, a.items[0].id);
+  assert.equal(opened.rect.left, 80);
+  assert.equal(sideFocus, 0, '批注不应再强制把注意力移到右侧栏');
 });
 
 await t('删除普通 lookup：本地立即消失并请求软删', async () => {

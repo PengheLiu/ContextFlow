@@ -24,6 +24,7 @@ global.localStorage = {
 };
 
 const { Popover } = await import('../src/skill/popover.js');
+const { CommentPopover } = await import('../src/skill/comment-popover.js');
 
 let pass = 0;
 const t = async (name, fn) => {
@@ -202,6 +203,32 @@ await t('解释浮层默认仍保留「引用原文」区域', () => {
   assert.ok(pop.sh.getElementById('exp'));
 });
 
+await t('解释浮层的“我的补充”图文编辑区与右栏双向同步', () => {
+  const inputs = [], commits = [];
+  const explain = new Popover({
+    name: 'tip-supplement-test', title: '解释', input: true, supplement: true,
+    onSupplementInput: (id, value) => inputs.push([id, value]),
+    onSupplementCommit: (id, value) => commits.push([id, value]),
+  });
+  explain.open(rect, '原文').supplement('ex-1', '旧补充');
+  assert.ok(explain.sh.getElementById('supp').classList.contains('on'));
+  let ta = explain.sh.querySelector('#suppEditor .rc-text');
+  assert.equal(ta.value, '旧补充');
+  ta.value = '面板里补充';
+  ta.dispatchEvent(new window.Event('input', { bubbles: true }));
+  assert.deepEqual(inputs, [['ex-1', '面板里补充']]);
+  ta.dispatchEvent(new window.Event('blur'));
+  assert.deepEqual(commits, [['ex-1', '面板里补充']]);
+
+  explain.setSupplementValue('ex-1', '右栏改写');
+  ta = explain.sh.querySelector('#suppEditor .rc-text');
+  assert.equal(ta.value, '右栏改写');
+  ta.dispatchEvent(new window.Event('blur'));
+  assert.deepEqual(commits, [['ex-1', '面板里补充']], '镜像内容由右栏提交，不应从原文旁重复提交');
+  explain.supplement(null);
+  assert.ok(!explain.sh.getElementById('supp').classList.contains('on'));
+});
+
 await t('答案区为空时给出占位提示，避免大片空白看起来像坏了', () => {
   const css = pop.sh.querySelector('style').textContent;
   assert.match(css, /#b:empty::before\{content:/);
@@ -212,6 +239,64 @@ await t('每个浮层挂在独立的 shadow host 上，互不干扰', () => {
   assert.ok(hosts.length >= 5, `只找到 ${hosts.length} 个宿主`);
   assert.equal(new Set(hosts.map((h) => h.getAttribute('data-contextflow'))).size, hosts.length,
     '出现了同名宿主 —— 重复注入会让事件绑到不可见的那一套上');
+});
+
+await t('批注浮层在原文旁直接编辑，并即时把输入交给共享状态', () => {
+  const inputs = [];
+  const comments = new CommentPopover({ onInput: (id, value) => inputs.push([id, value]) });
+  comments.open(rect, { id: 'h-1', source: '一段值得记录的原文', value: '旧批注' });
+  assert.equal(comments.open$, true);
+  assert.equal(comments.sh.getElementById('src').textContent, '「一段值得记录的原文」');
+  assert.equal(comments.input.value, '旧批注');
+  comments.input.value = '原位写下的新批注';
+  comments.input.dispatchEvent(new window.Event('input', { bubbles: true }));
+  assert.deepEqual(inputs, [['h-1', '原位写下的新批注']]);
+  assert.match(comments.sh.getElementById('state').textContent, /已同步到右侧栏/);
+  comments.close(false);
+});
+
+await t('侧栏修改会反向更新当前原位编辑器，不串到其他批注', () => {
+  const comments = new CommentPopover();
+  comments.open(rect, { id: 'h-2', source: '原文', value: 'A' });
+  comments.setValue('other', '不应出现');
+  assert.equal(comments.input.value, 'A');
+  comments.setValue('h-2', '从侧栏改成 B');
+  assert.equal(comments.input.value, '从侧栏改成 B');
+  assert.match(comments.sh.getElementById('state').textContent, /已同步侧栏修改/);
+  comments.close(false);
+});
+
+await t('批注完成会立即提交、关闭，并通知侧栏结束原文旁编辑态', () => {
+  const commits = [], closed = [];
+  const comments = new CommentPopover({
+    onInput: () => {},
+    onCommit: (id, value) => commits.push([id, value]),
+    onClose: (id) => closed.push(id),
+  });
+  comments.open(rect, { id: 'h-3', source: '原文', value: '' });
+  comments.input.value = '完成的批注';
+  comments.input.dispatchEvent(new window.Event('input', { bubbles: true }));
+  comments.sh.getElementById('done').click();
+  assert.deepEqual(commits, [['h-3', '完成的批注']]);
+  assert.deepEqual(closed, ['h-3']);
+  assert.equal(comments.open$, false);
+});
+
+await t('复用浮层编辑新批注前先提交旧草稿，切换选区不丢字', () => {
+  const commits = [], closed = [];
+  const comments = new CommentPopover({
+    onInput: () => {},
+    onCommit: (id, value) => commits.push([id, value]),
+    onClose: (id) => closed.push(id),
+  });
+  comments.open(rect, { id: 'old', source: '旧原文', value: '' });
+  comments.input.value = '还没停顿保存的草稿';
+  comments.input.dispatchEvent(new window.Event('input', { bubbles: true }));
+  comments.open(rect, { id: 'new', source: '新原文', value: '' });
+  assert.deepEqual(commits, [['old', '还没停顿保存的草稿']]);
+  assert.deepEqual(closed, ['old']);
+  assert.equal(comments.id, 'new');
+  comments.close(false);
 });
 
 console.log(`\n${pass} 项通过`);

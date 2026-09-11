@@ -21,6 +21,7 @@ import * as api from '../core/api.js';
 import { T, FLOAT, shadowHost, onPageTheme } from './theme.js';
 import { Panel } from './panel.js';
 import { Popover, ticker } from './popover.js';
+import { CommentPopover } from './comment-popover.js';
 import { MarkDeleteControl } from './mark-delete.js';
 import { icon } from './icons.js';
 import { cleanQuestion, lookupKey, lookupId, normalizeLookupPart } from '../core/lookupkey.js';
@@ -28,8 +29,10 @@ import { reconcile } from '../core/reconcile.js';
 import {
   available as offlineAvailable, migrateArticleMirror, listOfflineEvents,
   saveOfflineEvents, tombstoneOfflineEvents, applyRemoteEvents, mutationStamp,
+  saveOfflineAsset, getOfflineAsset,
 } from '../core/offline-store.js';
 import { renderArticleMarkdown, safeMarkdownFilename } from '../core/markdown.js';
+import { assetIds, inlineAssetTokens } from '../core/assets.js';
 import { urlKey } from '../core/urlkey.js';
 import {
   blockedScope, blockPage, blockSite, showUnblockChip, BlockControl,
@@ -76,6 +79,9 @@ export class App {
     this.online = false;
     this.pendingCount = 0;
     this.timer = null;
+    // 批注编辑器与右侧栏共用的即时草稿。事件记录仍是唯一持久化事实源；
+    // 这里仅覆盖 500ms 防抖窗口，避免一边输入时另一边显示旧值。
+    this.commentDrafts = new Map();
     // lookup id → 当前轮询的 AbortController。删除 pending 记录时用它中止轮询，
     // 也防止已经晚到的结果把已删除记录用稳定 id "复活"。
     this.lookupRuns = new Map();
@@ -124,15 +130,23 @@ export class App {
     return {
       getItems: () => this.items.filter((e) => e.action === 'highlight'),
       getStats: () => this.stats,
-      getNote: () => this.noteItem()?.value ?? '',
+      getNote: () => this.noteDraft ?? this.noteItem()?.value ?? '',
       isOnline: () => this.online,
       outbox: () => this.pendingCount,
       positionOf: (id) => this.pos.get(id) ?? Number.MAX_SAFE_INTEGER,
       isOrphan: (id) => !this.hl.has(id),
       colorOf: (id) => COLORS[this.items.find((e) => e.id === id)?.color] ?? COLORS.yellow,
-      commentOf: (id) => this.commentFor(id)?.value ?? '',
-      onCommentChange: (id, v) => this.saveComment(id, v),
-      onNoteChange: (v) => this.saveNote(v),
+      commentOf: (id) => this.commentValue(id),
+      isCommentEditing: (id) => this.editingCommentId === id && !!this.commentPop?.open$,
+      onCommentInput: (id, v) => this.updateCommentDraft(id, v, 'panel'),
+      onCommentChange: (id, v) => this.commitCommentDraft(id, v, 'panel'),
+      onNoteInput: (v) => { this.noteDraft = String(v ?? ''); },
+      onNoteChange: (v) => { this.saveNote(v); this.noteDraft = null; },
+      getLookupSupplement: (id) => this.items.find((e) => e.id === id)?.extra?.supplement ?? '',
+      onLookupSupplementInput: (id, v) => this.updateLookupSupplement(id, v, false, 'panel'),
+      onLookupSupplementChange: (id, v) => this.updateLookupSupplement(id, v, true, 'panel'),
+      onAsset: (file) => this.addAsset(file),
+      resolveAsset: (id) => this.resolveAsset(id),
       onDelete: (id) => this.deleteHighlight(id),
       onLocate: (id) => this.locate(id),
       api,
@@ -148,6 +162,7 @@ export class App {
       onCopyMarkdown: () => this.copyMarkdown(),
       onDownloadMarkdown: () => this.downloadMarkdown(),
       onSync: async () => {
+        await api.flushAssets();
         const r = await api.sync(this.key);
         await this.sync();          // 同步后回读，刷新「待同步」计数
         return r;
@@ -181,6 +196,10 @@ export class App {
     clearTimeout(this.timer);
     for (const ctl of this.lookupRuns.values()) ctl.abort();
     this.lookupRuns.clear();
+    // 停用 / 重载插件前先提交未落盘的批注，不能丢掉最后 500ms 内的输入。
+    this.commentPop?.close();
+    for (const url of this.assetUrls?.values?.() || []) URL.revokeObjectURL(url);
+    this.assetUrls?.clear?.();
     this.hl.clear();
     // push 模式的面板给 <html> 挂过 margin-right 挤开正文 —— 面板要撤了，
     // 正文必须还回去，否则页面留着一条永远填不上的右白边。
@@ -203,6 +222,7 @@ export class App {
     try {
       await api.health();
       this.online = true;
+      await api.flushAssets();
       const flushed = await api.flushOutbox();
       if (flushed) console.log(`[ContextFlow] 补发 ${flushed} 条积压`);
       // 取数据前先记下本地都有哪些 id：await 期间用户可能又划了一条，
@@ -316,6 +336,92 @@ export class App {
 
   noteItem() { return this.items.find((e) => e.action === 'note'); }
   commentFor(id) { return this.items.find((e) => e.action === 'comment' && e.parentId === id && !e.deletedAt); }
+  commentValue(id) {
+    return this.commentDrafts.has(id) ? this.commentDrafts.get(id) : (this.commentFor(id)?.value ?? '');
+  }
+
+  /** 原位编辑器惰性创建；输入、持久化、关闭三条路径都回到 App 统一分发。 */
+  commentTipFor() {
+    if (this.commentPop) return this.commentPop;
+    this.commentPop = new CommentPopover({
+      onInput: (id, v) => this.updateCommentDraft(id, v, 'popover'),
+      onCommit: (id, v) => this.commitCommentDraft(id, v, 'popover'),
+      onAsset: (file) => this.addAsset(file),
+      resolveAsset: (id) => this.resolveAsset(id),
+      onClose: (id) => {
+        if (this.editingCommentId === id) this.editingCommentId = null;
+        this.panel?.markCommentEditing(id, false);
+      },
+    });
+    return this.commentPop;
+  }
+
+  openCommentEditor(item, rect) {
+    if (!item) return;
+    const prev = this.editingCommentId;
+    if (prev && prev !== item.id) this.panel?.markCommentEditing(prev, false);
+    this.editingCommentId = item.id;
+    this.commentTipFor().open(rect, {
+      id: item.id, source: item.text || '', value: this.commentValue(item.id),
+    });
+    this.panel?.markCommentEditing(item.id, true);
+  }
+
+  /**
+   * 任一编辑入口的每次按键都先写共享草稿，并立即镜像到另一处；真正持久化由各入口
+   * 的 500ms 防抖 / blur 触发 commitCommentDraft，避免按键级网络写入。
+   */
+  updateCommentDraft(id, raw, source) {
+    const value = String(raw ?? '');
+    this.commentDrafts.set(id, value);
+    if (source === 'panel') this.commentPop?.setValue(id, value);
+    else this.panel?.updateCommentDraft(id, value);
+  }
+
+  commitCommentDraft(id, raw, source) {
+    this.updateCommentDraft(id, raw, source);
+    this.saveComment(id, raw);
+    // 共享草稿只覆盖防抖窗口；落盘后继续以事件记录为唯一事实源，
+    // 后续同步进来的更新就不会被一份永久驻留的本地草稿遮住。
+    if (this.commentDrafts.get(id) === String(raw ?? '')) this.commentDrafts.delete(id);
+    this.commentPop?.markSaved(id);
+    this.panel?.renderStatus();
+  }
+
+  async addAsset(file) {
+    const asset = await saveOfflineAsset(file);
+    if (!this.assetUrls?.has(asset.id)) {
+      this.assetUrls ??= new Map();
+      this.assetUrls.set(asset.id, URL.createObjectURL(asset.blob));
+    }
+    // 本地落盘就是成功；服务没开时保留 uploadedAt=0，下一次 sync() 会补传。
+    api.pushAsset(asset).catch((e) => console.warn('[ContextFlow] 附件暂未上传：', e.message));
+    return { id: asset.id, alt: file?.name?.replace(/\.[^.]+$/, '') || '截图' };
+  }
+
+  async resolveAsset(id) {
+    this.assetUrls ??= new Map();
+    if (this.assetUrls.has(id)) return this.assetUrls.get(id);
+    let asset = await getOfflineAsset(id);
+    if (!asset && this.online) {
+      try { asset = await api.fetchAsset(id); } catch { /* 服务端也没有：由编辑器显示占位 */ }
+    }
+    if (!asset?.blob) return null;
+    const url = URL.createObjectURL(asset.blob);
+    this.assetUrls.set(id, url);
+    return url;
+  }
+
+  updateLookupSupplement(id, raw, commit, source) {
+    const ev = this.items.find((e) => e.id === id);
+    if (!ev) return;
+    const supplement = String(raw ?? '');
+    ev.extra = { ...(ev.extra || {}), supplement };
+    mSet(this.key, this.items);
+    if (source === 'panel') this.pops?.explain?.setSupplementValue(id, supplement);
+    else this.panel?.updateLookupSupplement(id, supplement);
+    if (commit) this.persist([ev]);
+  }
 
   locate(id) {
     const rect = this.hl.rectOf(id);
@@ -437,6 +543,8 @@ export class App {
 
   // ---------- 高亮 / 评论 / 总结 ----------
   addHighlight(range, color, openComment = false) {
+    // 选区会在持久化前被清掉，原位编辑器所需的坐标必须先快照。
+    const commentRect = openComment ? range.getBoundingClientRect() : null;
     // 必须用**新鲜**索引序列化。旧索引是 reanchor() 时建的，若期间 MathJax/懒加载
     // 改过文本节点内容，节点内偏移就整体错位，序列化出的 exact 会两端各差几个字符
     // （实测症状：'have increasingly evolved' 存成 'e increasingly evolve'）。
@@ -463,7 +571,8 @@ export class App {
     getSelection()?.removeAllRanges();
     this.hideTbSoon();
     this.reanchor();
-    if (openComment) this.panel.focusItem(ev.id);
+    // 批注从原文旁开始写，不再强制展开右栏、打断阅读视线；右栏仍会实时拿到同一草稿。
+    if (openComment) this.openCommentEditor(ev, commentRect);
   }
 
   saveComment(highlightId, raw) {
@@ -498,6 +607,8 @@ export class App {
 
   async deleteHighlight(id) {
     this.markDelete?.hide();
+    if (this.editingCommentId === id) this.commentPop?.close(false);
+    this.commentDrafts.delete(id);
     const h = this.items.find((e) => e.id === id);
     const c = this.commentFor(id);
     const dead = [h, c].filter(Boolean);
@@ -561,9 +672,14 @@ export class App {
         name: 'tip-explain', title: '解释', input: true,
         placeholder: '想问什么？留空则直接解释这段（Enter 提交）',
         submitLabel: '提问',
+        supplement: true,
         onSubmit: (q) => this.runExplain(q),
         // 命中本地缓存后想要新答案，得有个明确的出口，否则只能改问题措辞
         onRefresh: (q) => this.runExplain(q, true),
+        onSupplementInput: (id, value) => this.updateLookupSupplement(id, value, false, 'popover'),
+        onSupplementCommit: (id, value) => this.updateLookupSupplement(id, value, true, 'popover'),
+        onAsset: (file) => this.addAsset(file),
+        resolveAsset: (id) => this.resolveAsset(id),
       }));
   }
 
@@ -630,6 +746,7 @@ export class App {
     this.hideTbSoon();
     const pop = this.tipFor('explain').open(this.explainCtx.rect, text)
       .body('').foot('').showRefresh(false);
+    pop.supplement?.(null);
     // 同一段可以问多个问题；重开时恢复最近那次，而不是只找“空问题”的记录。
     const subject = normalizeLookupPart(text);
     const prev = this.items
@@ -637,8 +754,9 @@ export class App {
       .filter(({ e }) => e.action === 'explain' && !e.deletedAt
         && normalizeLookupPart(e.text) === subject)
       .sort((a, b) => (b.e.updatedAt || b.e.createdAt || 0) - (a.e.updatedAt || a.e.createdAt || 0)
-        || b.index - a.index)[0]?.e;
+      || b.index - a.index)[0]?.e;
     const question = cleanQuestion(prev?.extra?.question);
+    if (prev) pop.supplement?.(prev.id, prev.extra?.supplement || '');
     if (prev?.value) pop.answer(prev.value).foot('本地已有回答 · 可修改问题后再提问').showRefresh(true);
     else if (prev?.extra?.status === 'running') pop.body(prev.extra.progress || '这段正在解释中…', 'prog');
     else if (prev?.extra?.status === 'deferred') pop.body('当前离线，记录已保留', 'bad');
@@ -661,6 +779,7 @@ export class App {
     // 已在当前页面镜像里的完整答案无需再经过服务端缓存，更不能先被 pending 覆盖。
     if (!fresh && prev?.value) {
       pop.focus(question).answer(prev.value).foot('本地已有回答').showRefresh(true);
+      pop.supplement?.(prev.id, prev.extra?.supplement || '');
       return;
     }
     await this.uploadArticle();        // 按需：只为真正查过的页面存正文
@@ -668,6 +787,7 @@ export class App {
     // 提交即落一条"进行中"记录：原文立刻有标记、面板立刻有条目。
     // 这样不必守着浮层等 —— agent 一次几十秒，原地等是最糟的交互。
     const { id, jobId } = this.beginLookup(draft);
+    pop.supplement?.(id, this.items.find((e) => e.id === id)?.extra?.supplement || '');
     const tk = ticker(pop, '思考中');
     // 已经在跑就接上去看，别再提交一遍 —— 否则同一个问题会排两个作业
     if (jobId && !fresh) {
@@ -692,7 +812,8 @@ export class App {
       id, urlKey: this.key, url: location.href, title: document.title,
       action: 'explain', text, value: null, color: null,
       anchor: anchor ?? prev?.anchor ?? null, parentId: null,
-      extra: { question: question || '', status: 'running', offset },
+      extra: { question: question || '', status: 'running', offset,
+        ...(prev?.extra?.supplement ? { supplement: prev.extra.supplement } : {}) },
       createdAt: prev?.createdAt ?? Date.now(),
     };
     this.items = [...this.items.filter((e) => e.id !== id), ev];
@@ -900,8 +1021,19 @@ export class App {
     return renderArticleMarkdown({ title: document.title, url: location.href, events: this.items });
   }
 
+  async portableMarkdown() {
+    const text = await inlineAssetTokens(this.markdown(), async (id) => {
+      const local = await getOfflineAsset(id);
+      if (local) return local;
+      if (!this.online) return null;
+      try { return await api.fetchAsset(id); } catch { return null; }
+    });
+    if (assetIds(text).length) throw new Error('有图片附件暂不可用，请联网后重试或使用笔记同步');
+    return text;
+  }
+
   async copyMarkdown() {
-    const text = this.markdown();
+    const text = await this.portableMarkdown();
     if (navigator.clipboard?.writeText) await navigator.clipboard.writeText(text);
     else {
       const ta = document.createElement('textarea');
@@ -913,8 +1045,8 @@ export class App {
     return 'Markdown 已复制';
   }
 
-  downloadMarkdown() {
-    const blob = new Blob([this.markdown()], { type: 'text/markdown;charset=utf-8' });
+  async downloadMarkdown() {
+    const blob = new Blob([await this.portableMarkdown()], { type: 'text/markdown;charset=utf-8' });
     const href = URL.createObjectURL(blob), a = document.createElement('a');
     a.href = href; a.download = safeMarkdownFilename(document.title, this.key);
     document.body.appendChild(a); a.click(); a.remove();
@@ -1004,6 +1136,7 @@ export class App {
     // 不必迁移 id（迁移会牵动 synced 表里的引用）。找不到才用内容派生的稳定 id。
     const prev = this.items.find((e) => e.action === action && !e.deletedAt
       && lookupKey(e) === key);
+    if (prev?.extra?.supplement) extra = { ...(extra || {}), supplement: prev.extra.supplement };
 
     const ev = {
       id: prev?.id ?? lookupId(this.key, draft),

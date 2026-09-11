@@ -34,6 +34,13 @@ await t('putArticle 只存本地，不调用 bridge', async () => {
   assert.equal((await store.getOfflineArticle(article.urlKey)).text.length, article.text.length);
 });
 
+await t('附件接口在公开版保持本地模式，不依赖 HTTP 服务', async () => {
+  const asset = { id: 'a'.repeat(64), blob: new Blob(['x'], { type: 'image/png' }) };
+  assert.equal(await api.pushAsset(asset), asset);
+  assert.equal(await api.flushAssets(), 0);
+  await assert.rejects(api.fetchAsset(asset.id), (e) => e.code === 'ASSET_MISSING');
+});
+
 await t('翻译调用一次 bridge 并解析实测字符串协议', async () => {
   let calls = 0, prompt = '';
   global.LLMBridge = { chat: async (p, o) => { calls++; prompt = p; assert.equal(o.response_format, 'json'); return '{"translation":"你好"}'; } };

@@ -2,11 +2,13 @@
 // localStorage 只保留迁移兼容与小型 UI 偏好，不再承担并发写入正确性。
 
 const DB_NAME = 'contextflow-offline';
-const DB_VERSION = 3;
+const DB_VERSION = 4;
 const LEASE_MS = 30_000;
 const ARTICLE_MAX_CHARS = 400_000;
 const ARTICLE_MAX_COUNT = 12;
 const ARTICLE_MAX_BYTES = 8 * 1024 * 1024;
+const ASSET_MAX_BYTES = 8 * 1024 * 1024;
+const ASSET_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp']);
 const now = () => Date.now();
 const uid = () => globalThis.crypto?.randomUUID?.()
   || `${now().toString(36)}-${Math.random().toString(36).slice(2)}`;
@@ -52,6 +54,10 @@ export function openOfflineStore() {
       if (event.oldVersion < 3 && db.objectStoreNames.contains('fileEvents')) db.deleteObjectStore('fileEvents');
       if (!db.objectStoreNames.contains('fileEvents')) {
         db.createObjectStore('fileEvents', { keyPath: ['targetId', 'urlKey', 'eventId'] });
+      }
+      if (!db.objectStoreNames.contains('assets')) {
+        const assets = db.createObjectStore('assets', { keyPath: 'id' });
+        assets.createIndex('uploadedAt', 'uploadedAt'); assets.createIndex('createdAt', 'createdAt');
       }
     };
     r.onsuccess = () => resolve(r.result);
@@ -127,6 +133,57 @@ export async function listOfflineEvents(urlKey, { includeDeleted = false } = {})
   const rows = await req(tx.objectStore('events').index('urlKey').getAll(urlKey));
   await done(tx);
   return includeDeleted ? rows : rows.filter((e) => !e.deletedAt);
+}
+
+const hex = (buffer) => [...new Uint8Array(buffer)].map((n) => n.toString(16).padStart(2, '0')).join('');
+
+/** 图片 Blob 独立于事件保存；事件正文里只出现 64 位内容哈希。 */
+export async function saveOfflineAsset(file, over = {}) {
+  const mime = String(over.mime || file?.type || '').toLowerCase();
+  if (!ASSET_TYPES.has(mime)) throw new Error('仅支持 PNG、JPEG 或 WebP 图片');
+  const source = file instanceof Blob ? file : new Blob([file], { type: mime });
+  if (!source.size) throw new Error('图片内容为空');
+  if (source.size > ASSET_MAX_BYTES) throw new Error('图片不能超过 8 MB');
+  const bytes = await source.arrayBuffer();
+  if (!globalThis.crypto?.subtle) throw new Error('当前页面无法计算图片指纹');
+  const id = hex(await globalThis.crypto.subtle.digest('SHA-256', bytes));
+  const db = await openOfflineStore();
+  const row = {
+    id, mime, size: source.size, name: String(over.name || file?.name || 'image'),
+    blob: new Blob([bytes], { type: mime }), createdAt: Number(over.createdAt) || now(),
+    uploadedAt: Number(over.uploadedAt) || 0,
+  };
+  if (!db) return row;
+  const tx = db.transaction('assets', 'readwrite'), os = tx.objectStore('assets');
+  const old = await req(os.get(id));
+  if (old?.uploadedAt) row.uploadedAt = old.uploadedAt;
+  os.put(row); await done(tx);
+  return row;
+}
+
+export async function getOfflineAsset(id) {
+  const db = await openOfflineStore();
+  if (!db) return null;
+  const tx = db.transaction('assets', 'readonly');
+  const row = await req(tx.objectStore('assets').get(id)); await done(tx);
+  return row || null;
+}
+
+export async function listPendingAssets(limit = 20) {
+  const db = await openOfflineStore();
+  if (!db) return [];
+  const tx = db.transaction('assets', 'readonly');
+  const rows = await req(tx.objectStore('assets').getAll()); await done(tx);
+  return rows.filter((row) => !row.uploadedAt).sort((a, b) => a.createdAt - b.createdAt).slice(0, limit);
+}
+
+export async function markOfflineAssetUploaded(id, at = now()) {
+  const db = await openOfflineStore();
+  if (!db) return;
+  const tx = db.transaction('assets', 'readwrite'), os = tx.objectStore('assets');
+  const row = await req(os.get(id));
+  if (row) os.put({ ...row, uploadedAt: at });
+  await done(tx);
 }
 
 /** 原子 claim；多个 tab 最多各拿到不同操作。 */

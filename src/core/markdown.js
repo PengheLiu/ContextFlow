@@ -56,7 +56,9 @@ export function renderEventMarkdown(ev) {
     case 'translate': return v ? `${quote(ev.text)}\n${v}` : '';
     case 'explain': {
       const q = oneLine(ev.extra?.question) || '这段在讲什么';
-      return v ? `**❓ ${q}**\n${quote(ev.text)}\n${v}` : '';
+      const supplement = String(ev.extra?.supplement ?? '').trim();
+      return v ? `**❓ ${q}**\n${quote(ev.text)}\n${v}`
+        + (supplement ? `\n\n**我的补充**\n${supplement}` : '') : '';
     }
     default: return '';
   }

@@ -26,6 +26,7 @@ const PATHS = {
   copy: '<rect x="8" y="8" width="11" height="11" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"/>',
   download: '<path d="M12 3v11M8 10l4 4 4-4M4 19h16"/>',
   folder: '<path d="M3.5 7.5h6l1.7 2h9.3v8.8a2.2 2.2 0 0 1-2.2 2.2H5.7a2.2 2.2 0 0 1-2.2-2.2V7.5Z"/><path d="M3.5 7.5V5.7a2.2 2.2 0 0 1 2.2-2.2h3.1l1.8 2h7.7a2.2 2.2 0 0 1 2.2 2.2v1.8"/>',
+  image: '<rect x="3.5" y="4.5" width="17" height="15" rx="2"/><circle cx="9" cy="9.5" r="1.5"/><path d="m5.5 17 4.2-4.4 3.1 3 2.3-2.4 3.4 3.8"/>',
   check: '<path d="m5 12.5 4.2 4.2L19 7"/>',
   power: '<path d="M12 3.5v7.5"/><path d="M7 6.4a7.4 7.4 0 1 0 10 0"/>',
 };

@@ -10,6 +10,7 @@
 import { T, FLOAT, shadowHost } from './theme.js';
 import { brandMark, icon } from './icons.js';
 import { MARKDOWN_CSS, renderMarkdownInto } from './markdown-view.js';
+import { RichComposer, RICH_COMPOSER_CSS } from './rich-composer.js';
 
 const UI_KEY = 'contextflow:pop';
 const MIN_W = 300, MIN_H = 200;
@@ -82,6 +83,12 @@ const CSS = `${FLOAT}
       background:transparent;padding:4px 8px;font-size:12px}
   #again button:hover{background:${T.hover};border-color:${T.lineStrong}}
   #again .ico{width:14px;height:14px}
+  .supp{display:none;flex:0 0 auto;margin:12px 17px 0;padding-top:11px;border-top:1px dashed ${T.line}}
+  .supp.on{display:block}.supp .eyebrow{margin-bottom:5px}
+  .supp .rc{max-height:min(30vh,250px);padding:7px 9px;border:1px solid ${T.line};border-radius:6px;
+       background:${T.paperRaised};overflow-y:auto;transition:border-color .14s ease,box-shadow .14s ease}
+  .supp .rc:focus-within{border-color:${T.focusLine};background:${T.paper};box-shadow:0 0 0 3px ${T.focusRing}}
+  .supp .rc-media img{max-height:170px}
   #f{flex:0 0 auto;margin:8px 17px 0;padding:9px 0 1px;border-top:1px solid ${T.lineSoft};
      font-size:12px;color:${T.quote};font-variant-numeric:tabular-nums}
   #f:empty{display:none}
@@ -94,6 +101,7 @@ const CSS = `${FLOAT}
     .hd-copy small{display:none}.ask{grid-template-columns:1fr}.ask button{justify-self:end}
   }
 ${MARKDOWN_CSS}
+${RICH_COMPOSER_CSS}
 `;
 
 export class Popover {
@@ -104,6 +112,7 @@ export class Popover {
    * @param {boolean} [o.input]  是否带输入框
    * @param {boolean} [o.showSource=true] 是否显示引用原文
    * @param {function} [o.onSubmit] 输入框提交回调 (question) => void
+   * @param {boolean} [o.supplement] 是否提供与解释记录绑定的“我的补充”图文编辑区
    */
   constructor(o) {
     this.o = o;
@@ -126,6 +135,7 @@ export class Popover {
       </div>` : ''}
       <section class="response"><div class="eyebrow">${icon(modeIcon)} ${o.title}结果</div><div id="b"></div>
         <div id="again" style="display:none"><button id="re" type="button">${icon('retry')}<span>重新解释</span></button></div></section>
+      ${o.supplement ? '<section class="supp" id="supp"><div class="eyebrow">我的补充</div><div id="suppEditor"></div></section>' : ''}
       <div id="f"></div><div class="rz" id="rz" title="拖动调整大小"></div>
     </div>`;
     this.sh = sh;
@@ -141,6 +151,18 @@ export class Popover {
       this.showRefresh(false);
       this.o.onRefresh?.(this.question());
     };
+
+    if (o.supplement) {
+      this.supplementComposer = new RichComposer(this.$('suppEditor'), {
+        placeholder: '补充文字，或把原文图片粘贴到这里…',
+        onInput: (value) => this.supplementId
+          && this.o.onSupplementInput?.(this.supplementId, value),
+        onCommit: (value) => this.supplementId
+          && this.o.onSupplementCommit?.(this.supplementId, value),
+        onAsset: (file) => this.o.onAsset?.(file),
+        resolveAsset: (id) => this.o.resolveAsset?.(id),
+      });
+    }
 
     if (o.input) {
       const q = this.$('q');
@@ -172,6 +194,7 @@ export class Popover {
 
   /** @param {DOMRect} rect 选区位置  @param {string} [source] 顶部灰色引文 */
   open(rect, source = '') {
+    this.anchorRect = rect;
     const src = this.$('src');
     if (src) {
       src.textContent = source ? `「${source}」` : '';
@@ -191,6 +214,15 @@ export class Popover {
     if (h) this.el.style.height = `${h}px`;
 
     this.place(rect);
+    return this;
+  }
+
+  /** 答案或图文补充改变高度后，重新把浮层夹回视口。 */
+  reposition() {
+    clearTimeout(this.placeTimer);
+    this.placeTimer = setTimeout(() => {
+      if (this.open$) this.place(this.anchorRect);
+    }, 0);
     return this;
   }
 
@@ -281,12 +313,26 @@ export class Popover {
   /** 进度、错误和异常必须按纯文本显示，绝不解释其中的 Markdown / HTML。 */
   body(text, cls = '') {
     const b = this.$('b'); b.replaceChildren(document.createTextNode(text || '')); b.className = cls;
-    return this;
+    return this.reposition();
   }
   /** 只有成功答案走安全 Markdown 预览；原始字符串仍由调用方原样持久化。 */
-  answer(text) { const b = this.$('b'); b.className = ''; renderMarkdownInto(b, text); return this; }
+  answer(text) { const b = this.$('b'); b.className = ''; renderMarkdownInto(b, text); return this.reposition(); }
   /** 命中本地缓存时才露出「重新解释」—— 平时不该占位置 */
   showRefresh(on) { const el = this.$('again'); if (el) el.style.display = on ? 'block' : 'none'; return this; }
+  /** 解释记录存在后才显示补充区；记录 id 用来与右侧栏绑定同一份内容。 */
+  supplement(id, value = '') {
+    if (!this.supplementComposer) return this;
+    if (this.supplementId && this.supplementId !== id) this.supplementComposer.commit();
+    this.supplementId = id || null;
+    this.$('supp').classList.toggle('on', !!id);
+    this.supplementComposer.setValue(String(value ?? ''), true);
+    return this.reposition();
+  }
+  /** 右侧栏输入时只镜像内容，不触发本侧 onInput，避免回环。 */
+  setSupplementValue(id, value) {
+    if (this.supplementId === id) this.supplementComposer?.setValue(String(value ?? ''));
+    return this.reposition();
+  }
   foot(text) { this.$('f').textContent = text; return this; }
   question() { return this.o.input ? this.$('q').value.trim() : ''; }
 
@@ -312,7 +358,10 @@ export class Popover {
     return this;
   }
 
-  close() { this.el?.classList.remove('on'); }
+  close() {
+    if (this.open$ && this.supplementId) this.supplementComposer?.commit();
+    this.el?.classList.remove('on');
+  }
   get open$() { return !!this.el?.classList.contains('on'); }
 }
 

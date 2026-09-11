@@ -5,6 +5,7 @@
 // "改了内容走的是 updateBlock 还是又插了一块"这些真正容易错的地方。
 import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -12,6 +13,8 @@ const HOME = mkdtempSync(join(tmpdir(), 'cf-sy-'));
 process.env.CONTEXTFLOW_DIR = HOME;
 const db = await import('../server/db.mjs');
 const { syncAll, render } = await import('../server/siyuan.mjs');
+const assets = await import('../server/assets.mjs');
+const { assetToken } = await import('../src/core/assets.js');
 
 const CFG = {
   siyuan: {
@@ -359,6 +362,20 @@ await t('同名不同文章不会挤进同一个文档', async () => {
 
 await t('未配置 token 且未注入 call 时报可操作的错', async () => {
   await assert.rejects(() => syncAll({ siyuan: { ...CFG.siyuan, token: '' } }), /未配置 siyuan\.token/);
+});
+
+await t('含图片的记录先上传思源资源，再把内部引用改写为 assets 路径', async () => {
+  const png = Buffer.concat([Buffer.from('89504e470d0a1a0a', 'hex'), Buffer.from('siyuan-image')]);
+  const assetId = createHash('sha256').update(png).digest('hex');
+  assets.saveAsset({ id: assetId, mime: 'image/png', name: 'figure.png', data: png.toString('base64') });
+  db.upsertEvents([ev({ id: 'sy-img', urlKey: 'siyuan:image', title: '图文解释', action: 'explain',
+    text: 'figure', value: 'AI 答案', extra: { question: '图里是什么', supplement: assetToken(assetId, '原文图') } })]);
+  const K3 = fakeKernel(); let uploaded = 0;
+  K3.call.uploadAsset = async (asset) => { uploaded++; return `assets/${asset.id}.png`; };
+  await syncAll(CFG, { call: K3.call, urlKey: 'siyuan:image' });
+  assert.equal(uploaded, 1);
+  assert.ok(K3.order.map((id) => K3.mdOf(id))
+    .some((md) => md?.includes(`![原文图](assets/${assetId}.png)`)));
 });
 
 rmSync(HOME, { recursive: true, force: true });

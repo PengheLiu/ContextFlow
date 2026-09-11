@@ -18,6 +18,7 @@ import { byPosition } from '../core/order.js';
 import { Settings, SETTINGS_CSS } from './settings.js';
 import { brandMark, icon } from './icons.js';
 import { MARKDOWN_CSS, renderMarkdownInto } from './markdown-view.js';
+import { RichComposer, RICH_COMPOSER_CSS } from './rich-composer.js';
 
 // tab 的顺序、内部键、显示名集中在这里 —— 此前散落在 HTML、select()、
 // toggleSettings() 和四个 onclick 里，改一次顺序要同步改四处。
@@ -124,12 +125,7 @@ const PANEL_CSS = `
        display:block;transition:color .14s ease;overflow-wrap:anywhere}
   .src::before{content:'“';color:${T.lineStrong};font-size:20px;line-height:0;margin-right:3px;vertical-align:-2px}
   .src:hover{color:${T.inkSoft}}
-  .cmt{width:100%;margin-top:11px;border:none;border-bottom:1px solid transparent;outline:none;resize:none;
-       background:transparent;font:13.5px/1.68 ${T.sans};color:${T.ink};
-       padding:1px 0 4px;overflow:hidden;min-height:1.68em;display:block;overflow-wrap:anywhere;
-       transition:border-color .14s ease}
-  .cmt::placeholder{color:${T.placeholder}}
-  .cmt:focus{border-bottom-color:${T.accent}}
+  .cmt{margin-top:9px}.cmt .rc-figure{max-width:100%}.cmt .rc-media img{max-height:220px}
   .tools{display:flex;justify-content:flex-end;align-items:center;gap:2px;margin-top:7px;
          opacity:.58;transition:opacity .14s ease}
   .item:hover .tools,.item:focus-within .tools{opacity:1}
@@ -151,6 +147,10 @@ ${Object.entries(MARKS).map(([k, m]) => `  .item.k-${k} .src.lk{text-decoration-
   .src.off{cursor:default;opacity:.72;text-decoration-style:solid!important;text-decoration-color:${T.lineSoft}!important}
   .src.off:hover{color:${T.quote}}
   .item.hit{background:${T.accentWash};box-shadow:12px 0 0 ${T.accentWash},-8px 0 0 ${T.accentWash}}
+  .item.editing{background:${T.accentWash};box-shadow:12px 0 0 ${T.accentWash},-8px 0 0 ${T.accentWash}}
+  .item.editing::before{background:${T.accent}}
+  .item-head .edit-state{display:inline-flex;align-items:center;gap:4px;color:${T.accent};letter-spacing:0;font-weight:650}
+  .item-head .edit-state .ico{width:13px;height:13px}
   .q2{display:flex;align-items:flex-start;gap:7px;margin-top:10px;font-size:13px;font-weight:650;color:${T.accent}}
   .q2 .ico{width:15px;height:15px;margin-top:2px}
   .st{margin-top:9px;font-size:12.5px;display:flex;align-items:center;gap:7px}
@@ -161,6 +161,8 @@ ${Object.entries(MARKS).map(([k, m]) => `  .item.k-${k} .src.lk{text-decoration-
   .st button:hover{background:${T.hover}}
   .item.pend .src.lk{text-decoration-style:dotted;text-decoration-color:${T.line}}
   .ans{margin-top:10px}
+  .supplement{margin-top:13px;padding-top:10px;border-top:1px dashed ${T.line}}
+  .supplement-label{margin-bottom:5px;color:${T.quote};font-size:11.5px;font-weight:680;letter-spacing:.06em}
   .tools .muted{margin-right:auto;font-variant-numeric:tabular-nums}
 
   /* 速览像编辑批注，不另铺一张卡片。 */
@@ -181,12 +183,12 @@ ${Object.entries(MARKS).map(([k, m]) => `  .item.k-${k} .src.lk{text-decoration-
   .note-head{display:flex;align-items:center;justify-content:space-between;margin:20px 0 10px;
         color:${T.quote};font-size:12px;font-weight:680;letter-spacing:.065em}
   .note-head strong{color:${T.inkSoft};font:inherit}.note-head span:last-child{font-weight:500;letter-spacing:0}
-  .note{width:100%;height:calc(100vh - 285px);min-height:240px;border:none;border-left:2px solid ${T.line};
+  .note{width:100%;min-height:240px;border:none;border-left:2px solid ${T.line};
         background-color:transparent;
         background-image:repeating-linear-gradient(to bottom,transparent 0,transparent 29px,${T.lineSoft} 29px,${T.lineSoft} 30px);
-        padding:3px 12px 12px;font:13.5px/30px ${T.sans};color:${T.ink};resize:none;outline:none}
-  .note::placeholder{color:${T.placeholder}}
-  .note:focus{border-left-color:${T.accent};box-shadow:none}
+        padding:3px 12px 12px;font:13.5px/30px ${T.sans};color:${T.ink};outline:none}
+  .note:focus-within{border-left-color:${T.accent};box-shadow:none}
+  .note .rc-text{line-height:30px;background-image:none}.note .rc-media img{max-height:360px}
 
   footer{flex:0 0 auto;padding:10px 16px 12px;border-top:1px solid ${T.line};background:${T.paper};font-variant-numeric:tabular-nums}
   .wrap.settings-mode > footer{display:none}
@@ -240,6 +242,7 @@ ${Object.entries(MARKS).map(([k, m]) => `  .item.k-${k} .src.lk{text-decoration-
   @media (hover:none){.tools{opacity:1}}
 ${SETTINGS_CSS}
 ${MARKDOWN_CSS}
+${RICH_COMPOSER_CSS}
 `;
 
 /**
@@ -299,8 +302,7 @@ export class Panel {
             // 想补充再往下写。两者刻意分开，免得分不清谁的想法。
             ? '<div class="brief" id="brief"></div>'
               + '<div class="note-head"><strong>你的笔记</strong><span>自动保存</span></div>'
-              + '<textarea class="note" id="note"'
-              + ' placeholder="记下整体理解、与其他工作的关系，以及仍待验证的问题…"></textarea>'
+              + '<div class="note" id="note"></div>'
             : ''}</div>`).join('')}
           <div class="set" id="p-set"></div>
         </div>
@@ -345,16 +347,20 @@ export class Panel {
     this.$('stat').onclick = () => this.h.onReanchor();
     this.$('sync').onclick = () => this.doSync();
     this.$('copyMd').onclick = this.guard(async () => this.syncMsg(await this.h.onCopyMarkdown(), 'ok'));
-    this.$('downloadMd').onclick = this.guard(() => this.syncMsg(this.h.onDownloadMarkdown(), 'ok'));
+    this.$('downloadMd').onclick = this.guard(async () => this.syncMsg(await this.h.onDownloadMarkdown(), 'ok'));
     this.$('cfg').onclick = () => this.toggleSettings();
     this.$('mode').onclick = () => this.setMode(this.ui.mode === 'push' ? 'float' : 'push');
     for (const k of TAB_KEYS) this.$(`t-${k}`).onclick = () => this.select(k);
 
-    const note = this.$('note');
-    let nt = null;
-    note.addEventListener('input', () => {
-      clearTimeout(nt);
-      nt = setTimeout(() => this.h.onNoteChange(note.value), 600);   // 防抖自动保存
+    this.composers = new Map();
+    this.lookupComposers = new Map();
+    this.noteComposer = new RichComposer(this.$('note'), {
+      value: this.h.getNote?.() || '',
+      placeholder: '记下整体理解、与其他工作的关系，以及仍待验证的问题…',
+      onInput: (value) => this.h.onNoteInput?.(value),
+      onCommit: (value) => this.h.onNoteChange?.(value),
+      onAsset: (file) => this.h.onAsset?.(file),
+      resolveAsset: (id) => this.h.resolveAsset?.(id),
     });
 
     this.wireResize();
@@ -536,7 +542,7 @@ export class Panel {
       this.$(`t-${k}`).setAttribute('aria-selected', String(k === tab));
       this.$(`p-${k}`).classList.toggle('on', k === tab);
     }
-    if (tab === 'note') this.$('note').value = this.h.getNote() ?? '';
+    if (tab === 'note') this.noteComposer?.setValue(this.h.getNote() ?? '');
     else this.render();
   }
 
@@ -547,7 +553,34 @@ export class Panel {
     const el = this.sh.querySelector(`[data-id="${id}"]`);
     if (!el) return;
     el.scrollIntoView({ block: 'center', behavior: 'smooth' });
-    el.querySelector('.cmt')?.focus();
+    this.composers.get(id)?.focus();
+  }
+
+  /** 原位编辑器输入时只改现有 textarea，不重建列表，因此焦点与滚动位置都不动。 */
+  updateCommentDraft(id, value) {
+    this.composers.get(id)?.setValue(String(value ?? ''));
+  }
+
+  /** 原文旁的解释面板输入时，镜像到右栏的“我的补充”，不重建解释条目。 */
+  updateLookupSupplement(id, value) {
+    this.lookupComposers.get(id)?.setValue(String(value ?? ''));
+  }
+
+  /** 右栏可见时标出当前正在哪段原文旁编辑；关闭原位编辑器后恢复定位文案。 */
+  markCommentEditing(id, on) {
+    const el = this.sh.querySelector(`[data-id="${id}"]`);
+    if (!el) return;
+    el.classList.toggle('editing', on);
+    const state = el.querySelector('.item-head .seq');
+    if (!state) return;
+    if (on) {
+      state.className = 'seq edit-state';
+      state.innerHTML = `${icon('sync')}<span>原文旁编辑</span>`;
+    } else {
+      state.className = 'seq';
+      state.innerHTML = el.dataset.orphan === 'true'
+        ? '<span class="orphan">未定位</span>' : '原文位置';
+    }
   }
 
   /**
@@ -641,6 +674,7 @@ export class Panel {
   renderLookups(kind) {
     const items = byPosition(this.h.getLookups(kind), this.h.positionOf);
     const pane = this.$(`p-${kind}`);
+    this.lookupComposers.clear();
     if (!items.length) {
       const label = kind === 'explain' ? '解释' : '翻译';
       pane.innerHTML = emptyView(kind, `还没有${label}记录`, `划选一段文字，再从工具条选择「${label}」。`);
@@ -671,6 +705,7 @@ export class Panel {
         ${q ? `<div class="q2">${icon('help')}<span>${esc(q)}</span></div>` : ''}
         ${status}
         ${pending ? '' : '<div class="ans"></div>'}
+        ${kind === 'explain' && !pending ? '<div class="supplement"><div class="supplement-label">我的补充</div><div class="supp-editor"></div></div>' : ''}
         <div class="tools">
           <span class="muted">${formatTime(it.createdAt)}</span>
           <button class="with-icon" data-act="del">${icon('trash')}<span>删除</span></button>
@@ -683,6 +718,18 @@ export class Panel {
       const item = items.find((it) => it.id === id);
       const answer = el.querySelector('.ans');
       if (answer && item?.value) renderMarkdownInto(answer, item.value);
+      const supplement = el.querySelector('.supp-editor');
+      if (supplement) {
+        const composer = new RichComposer(supplement, {
+          value: this.h.getLookupSupplement?.(id) || '',
+          placeholder: '补充文字，或把原文图片粘贴到这里…',
+          onInput: (value) => this.h.onLookupSupplementInput?.(id, value),
+          onCommit: (value) => this.h.onLookupSupplementChange?.(id, value),
+          onAsset: (file) => this.h.onAsset?.(file),
+          resolveAsset: (assetId) => this.h.resolveAsset?.(assetId),
+        });
+        this.lookupComposers.set(id, composer);
+      }
       el.querySelector('[data-act=del]').onclick = () => this.h.onDeleteLookup(id);
       const retry = el.querySelector('[data-act=retry]');
       if (retry) retry.onclick = () => this.h.onRetryLookup(id);
@@ -697,10 +744,11 @@ export class Panel {
 
     // 正在输入时不重建列表，否则会丢焦点与光标位置
     const active = this.sh.activeElement;
-    if (active && active.classList?.contains('cmt')) return;
+    if (active && (active.classList?.contains('rc-text') || active.classList?.contains('rc-caption'))) return;
 
     const items = byPosition(this.h.getItems(), this.h.positionOf);
     const pane = this.$('p-comments');
+    this.composers.clear();
 
     if (!items.length) {
       pane.innerHTML = emptyView('comment', '还没有批注', '划选正文，把值得保留的想法写在阅读边栏里。');
@@ -709,28 +757,29 @@ export class Panel {
 
     pane.innerHTML = items.map((it, index) => {
       const orphan = this.h.isOrphan(it.id);
-      return `<div class="item comment" data-id="${it.id}" style="--mark:${this.h.colorOf(it.id)}">
+      const editing = !!this.h.isCommentEditing?.(it.id);
+      return `<div class="item comment${editing ? ' editing' : ''}" data-id="${it.id}" data-orphan="${orphan}" style="--mark:${this.h.colorOf(it.id)}">
         <div class="item-head${orphan ? '' : ' loc'}" title="${orphan ? '' : '点击跳到原文'}"><span class="kind">批注 / ${seq(index)}</span>`
-        + `<span class="seq">${orphan ? '<span class="orphan">未定位</span>' : '原文位置'}</span></div>
+        + `<span class="seq${editing ? ' edit-state' : ''}">${editing ? `${icon('sync')}<span>原文旁编辑</span>`
+          : (orphan ? '<span class="orphan">未定位</span>' : '原文位置')}</span></div>
         <span class="src${orphan ? ' off' : ''}" title="${orphan ? '原文已改动，无法定位' : '点击跳到原文'}">
           ${esc(it.text || '')}
         </span>
-        <textarea class="cmt" rows="1" placeholder="写下你的想法…">${esc(this.h.commentOf(it.id) ?? '')}</textarea>
+        <div class="cmt"></div>
         <div class="tools"><button class="with-icon" data-act="del">${icon('trash')}<span>删除</span></button></div>
       </div>`;
     }).join('');
 
     for (const el of pane.querySelectorAll('.item')) {
       const id = el.dataset.id;
-      const ta = el.querySelector('.cmt');
-      grow(ta);
-      let t = null;
-      ta.addEventListener('input', () => {
-        grow(ta);
-        clearTimeout(t);
-        t = setTimeout(() => { this.h.onCommentChange(id, ta.value); this.renderStatus(); }, 500);
+      const composer = new RichComposer(el.querySelector('.cmt'), {
+        value: this.h.commentOf(id) ?? '', placeholder: '写下你的想法…', debounce: 500,
+        onInput: (value) => this.h.onCommentInput?.(id, value),
+        onCommit: (value) => { this.h.onCommentChange?.(id, value); this.renderStatus(); },
+        onAsset: (file) => this.h.onAsset?.(file),
+        resolveAsset: (assetId) => this.h.resolveAsset?.(assetId),
       });
-      ta.addEventListener('blur', () => { clearTimeout(t); this.h.onCommentChange(id, ta.value); });
+      this.composers.set(id, composer);
       el.querySelector('[data-act=del]').onclick = () => this.h.onDelete(id);
     }
     this.bindSourceNavigation(pane);
@@ -773,5 +822,4 @@ const setButtonContent = (el, iconName, label) => {
   el.innerHTML = `${icon(iconName)}<span>${label}</span>`;
 };
 
-const grow = (ta) => { ta.style.height = 'auto'; ta.style.height = `${ta.scrollHeight}px`; };
 const esc = (s) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));

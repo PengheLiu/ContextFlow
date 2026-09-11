@@ -8,19 +8,28 @@ global.location = { origin: 'https://example.com' };
 
 class FileHandle {
   constructor(name, dir) { this.name = name; this.kind = 'file'; this.dir = dir; }
-  async getFile() { const text = this.dir.files.get(this.name) || ''; return { text: async () => text }; }
-  async createWritable() { let next = ''; return { write: async (s) => { next = String(s); }, close: async () => this.dir.files.set(this.name, next) }; }
+  async getFile() {
+    const data = this.dir.files.get(this.name) || '';
+    return { text: async () => typeof data === 'string' ? data : data.text() };
+  }
+  async createWritable() { let next = ''; return { write: async (s) => { next = s; }, close: async () => this.dir.files.set(this.name, next) }; }
 }
 class DirHandle {
-  constructor(name = 'Vault') { this.name = name; this.kind = 'directory'; this.files = new Map(); this.permission = 'granted'; }
+  constructor(name = 'Vault') { this.name = name; this.kind = 'directory'; this.files = new Map(); this.dirs = new Map(); this.permission = 'granted'; }
   async queryPermission() { return this.permission; }
   async requestPermission() { return this.permission; }
   async getFileHandle(name, o = {}) { if (!this.files.has(name) && !o.create) throw Object.assign(new Error('missing'), { name: 'NotFoundError' }); return new FileHandle(name, this); }
+  async getDirectoryHandle(name, o = {}) {
+    if (!this.dirs.has(name) && !o.create) throw Object.assign(new Error('missing'), { name: 'NotFoundError' });
+    if (!this.dirs.has(name)) this.dirs.set(name, new DirHandle(name));
+    return this.dirs.get(name);
+  }
   async *values() { for (const name of this.files.keys()) yield new FileHandle(name, this); }
 }
 
 const store = await import('../src/core/offline-store.js');
 const sync = await import('../src/public/file-sync.js');
+const { assetToken } = await import('../src/core/assets.js');
 let pass = 0; const t = async (n, f) => { try { await f(); console.log(`  ok   ${n}`); pass++; } catch (e) { console.log(`  FAIL ${n}\n       ${e.stack}`); process.exitCode = 1; } };
 const dir = new DirHandle();
 const event = (id, action, value, o = {}) => ({ id, urlKey: 'fs:u', url: 'https://x', title: 'Article', action,
@@ -59,6 +68,23 @@ await t('旧文件补齐原文链接且重复同步不追加', async () => {
   const second = await sync.syncToFileTarget('fs:u');
   assert.equal(second.sourceChanged, false);
   assert.equal(dir.files.get('Article.md'), once);
+});
+
+await t('图文记录把图片复制到附件目录并改写相对路径', async () => {
+  const png = new Blob([Buffer.from('89504e470d0a1a0a01020304', 'hex')], { type: 'image/png' });
+  const asset = await store.saveOfflineAsset(png, { name: 'figure.png' });
+  const key = 'fs:asset';
+  await store.putOfflineArticle({ urlKey: key, title: 'With Image', url: 'https://x/image', text: 'body' });
+  await store.saveOfflineEvents([event('note:image', 'note', `图前\n\n${assetToken(asset.id, '原文图')}\n\n图后`, {
+    urlKey: key, title: 'With Image', url: 'https://x/image',
+  })], { queue: false });
+  const r = await sync.syncToFileTarget(key);
+  assert.equal(r.inserted, 1);
+  const md = dir.files.get('With Image.md');
+  assert.match(md, new RegExp(`!\\[原文图\\]\\(assets/contextflow/${asset.id}\\.png\\)`));
+  const assetDir = dir.dirs.get('assets')?.dirs.get('contextflow');
+  assert.ok(assetDir?.files.get(`${asset.id}.png`) instanceof Blob);
+  assert.equal(await assetDir.files.get(`${asset.id}.png`).text(), await png.text());
 });
 
 await t('内容修改原地更新', async () => {

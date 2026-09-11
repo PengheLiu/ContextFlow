@@ -33,6 +33,22 @@ export function open() {
     CREATE INDEX IF NOT EXISTS idx_events_urlkey ON events(urlKey, deletedAt);
     CREATE INDEX IF NOT EXISTS idx_events_unsynced ON events(syncedAt, deletedAt);
 
+    CREATE TABLE IF NOT EXISTS assets (
+      id        TEXT PRIMARY KEY,
+      mime      TEXT NOT NULL,
+      ext       TEXT NOT NULL,
+      size      INTEGER NOT NULL,
+      name      TEXT NOT NULL DEFAULT '',
+      createdAt INTEGER NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS asset_refs (
+      assetId TEXT NOT NULL,
+      backend TEXT NOT NULL,
+      ref     TEXT NOT NULL,
+      at      INTEGER NOT NULL,
+      PRIMARY KEY (assetId, backend)
+    );
+
     -- day → 思源日报文档 id。
     -- 必须自己记：createDocWithMd 之后 SiYuan 的 blocks 索引有延迟，
     -- 若第二次同步靠 SQL 查不到就会重复建文档。
@@ -360,6 +376,26 @@ export function syncedIdsForBackend(backend) {
 
 export function getIdxDoc(hpath) {
   return open().prepare('SELECT docId, tailBlockId FROM idxdoc WHERE hpath = ?').get(hpath) ?? null;
+}
+
+export function putAsset(asset) {
+  open().prepare(`INSERT INTO assets (id,mime,ext,size,name,createdAt) VALUES (?,?,?,?,?,?)
+    ON CONFLICT(id) DO UPDATE SET mime=excluded.mime,ext=excluded.ext,size=excluded.size,name=excluded.name`)
+    .run(asset.id, asset.mime, asset.ext, asset.size, asset.name || '', asset.createdAt || Date.now());
+}
+
+export function getAsset(id) {
+  return open().prepare('SELECT * FROM assets WHERE id = ?').get(id) ?? null;
+}
+
+export function putAssetRef(id, backend, ref) {
+  open().prepare('INSERT OR REPLACE INTO asset_refs (assetId,backend,ref,at) VALUES (?,?,?,?)')
+    .run(id, backend, ref, Date.now());
+}
+
+export function getAssetRef(id, backend) {
+  return open().prepare('SELECT ref FROM asset_refs WHERE assetId = ? AND backend = ?')
+    .get(id, backend)?.ref ?? null;
 }
 export function putIdxDoc(hpath, docId, tailBlockId = null) {
   open().prepare('INSERT OR REPLACE INTO idxdoc (hpath, docId, tailBlockId) VALUES (?, ?, ?)')
