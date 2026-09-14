@@ -17,9 +17,9 @@ export function renderSourceMarkdown(raw) {
 
 export const CATEGORIES = [
   { key: 'summary', label: '速览', actions: ['summary'] },
-  { key: 'translate', label: '翻译', actions: ['translate'] },
-  { key: 'explain', label: '解释', actions: ['explain'] },
   { key: 'comments', label: '批注', actions: ['highlight', 'comment'] },
+  { key: 'explain', label: '解释', actions: ['explain'] },
+  { key: 'translate', label: '翻译', actions: ['translate'] },
   { key: 'note', label: '总结', actions: ['note'] },
 ];
 
@@ -42,23 +42,30 @@ export function groupByCategory(events) {
   return out;
 }
 
+/** 把一条记录包成列表项；后续段落缩进后仍属于同一条记录。 */
+const listItem = (markdown) => {
+  const lines = String(markdown ?? '').trim().split('\n');
+  if (!lines[0]) return '';
+  return lines.map((line, i) => i === 0 ? `- ${line}` : (line ? `  ${line}` : '')).join('\n');
+};
+
 export function renderEventMarkdown(ev) {
   const v = String(ev.value ?? '').trim();
   if (!v && ev.extra?.status) {
     const why = ev.extra.status === 'deferred' ? '离线待处理' : (ev.extra.error || '未完成');
-    return `> ⚠ ${why}`;
+    return listItem(`⚠ ${why}`);
   }
   switch (ev.action) {
-    case 'highlight': return quote(ev.text);
-    case 'comment': return v ? `💬 ${v}` : '';
-    case 'summary': return v ? v.split('\n').map((l) => `> ${l}`).join('\n') : '';
-    case 'note': return v;
-    case 'translate': return v ? `${quote(ev.text)}\n${v}` : '';
+    case 'highlight': return listItem(quote(ev.text));
+    case 'comment': return v ? listItem(`💬 ${v}`) : '';
+    case 'summary': return v ? listItem(v) : '';
+    case 'note': return v ? listItem(v) : '';
+    case 'translate': return v ? listItem(`${quote(ev.text)}\n\n${v}`) : '';
     case 'explain': {
       const q = oneLine(ev.extra?.question) || '这段在讲什么';
       const supplement = String(ev.extra?.supplement ?? '').trim();
-      return v ? `**❓ ${q}**\n${quote(ev.text)}\n${v}`
-        + (supplement ? `\n\n**我的补充**\n${supplement}` : '') : '';
+      return v ? listItem(`**❓ ${q}**\n\n${quote(ev.text)}\n\n${v}`
+        + (supplement ? `\n\n**我的补充**\n\n${supplement}` : '')) : '';
     }
     default: return '';
   }

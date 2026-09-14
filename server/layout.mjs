@@ -4,9 +4,8 @@
 // 细微分歧（解释的排序时机不同）。同一套版式规则存两份，早晚会让两个后端
 // 产出不一样的笔记。
 //
-// 分类顺序 = 笔记里标题的顺序。除了 summary（无 tab，显示在「总结」tab 内），
-// 其余与面板 tab 一一对应 —— 用户在面板里看到的次序就是笔记里的次序，
-// 回看时不用做二次映射。
+// 分类顺序 = 笔记里标题的顺序。阅读笔记先给结论，再按「自己的判断 →
+// 延伸理解 → 语言转换」展开；用户另写的总结仍作为可选收尾。
 import { hashKey } from '../src/core/lookupkey.js';
 
 export const CATEGORIES = [
@@ -14,10 +13,10 @@ export const CATEGORIES = [
   // 排在你自己写的总结上面）。笔记里给它独立标题，免得和你自己的总结混在一起
   // 分不清谁是谁的想法。放在最前：它是这篇文章的入口。
   { key: 'summary', label: '速览', actions: ['summary'] },
-  { key: 'translate', label: '翻译', actions: ['translate'] },
-  { key: 'explain', label: '解释', actions: ['explain'] },
   // 高亮与它的评论是一体的，同属「批注」
   { key: 'comments', label: '批注', actions: ['highlight', 'comment'] },
+  { key: 'explain', label: '解释', actions: ['explain'] },
+  { key: 'translate', label: '翻译', actions: ['translate'] },
   { key: 'note', label: '总结', actions: ['note'] },
 ];
 

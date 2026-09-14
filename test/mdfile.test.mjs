@@ -38,7 +38,7 @@ console.log('文件型同步后端\n');
 
 await t('翻译带原文引用（脱离网页也读得懂）', () => {
   const md = render(ev({ action: 'translate', text: 'Threat model', value: '威胁模型' }));
-  assert.match(md, /^> Threat model\n威胁模型$/);
+  assert.equal(md, '- > Threat model\n\n  威胁模型');
 });
 
 await t('解释带问题 + 原文引用', () => {
@@ -46,7 +46,7 @@ await t('解释带问题 + 原文引用', () => {
     action: 'explain', text: 'Threat model', value: '这一节定义攻击者能力',
     extra: { question: '这段在讲什么' },
   }));
-  assert.match(md, /\*\*❓ 这段在讲什么\*\*\n> Threat model\n这一节定义攻击者能力/);
+  assert.match(md, /^- \*\*❓ 这段在讲什么\*\*\n\n  > Threat model\n\n  这一节定义攻击者能力$/);
 });
 
 await t('解释没填问题时给默认问法', () =>
@@ -76,6 +76,9 @@ await t('首次同步：按标题建文件，四类各一个标题', async () =>
   for (const h of ['## 翻译', '## 解释', '## 批注', '## 总结']) {
     assert.ok(md.includes(h), `缺标题 ${h}`);
   }
+  for (const id of ['tr1', 'ex1', 'h1', 'c1', 'n1']) {
+    assert.match(md, new RegExp(`<!-- cf:${id} -->\\n- `), `${id} 不是列表项`);
+  }
 });
 
 // 速览是机器生成的，笔记里给它独立标题 —— 和用户自己写的「总结」摆在同一个
@@ -89,25 +92,26 @@ await t('速览落在独立的「速览」标题下，且排在最前', async ()
   assert.ok(r.inserted >= 1);
   const md = read(ART);
   assert.ok(md.includes('## 速览'), '没有速览标题');
-  const seg = md.slice(md.indexOf('## 速览'), md.indexOf('## 翻译'));
+  const seg = md.slice(md.indexOf('## 速览'), md.indexOf('## 批注'));
   assert.ok(seg.includes('反推推理痕迹'), '速览没落在自己的标题下');
   assert.ok(md.indexOf('## 速览') < md.indexOf('## 总结'), '速览应排在总结之前');
 });
 
 await t('速览与用户自己写的总结互不干扰', () => {
   const md = read(ART);
-  const brief = md.slice(md.indexOf('## 速览'), md.indexOf('## 翻译'));
+  const brief = md.slice(md.indexOf('## 速览'), md.indexOf('## 批注'));
   const note = md.slice(md.indexOf('## 总结'));
   assert.ok(!brief.includes('重写：只剩一句'), '用户的总结混进了速览');
   assert.ok(!note.includes('反推推理痕迹'), '速览混进了用户的总结');
 });
 
-await t('四个标题的顺序是 翻译 解释 批注 总结', () => {
+await t('标题顺序是 速览 批注 解释 翻译 总结', () => {
   const md = read(ART);
   const at = (h) => md.indexOf(h);
-  assert.ok(at('## 翻译') < at('## 解释'), '翻译应在解释前');
-  assert.ok(at('## 解释') < at('## 批注'), '解释应在批注前');
-  assert.ok(at('## 批注') < at('## 总结'), '批注应在总结前');
+  assert.ok(at('## 速览') < at('## 批注'), '速览应在批注前');
+  assert.ok(at('## 批注') < at('## 解释'), '批注应在解释前');
+  assert.ok(at('## 解释') < at('## 翻译'), '解释应在翻译前');
+  assert.ok(at('## 翻译') < at('## 总结'), '翻译应在总结前');
 });
 
 await t('评论紧跟它的高亮', () => {
@@ -167,7 +171,7 @@ await t('第二天的新记录追加进**同一个文件**，不新建 2026-08-2
 await t('追加的解释进了「解释」标题下，没另起一节', () => {
   const md = read(ART);
   assert.equal(md.split('## 解释').length - 1, 1, '出现了两个「解释」标题');
-  const seg = md.slice(md.indexOf('## 解释'), md.indexOf('## 批注'));
+  const seg = md.slice(md.indexOf('## 解释'), md.indexOf('## 翻译'));
   assert.ok(seg.includes('伦理考量一节'), '新解释没落在解释节里');
 });
 

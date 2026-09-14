@@ -17,8 +17,8 @@ console.log('笔记版式\n');
 
 // ---- 分类 ----
 
-t('笔记标题顺序：速览 翻译 解释 批注 总结', () =>
-  assert.deepEqual(CAT_KEYS, ['summary', 'translate', 'explain', 'comments', 'note']));
+t('笔记标题顺序：速览 批注 解释 翻译 总结', () =>
+  assert.deepEqual(CAT_KEYS, ['summary', 'comments', 'explain', 'translate', 'note']));
 
 // summary 是机器生成的全文概述，**没有对应的面板 tab**（显示在「总结」tab 内，
 // 排在用户自己写的总结上面）。笔记里给它独立标题，免得两者混在一起分不清谁的想法。
@@ -27,7 +27,7 @@ t('速览排在最前（它是这篇文章的入口）', () =>
 
 t('除 summary 外，其余分类与面板 tab 一一对应', () =>
   assert.deepEqual(CAT_KEYS.filter((k) => k !== 'summary'),
-    ['translate', 'explain', 'comments', 'note']));
+    ['comments', 'explain', 'translate', 'note']));
 
 t('高亮与评论同归「批注」', () => {
   assert.equal(CAT_OF.get('highlight'), 'comments');
@@ -54,7 +54,7 @@ t('空分类不出现在结果里（不写空标题）', () => {
 
 t('分组键序遵循 CATEGORIES，与入参顺序无关', () => {
   const g = groupByCategory([ev('n', 'note', null), ev('t', 'translate', 5), ev('h', 'highlight', 1)]);
-  assert.deepEqual([...g.keys()], ['translate', 'comments', 'note']);
+  assert.deepEqual([...g.keys()], ['comments', 'translate', 'note']);
 });
 
 t('翻译 / 解释按原文位置排，不按传入顺序', () => {

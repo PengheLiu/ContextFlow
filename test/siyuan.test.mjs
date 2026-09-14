@@ -142,11 +142,11 @@ console.log('思源后端（假内核）\n');
 
 await t('翻译带原文（斜体，不用引用块）', () =>
   assert.equal(render(ev({ action: 'translate', text: 'Threat model', value: '威胁模型' })),
-    '*Threat model*\n威胁模型'));
+    '- *Threat model*\n  威胁模型'));
 
 await t('解释带问题与原文', () =>
   assert.equal(render(ev({ action: 'explain', text: 'T', value: 'A', extra: { question: 'Q' } })),
-    '**❓ Q**\n*T*\nA'));
+    '- **❓ Q**\n  *T*\n  A'));
 
 // 真机抓到的 bug：insertBlock 一次只返回一个块 id。渲染成多块时，多出来的块
 // 拿不到 id、不在游标链上也不在 synced 表里 —— 实测是解释的原文与答案整段
@@ -163,6 +163,7 @@ await t('每种事件都只渲染成一个块（真机回归）', () => {
   for (const c of cases) {
     const md = render(c);
     if (!md) continue;
+    assert.ok(md.startsWith('- '), `${c.action} 不是列表项：${JSON.stringify(md)}`);
     assert.ok(!/\n\s*\n/.test(md), `${c.action} 含空行，会被切成多块：${JSON.stringify(md)}`);
     if (md.startsWith('>')) {
       assert.equal(md.split('\n').length, 1,
@@ -174,7 +175,7 @@ await t('每种事件都只渲染成一个块（真机回归）', () => {
 });
 
 await t('总结不再加「笔记：」前缀（tab 已改名为总结）', () =>
-  assert.equal(render(ev({ action: 'note', value: '小结' })), '小结'));
+  assert.equal(render(ev({ action: 'note', value: '小结' })), '- 小结'));
 
 // ---- 首次同步 ----
 
@@ -182,6 +183,7 @@ const K = fakeKernel();
 
 await t('首次同步：建 1 个文章文档 + 1 个日报文档', async () => {
   db.upsertEvents([
+    ev({ id: 'sm1', action: 'summary', text: '', value: '论文速览', anchor: null }),
     ev({ id: 'tr1', action: 'translate', text: 'Threat model', value: '威胁模型', anchor: { start: 50 } }),
     ev({ id: 'ex1', action: 'explain', text: 'Threat model', value: '定义攻击者能力', extra: { question: '这段在讲什么' }, anchor: { start: 50 } }),
     ev({ id: 'h1', text: 'evolved rapidly', anchor: { start: 10 } }),
@@ -189,7 +191,7 @@ await t('首次同步：建 1 个文章文档 + 1 个日报文档', async () => 
     ev({ id: 'n1', action: 'note', value: '本文提出一种攻击', anchor: null }),
   ]);
   const r = await syncAll(CFG, { call: K.call });
-  assert.equal(r.inserted, 5, `inserted=${r.inserted}`);
+  assert.equal(r.inserted, 6, `inserted=${r.inserted}`);
   assert.equal(K.count('/api/filetree/createDocWithMd'), 2, '文档数不对');
 });
 
@@ -222,8 +224,8 @@ await t('文章文档建在 /阅读/<首次阅读日>/<标题> 下', () =>
 await t('日报文档按最早那天命名，不是同步当天', () =>
   assert.ok(K.docs.has('/阅读/2026-08-19'), [...K.docs.keys()].join()));
 
-await t('四个分类标题齐全且顺序为 翻译 解释 批注 总结', () =>
-  assert.deepEqual(heads(K), ['## 翻译', '## 解释', '## 批注', '## 总结']));
+await t('分类标题顺序为 速览 批注 解释 翻译 总结', () =>
+  assert.deepEqual(heads(K), ['## 速览', '## 批注', '## 解释', '## 翻译', '## 总结']));
 
 await t('文档打了 urlkey 属性（本地库丢了能反查）', () => {
   const docId = K.docs.get('/阅读/2026-08-19/Stealing Traces');
@@ -234,7 +236,9 @@ await t('日报里是指向文章文档的链接，不是正文', () => {
   const docId = K.docs.get('/阅读/2026-08-19/Stealing Traces');
   const link = K.order.map((i) => K.mdOf(i)).find((m) => m?.includes('siyuan://blocks/'));
   assert.ok(link?.includes(docId), `link=${link}`);
-  assert.ok(!K.order.some((i) => K.mdOf(i)?.includes('威胁模型') && K.mdOf(i).startsWith('- ')));
+  const dayId = K.docs.get('/阅读/2026-08-19');
+  assert.ok(![...K.blocks.values()].some((b) => b.root === dayId && b.md.includes('威胁模型')),
+    '正文不应写进日报文档');
 });
 
 // ---- 幂等 ----

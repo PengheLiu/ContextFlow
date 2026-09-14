@@ -49,6 +49,7 @@ await t('首次同步建立一文一档与日期索引', async () => {
   assert.match(md, /cf:art fs:u/); assert.match(md, /<!-- cf:source -->\n> 来源：<https:\/\/x\/>/);
   assert.equal((md.match(/<!-- cf:source -->/g) || []).length, 1);
   assert.ok(md.indexOf('## 速览') < md.indexOf('## 翻译')); assert.match(md, /## 总结/);
+  assert.match(md, /## 速览\n<!-- cf:cat summary -->\n\n<!-- cf:sm:1 -->\n- 速览/);
   assert.match(dir.files.get('1970-01-01.md'), /\[\[Article\]\].*cf:idx fs:u/);
 });
 

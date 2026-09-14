@@ -11,15 +11,17 @@ const base = { urlKey: 'u', createdAt: 1, anchor: { start: 1 } };
 console.log('浏览器 Markdown 导出\n');
 
 t('翻译与解释保留原文和问题', () => {
-  assert.equal(renderEventMarkdown({ ...base, action: 'translate', text: 'source', value: '译文' }), '> source\n译文');
-  assert.match(renderEventMarkdown({ ...base, action: 'explain', text: 'source', value: '答案', extra: { question: '为什么' } }), /为什么.*> source.*答案/s);
+  assert.equal(renderEventMarkdown({ ...base, action: 'translate', text: 'source', value: '译文' }),
+    '- > source\n\n  译文');
+  assert.match(renderEventMarkdown({ ...base, action: 'explain', text: 'source', value: '答案', extra: { question: '为什么' } }),
+    /^- \*\*❓ 为什么\*\*\n\n  > source\n\n  答案$/);
 });
 
 t('解释的人工图文补充跟在 AI 答案后面', () => {
   const id = 'b'.repeat(64);
   const md = renderEventMarkdown({ ...base, action: 'explain', text: 'source', value: '答案',
     extra: { question: '为什么', supplement: `补充\n\n${assetToken(id, '图表')}` } });
-  assert.match(md, /答案\n\n\*\*我的补充\*\*\n补充/);
+  assert.match(md, /  答案\n\n  \*\*我的补充\*\*\n\n  补充/);
   assert.ok(md.includes(assetToken(id, '图表')));
 });
 
@@ -27,14 +29,21 @@ t('deferred 明确导出占位，不伪装成答案', () => {
   assert.match(renderEventMarkdown({ ...base, action: 'translate', text: 'x', value: null, extra: { status: 'deferred' } }), /离线待处理/);
 });
 
-t('整篇按速览/翻译/解释/批注/总结组织', () => {
+t('整篇按速览/批注/解释/翻译/总结组织，每条记录都是列点', () => {
   const md = renderArticleMarkdown({ title: '文章', url: 'https://x', events: [
     { ...base, id: 'n', action: 'note', value: '我的总结' },
     { ...base, id: 't', action: 'translate', text: 'x', value: '译文' },
+    { ...base, id: 'e', action: 'explain', text: 'x', value: '解释', extra: { question: '为什么' } },
+    { ...base, id: 'h', action: 'highlight', text: 'x', value: null },
+    { ...base, id: 'c', action: 'comment', parentId: 'h', value: '批注' },
     { ...base, id: 's', action: 'summary', value: '速览' },
   ] });
-  assert.ok(md.indexOf('## 速览') < md.indexOf('## 翻译'));
+  assert.ok(md.indexOf('## 速览') < md.indexOf('## 批注'));
+  assert.ok(md.indexOf('## 批注') < md.indexOf('## 解释'));
+  assert.ok(md.indexOf('## 解释') < md.indexOf('## 翻译'));
   assert.ok(md.indexOf('## 翻译') < md.indexOf('## 总结'));
+  assert.equal(md.split('\n').filter((line) => line.startsWith('- ')).length, 6,
+    '每条记录都应只有一个顶层列点');
   assert.match(md, /> 来源：<https:\/\/x\/>/);
 });
 

@@ -176,25 +176,32 @@ ContextFlow 负责理解眼前正在发生的阅读；本地 agent 负责关联�
 # Stealing Reasoning Traces from Proprietary LLM APIs
 
 ## 速览
-这篇论文提出一种通过公开 API 反推模型推理痕迹的攻击。
-
-## 解释
-**❓ 这个结论和我以前读到的一致吗？**
-> Threat model
-
-当前结论支持你此前关于“召回时机”的判断，但与另一项实验存在冲突。
-两个来源的任务和评测口径不同，目前还不能互相证明。
-
-**我的补充**
-![论文中的实验图](assets/contextflow/example.png)
+- 这篇论文提出一种通过公开 API 反推模型推理痕迹的攻击。
 
 ## 批注
-> attackers can only query the model through its public API
+- > attackers can only query the model through its public API
 
-这个假设决定了攻击成本，需要与之前记录的现实可行性问题一起看。
+- 💬 这个假设决定了攻击成本，需要与之前记录的现实可行性问题一起看。
+
+## 解释
+- **❓ 这个结论和我以前读到的一致吗？**
+
+  > Threat model
+
+  当前结论支持你此前关于“召回时机”的判断，但与另一项实验存在冲突。
+  两个来源的任务和评测口径不同，目前还不能互相证明。
+
+  **我的补充**
+
+  ![论文中的实验图](assets/contextflow/example.png)
+
+## 翻译
+- > agents are increasingly solving more complex tasks
+
+  智能体正在解决日益复杂的任务。
 
 ## 总结
-本文的核心贡献、与已有笔记的一致之处、冲突点及待验证问题。
+- 本文的核心贡献、与已有笔记的一致之处、冲突点及待验证问题。
 ```
 
 </details>

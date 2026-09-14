@@ -421,29 +421,25 @@ const blockIdOf = (events, id) =>
  * 孤零零的问题留在「解释」标题下。
  *
  * 因此这里：
- *   · 嵌在块内的原文用斜体而**不用 `>`** —— `>` 会起一个引用块，
- *     后续行被它吞并或另起一块
+ *   · 每条记录以 `- ` 开头，并把后续行缩进在同一个列表项里
+ *   · 嵌在块内的原文用斜体而**不用 `>`** —— `>` 会起一个引用块
  *   · 空行一律折叠成软换行 —— 空行是块分隔符
- * 高亮是唯一用 `>` 的，因为它整块只有原文一行。
  */
 export function render(ev) {
   const v = oneBlock(ev.value);
   const src = oneLine(ev.text);
   switch (ev.action) {
-    case 'highlight': return `> ${src}`;
-    case 'comment': return v ? `💬 ${v}` : '';
-    // 速览用行内标签而**不用引用块**：思源里 `>` 加多行会被切成两块
-    // （一次 insertBlock 只返回一个 id，多出来的块拿不到 id —— 见文件头注释）。
-    // 纯文本多行是安全的，translate 也是这么做的。
-    case 'summary': return v ? `**速览** ${v}` : '';
-    case 'note': return v;
-    case 'translate': return v ? `*${src}*\n${v}` : '';
+    case 'highlight': return listItem(`*${src}*`);
+    case 'comment': return v ? listItem(`💬 ${v}`) : '';
+    case 'summary': return v ? listItem(v) : '';
+    case 'note': return v ? listItem(v) : '';
+    case 'translate': return v ? listItem(`*${src}*\n${v}`) : '';
     case 'explain': {
       if (!v) return '';
       const q = oneLine(ev.extra?.question) || '这段在讲什么';
       const supplement = oneBlock(ev.extra?.supplement);
-      return `**❓ ${q}**\n*${src}*\n${v}`
-        + (supplement ? `\n**我的补充**\n${supplement}` : '');
+      return listItem(`**❓ ${q}**\n*${src}*\n${v}`
+        + (supplement ? `\n**我的补充**\n${supplement}` : ''));
     }
     default: return '';
   }
@@ -451,6 +447,10 @@ export function render(ev) {
 
 /** 折叠空行：空行是块分隔符，留着会让一个事件变成多个块 */
 const oneBlock = (s) => String(s ?? '').trim().replace(/\n\s*\n+/g, '\n');
+
+/** 思源里每次插入恰好一个顶层列表块。 */
+const listItem = (markdown) => oneBlock(markdown).split('\n')
+  .map((line, i) => i === 0 ? `- ${line}` : `  ${line}`).join('\n');
 
 // 思源 SQL 走字符串拼接（无参数化接口），单引号必须转义，否则 urlKey/标题里的 ' 会破坏语句
 const sqlLit = (s) => String(s).replace(/'/g, "''");
