@@ -238,4 +238,44 @@ await t('晚到 explain 结果不能复活已删除记录', async () => {
   assert.equal(a.items.length, 0);
 });
 
+await t('跟进旧作业被新请求接替时清理旧计时，且不清掉新请求的显示权', async () => {
+  const replies = [];
+  api.setTransport(() => new Promise((resolve) => replies.push(resolve)));
+  const a = bare([ev('ex', 'explain', { status: 'running' })]);
+  const draft = { text: 'x', question: 'q', anchor: null };
+  let stopped = 0, saved = 0;
+  a.saveLookup = () => saved++;
+  const old = a.followJob('ex', 'j1', draft, { tk: { stop() { stopped++; } } });
+  const next = a.followJob('ex', 'j1', draft);
+  replies[0]({ status: 200, body: { job: { status: 'queued', queuedAhead: 1 } } });
+  await old;
+  assert.ok(stopped > 0, 'abort 提前退出后计时器未停止');
+  assert.equal(a.watching, 'ex', '旧请求退出清掉了新请求的显示权');
+  assert.equal(a.lookupRuns.size, 1);
+  replies[1]({ status: 200, body: { job: { status: 'done', result: { answer: '完成' } } } });
+  await next;
+  assert.equal(saved, 1);
+  assert.equal(a.lookupRuns.size, 0);
+});
+
+await t('切换浮层后旧任务完成仍保存结果，但不覆盖当前浮层', async () => {
+  for (const method of ['pollExplain', 'followJob']) {
+    let reply;
+    api.setTransport(() => new Promise((resolve) => { reply = resolve; }));
+    const a = bare([ev('ex', 'explain', { status: 'running' })]);
+    let saved = 0, shown = 0;
+    a.saveLookup = () => saved++;
+    const pop = { open$: true, answer() { shown++; return this; }, foot() { return this; }, showRefresh() {} };
+    const tk = { current: false, stop: () => 0 };
+    const draft = { text: 'x', question: 'q', anchor: null };
+    const run = method === 'pollExplain'
+      ? a.pollExplain('ex', draft, { pop, tk }) : a.followJob('ex', 'j1', draft, { pop, tk });
+    reply({ status: 200, body: method === 'pollExplain' ? { answer: '旧任务答案' }
+      : { job: { status: 'done', result: { answer: '旧任务答案' } } } });
+    await run;
+    assert.equal(saved, 1, `${method} 应保存后台任务结果`);
+    assert.equal(shown, 0, `${method} 旧任务覆盖了当前浮层`);
+  }
+});
+
 console.log(`\n${pass} 项通过`);

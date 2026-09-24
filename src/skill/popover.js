@@ -15,6 +15,13 @@ import { RichComposer, RICH_COMPOSER_CSS } from './rich-composer.js';
 const UI_KEY = 'contextflow:pop';
 const MIN_W = 300, MIN_H = 200;
 
+// 浮层会被多次查询复用，但只能有当前查询的一个计时器持有显示权。
+const tickers = new WeakMap();
+function releaseTicker(pop) {
+  tickers.get(pop)?.stop();
+  tickers.delete(pop);
+}
+
 const loadUI = () => {
   try { return JSON.parse(localStorage.getItem(UI_KEY) || '{}'); } catch { return {}; }
 };
@@ -78,6 +85,7 @@ const CSS = `${FLOAT}
   #b.md{white-space:normal}
   #b:empty::before{content:'答案会显示在这里';color:${T.placeholder};font:italic 13px/1.7 ${T.serif}}
   #b.prog{color:${T.quote};font-variant-numeric:tabular-nums}
+  #b .prog-time{display:inline-block;min-width:4ch;white-space:nowrap}
   #again{flex:0 0 auto;padding:5px 0 0}
   #again button{display:inline-flex;align-items:center;gap:5px;border:1px solid ${T.line};
       background:transparent;padding:4px 8px;font-size:12px}
@@ -194,6 +202,7 @@ export class Popover {
 
   /** @param {DOMRect} rect 选区位置  @param {string} [source] 顶部灰色引文 */
   open(rect, source = '') {
+    releaseTicker(this);
     this.anchorRect = rect;
     const src = this.$('src');
     if (src) {
@@ -312,11 +321,36 @@ export class Popover {
 
   /** 进度、错误和异常必须按纯文本显示，绝不解释其中的 Markdown / HTML。 */
   body(text, cls = '') {
+    releaseTicker(this);
     const b = this.$('b'); b.replaceChildren(document.createTextNode(text || '')); b.className = cls;
+    this.progressNodes = null;
     return this.reposition();
   }
+  /** 状态与秒数分别更新；计时不重建 DOM，也不触发浮层重新定位。 */
+  progress(label, elapsed) {
+    const b = this.$('b');
+    if (!this.progressNodes) {
+      const status = document.createTextNode(label);
+      const time = document.createElement('span'); time.className = 'prog-time';
+      const seconds = document.createTextNode(elapsed); time.append(seconds);
+      b.replaceChildren(status, document.createTextNode('… '), time);
+      b.className = 'prog';
+      this.progressNodes = { status, seconds };
+      this.reposition();
+    } else {
+      const { status, seconds } = this.progressNodes;
+      if (status.data !== label) { status.data = label; this.reposition(); }
+      if (seconds.data !== elapsed) seconds.data = elapsed;
+    }
+    return this;
+  }
   /** 只有成功答案走安全 Markdown 预览；原始字符串仍由调用方原样持久化。 */
-  answer(text) { const b = this.$('b'); b.className = ''; renderMarkdownInto(b, text); return this.reposition(); }
+  answer(text) {
+    releaseTicker(this);
+    this.progressNodes = null;
+    const b = this.$('b'); b.className = ''; renderMarkdownInto(b, text);
+    return this.reposition();
+  }
   /** 命中本地缓存时才露出「重新解释」—— 平时不该占位置 */
   showRefresh(on) { const el = this.$('again'); if (el) el.style.display = on ? 'block' : 'none'; return this; }
   /** 解释记录存在后才显示补充区；记录 id 用来与右侧栏绑定同一份内容。 */
@@ -359,6 +393,7 @@ export class Popover {
   }
 
   close() {
+    releaseTicker(this);
     if (this.open$ && this.supplementId) this.supplementComposer?.commit();
     this.el?.classList.remove('on');
   }
@@ -371,13 +406,27 @@ export class Popover {
  * 否则一个不动的秒表和卡死没有区别。
  */
 export function ticker(pop, label = '思考中') {
+  releaseTicker(pop);
   const t0 = performance.now();
-  let cur = label;
-  const write = () => pop.body(`${cur}… ${((performance.now() - t0) / 1000).toFixed(1)}s`, 'prog');
-  write();
-  const id = setInterval(write, 100);
-  return {
-    label: (text) => { if (text) { cur = text; write(); } },
-    stop: () => { clearInterval(id); return (performance.now() - t0).toFixed(0); },
+  let cur = label, interval, stopped = false;
+  const write = () => {
+    if (stopped || !tk.current) return;
+    if (!pop.open$) { releaseTicker(pop); return; }
+    pop.progress(cur, `${Math.floor((performance.now() - t0) / 1000)}s`);
   };
+  const tk = {
+    get current() { return tickers.get(pop) === tk; },
+    label: (text) => { if (text && text !== cur) { cur = text; write(); } },
+    // stop 保留显示权供完成回调检查；open/body/answer/close 或下次 ticker 才交接。
+    stop: () => {
+      stopped = true;
+      clearInterval(interval);
+      // 后台任务稍后完成时仍返回总耗时，不能冻结在切换浮层的那一刻。
+      return (performance.now() - t0).toFixed(0);
+    },
+  };
+  tickers.set(pop, tk);
+  write();
+  if (tk.current) interval = setInterval(write, 1000);
+  return tk;
 }

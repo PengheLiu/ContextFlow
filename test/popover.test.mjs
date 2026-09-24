@@ -23,7 +23,7 @@ global.localStorage = {
   setItem: (k, v) => store.set(k, String(v)),
 };
 
-const { Popover } = await import('../src/skill/popover.js');
+const { Popover, ticker } = await import('../src/skill/popover.js');
 const { CommentPopover } = await import('../src/skill/comment-popover.js');
 
 let pass = 0;
@@ -298,5 +298,72 @@ await t('复用浮层编辑新批注前先提交旧草稿，切换选区不丢�
   assert.equal(comments.id, 'new');
   comments.close(false);
 });
+
+// 用可控时钟重现两个请求轮流写同一浮层，无需真实等待长队列。
+const realInterval = global.setInterval, realClearInterval = global.clearInterval;
+const realNow = performance.now;
+let clockMs = 0, timerSeq = 0;
+const intervals = new Map();
+global.setInterval = (fn) => { const id = ++timerSeq; intervals.set(id, fn); return id; };
+global.clearInterval = (id) => intervals.delete(id);
+performance.now = () => clockMs;
+const tick = () => { clockMs += 1000; for (const fn of [...intervals.values()]) fn(); };
+
+try {
+  await t('前一任务运行、后一任务排队时，只有当前任务能写浮层', () => {
+    const p = new Popover({ name: 'tip-queue-owner', title: '解释' }).open(rect);
+    const first = ticker(p, '正在读笔记库');
+    const second = ticker(p, '排队中（前面 1 个）');
+    try {
+      assert.equal(intervals.size, 1, '旧任务的计时器仍在运行，会交替写入同一浮层');
+      first.label('旧任务进度');
+      tick();
+      assert.match(p.$('b').textContent, /^排队中（前面 1 个）/);
+      first.stop();
+      second.label('正在生成回答');
+      tick();
+      assert.match(p.$('b').textContent, /^正在生成回答/);
+      assert.equal(intervals.size, 1, '旧任务完成不能停止新任务的计时');
+    } finally { first.stop(); second.stop(); p.close(); }
+  });
+
+  await t('排队计时仅更新秒数，不重建提示节点或反复定位', () => {
+    const p = new Popover({ name: 'tip-queue-stable', title: '解释' }).open(rect);
+    let placements = 0;
+    p.reposition = () => { placements++; return p; };
+    const tk = ticker(p, '排队中（前面 1 个）');
+    try {
+      const nodes = [...p.$('b').childNodes], initial = p.$('b').textContent;
+      const initialPlacements = placements;
+      for (let i = 0; i < 70; i++) { tk.label('排队中（前面 1 个）'); tick(); }
+      assert.equal(p.$('b').childNodes.length, nodes.length);
+      nodes.forEach((node, i) => assert.equal(p.$('b').childNodes[i], node, '每秒重建了提示节点'));
+      assert.equal(placements, initialPlacements, '秒数变化触发了浮层重新定位');
+      assert.notEqual(p.$('b').textContent, initial, '计时应继续');
+      assert.match(p.$('b').textContent, /70s$/);
+    } finally { tk.stop(); p.close(); }
+  });
+
+  await t('关闭、换选区、显示答案或错误后，旧进度不会再覆盖内容', () => {
+    for (const action of ['close', 'open', 'answer', 'error']) {
+      const p = new Popover({ name: `tip-queue-${action}`, title: '解释' }).open(rect);
+      const tk = ticker(p, '排队中');
+      try {
+        if (action === 'close') p.close();
+        if (action === 'open') p.open(rect, '另一段原文');
+        if (action === 'answer') p.answer('**已完成**');
+        if (action === 'error') p.body('请求失败', 'bad');
+        const html = p.$('b').innerHTML;
+        tk.label('陈旧进度'); tick();
+        assert.equal(p.$('b').innerHTML, html, `${action} 后仍被旧进度覆盖`);
+        assert.equal(intervals.size, 0, `${action} 后有残留计时器`);
+        assert.equal(tk.current, false, `${action} 后旧请求仍拥有浮层`);
+      } finally { tk.stop(); p.close(); }
+    }
+  });
+} finally {
+  global.setInterval = realInterval; global.clearInterval = realClearInterval;
+  performance.now = realNow;
+}
 
 console.log(`\n${pass} 项通过`);

@@ -198,6 +198,7 @@ export class App {
     this.lookupRuns.clear();
     // 停用 / 重载插件前先提交未落盘的批注，不能丢掉最后 500ms 内的输入。
     this.commentPop?.close();
+    for (const pop of Object.values(this.pops || {})) pop.close();
     for (const url of this.assetUrls?.values?.() || []) URL.revokeObjectURL(url);
     this.assetUrls?.clear?.();
     this.hl.clear();
@@ -721,7 +722,9 @@ export class App {
         await api.translate(text, undefined, this.key, offset);
       if (target) this.target = target;
       const ms = tk.stop();
-      pop.answer(translation).foot(this.meta({ cached, usage, model, truncated, ms, ctx }));
+      if (tk.current && pop.open$) {
+        pop.answer(translation).foot(this.meta({ cached, usage, model, truncated, ms, ctx }));
+      }
       this.saveLookup('translate', { text, value: translation, anchor,
         extra: { target: this.target || '' } });
     } catch (e) {
@@ -732,7 +735,7 @@ export class App {
         extra: { target: this.target || '', offset, status, error: e.message,
           progress: status === 'deferred' ? '离线，已保存；联网后手动重试' : '' },
       });
-      pop.body(`翻译失败：${e.message}`, 'bad').foot(status === 'deferred'
+      if (tk.current && pop.open$) pop.body(`翻译失败：${e.message}`, 'bad').foot(status === 'deferred'
         ? '已保存到本地；恢复联网后请在「翻译」页点重试，不会自动产生费用'
         : this.hintFor(e));
     }
@@ -839,7 +842,7 @@ export class App {
    * 浮层可以随时关掉 —— 结果回来时写进记录并刷新面板，不依赖浮层还在不在。
    */
   async pollExplain(id, draft, { fresh = false, pop = null, tk = null } = {}) {
-    const live = () => pop && pop.open$ && this.watching === id;
+    const live = () => pop && pop.open$ && this.watching === id && tk?.current !== false;
     const ctl = new AbortController();
     this.lookupRuns.get(id)?.abort();
     this.lookupRuns.set(id, ctl);
@@ -878,8 +881,11 @@ export class App {
       });
       if (live()) pop.body(`解释失败：${e.message}`, 'bad').foot(this.hintFor(e));
     } finally {
-      if (this.lookupRuns.get(id) === ctl) this.lookupRuns.delete(id);
-      if (this.watching === id) this.watching = null;
+      tk?.stop();
+      if (this.lookupRuns.get(id) === ctl) {
+        this.lookupRuns.delete(id);
+        if (this.watching === id) this.watching = null;
+      }
     }
   }
 
@@ -888,7 +894,7 @@ export class App {
    * 与 pollExplain 的区别只有一个：不再 POST，避免为同一个问题排两个作业。
    */
   async followJob(id, jobId, draft, { pop = null, tk = null } = {}) {
-    const live = () => pop && pop.open$ && this.watching === id;
+    const live = () => pop && pop.open$ && this.watching === id && tk?.current !== false;
     const ctl = new AbortController();
     this.lookupRuns.get(id)?.abort();
     this.lookupRuns.set(id, ctl);
@@ -925,8 +931,11 @@ export class App {
         progress: status === 'deferred' ? '离线，已保存；联网后手动重试' : '' });
       if (live()) pop.body(`解释失败：${e.message}`, 'bad').foot(this.hintFor(e));
     } finally {
-      if (this.lookupRuns.get(id) === ctl) this.lookupRuns.delete(id);
-      if (this.watching === id) this.watching = null;
+      tk?.stop();
+      if (this.lookupRuns.get(id) === ctl) {
+        this.lookupRuns.delete(id);
+        if (this.watching === id) this.watching = null;
+      }
     }
   }
 
