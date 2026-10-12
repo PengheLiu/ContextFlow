@@ -19,6 +19,14 @@ export const MARKDOWN_CSS = `
   .md pre{max-width:100%;margin:.65em 0 .9em;padding:10px 11px;overflow-x:auto;border:1px solid ${T.line};
     border-radius:6px;background:${T.sunk};white-space:pre;overscroll-behavior-x:contain}
   .md pre code{padding:0;border:0;background:transparent;color:${T.inkSoft};font:12px/1.58 ${T.mono}}
+  .md .md-table{max-width:100%;margin:.65em 0 .9em;overflow-x:auto;border:1px solid ${T.line};
+    border-radius:6px;overscroll-behavior-x:contain}
+  .md .md-table:focus-visible{outline:2px solid ${T.focusLine};outline-offset:-2px}
+  .md table{width:100%;border-collapse:collapse;font:inherit;line-height:1.55}
+  .md th,.md td{min-width:4em;padding:7px 9px;border-right:1px solid ${T.line};border-bottom:1px solid ${T.line};
+    text-align:left;vertical-align:top;white-space:normal;overflow-wrap:break-word}
+  .md th{background:${T.sunk};color:${T.ink};font-weight:650}
+  .md tr > :last-child{border-right:0}.md tbody tr:last-child > td{border-bottom:0}
   .md a{color:${T.blue};text-decoration:underline;text-decoration-thickness:1px;text-underline-offset:3px}
   .md a:hover{color:${T.accent}}.md a:focus-visible{outline:2px solid ${T.focusLine};outline-offset:2px;border-radius:2px}
   .md strong{font-weight:700;color:${T.ink}}.md em{font-style:italic}
@@ -26,6 +34,7 @@ export const MARKDOWN_CSS = `
 
 const MAX_SOURCE = 200000;
 const MAX_INLINE_DEPTH = 12;
+const BLOCK_START = /^\s*(?:#{1,4}\s+|```|>\s?|(?:[-+*]|\d+\.)\s+)/;
 
 const text = (value) => document.createTextNode(value);
 
@@ -77,6 +86,46 @@ function appendLines(el, lines) {
   });
 }
 
+function splitTableRow(source) {
+  if (!source?.includes('|')) return null;
+  const value = source.trim(), cells = [];
+  let cell = '', lastSeparator = -1;
+  for (let index = 0; index < value.length; index++) {
+    const character = value[index], next = value[index + 1];
+    if (character === '\\' && (next === '\\' || next === '|')) {
+      cell += next === '|' ? '|' : '\\\\'; index++;
+    } else if (character === '|') {
+      cells.push(cell.trim()); cell = ''; lastSeparator = index;
+    } else cell += character;
+  }
+  if (lastSeparator < 0) return null;
+  cells.push(cell.trim());
+  if (value.startsWith('|')) cells.shift();
+  if (lastSeparator === value.length - 1) cells.pop();
+  return cells;
+}
+
+function tableHeader(lines, index) {
+  const separators = splitTableRow(lines[index + 1]);
+  if (!separators?.length || !separators.every((cell) => /^:?-+:?$/.test(cell))) return null;
+  const headers = splitTableRow(lines[index]);
+  if (headers?.length !== separators.length) return null;
+  const alignments = separators.map((cell) => cell.endsWith(':')
+    ? (cell.startsWith(':') ? 'center' : 'right') : 'left');
+  return { headers, alignments };
+}
+
+function createTableRow(cells, alignments, header = false) {
+  const row = document.createElement('tr');
+  alignments.forEach((alignment, index) => {
+    const cell = document.createElement(header ? 'th' : 'td');
+    if (header) cell.scope = 'col';
+    cell.style.textAlign = alignment;
+    cell.append(...inline(cells[index] || '')); row.append(cell);
+  });
+  return row;
+}
+
 /** @param {HTMLElement} target @param {string} source */
 export function renderMarkdownInto(target, source) {
   target.replaceChildren();
@@ -123,9 +172,23 @@ export function renderMarkdownInto(target, source) {
       frag.append(el); continue;
     }
 
+    const header = tableHeader(lines, i);
+    if (header) {
+      const wrapper = document.createElement('div'), table = document.createElement('table');
+      wrapper.className = 'md-table'; wrapper.tabIndex = 0;
+      wrapper.setAttribute('role', 'region'); wrapper.setAttribute('aria-label', '表格');
+      table.createTHead().append(createTableRow(header.headers, header.alignments, true));
+      const body = table.createTBody(); i += 2;
+      while (i < lines.length && lines[i].trim() && !BLOCK_START.test(lines[i])) {
+        const cells = splitTableRow(lines[i]); if (!cells) break;
+        body.append(createTableRow(cells, header.alignments)); i++;
+      }
+      wrapper.append(table); frag.append(wrapper); continue;
+    }
+
     const body = [];
     while (i < lines.length && lines[i].trim()
-      && !/^\s*(?:#{1,4}\s+|```|>\s?|(?:[-+*]|\d+\.)\s+)/.test(lines[i])) body.push(lines[i++]);
+      && !BLOCK_START.test(lines[i]) && !tableHeader(lines, i)) body.push(lines[i++]);
     const p = document.createElement('p'); appendLines(p, body.length ? body : [lines[i++]]); frag.append(p);
   }
   target.append(frag);

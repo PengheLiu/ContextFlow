@@ -353,6 +353,25 @@ await t('解释列表成功答案渲染 Markdown 且不执行 HTML', () => {
   assert.match(el.textContent, /<img/);
 });
 
+await t('速览、解释和翻译共用表格预览与横向滚动样式', () => {
+  const answer = '对照如下：\n| 级别 | 能力 |\n|---|---|\n| L1 | Chatbot |';
+  const p = mk({
+    getLookups: (kind) => [{
+      id: `table-${kind}`, action: kind, text: 'source', value: answer,
+      anchor: { start: 1 }, createdAt: 1, extra: { question: 'Q' },
+    }],
+  });
+  p.renderBrief({ state: 'ok', text: answer });
+  assert.equal(p.sh.querySelector('#brief .txt table tbody td')?.textContent, 'L1');
+  p.toggle(true, false);
+  for (const kind of ['explain', 'translate']) {
+    p.select(kind);
+    const table = p.sh.querySelector(`[data-id="table-${kind}"] .ans .md-table table`);
+    assert.equal(table?.querySelector('tbody td').textContent, 'L1');
+  }
+  assert.match(p.sh.querySelector('style').textContent, /\.md \.md-table\{[^}]*overflow-x:auto/);
+});
+
 await t('解释的“我的补充”与原文旁面板双向镜像', () => {
   const inputs = [], commits = [];
   const item = {

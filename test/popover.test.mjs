@@ -107,6 +107,14 @@ await t('body / foot 写入与清空', () => {
 });
 
 
+await t('成功答案渲染表格，后续纯文本状态清除表格', () => {
+  pop.answer('| 级别 | 能力 |\n|---|---|\n| L1 | Chatbot |');
+  assert.equal(pop.sh.querySelector('#b .md-table table tbody td')?.textContent, 'L1');
+  assert.match(pop.sh.querySelector('style').textContent, /\.md \.md-table\{[^}]*overflow-x:auto/);
+  pop.body('加载中', 'prog');
+  assert.equal(pop.sh.querySelector('#b table'), null);
+});
+
 await t('成功答案渲染 Markdown，进度与错误仍是纯文本', () => {
   pop.answer('**重点** · [主页](https://example.com)');
   assert.equal(pop.sh.querySelector('#b strong').textContent, '重点');
