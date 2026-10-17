@@ -11,14 +11,17 @@ const stored = {};
 const listeners = {};
 let accessLevel;
 let lastFetch;
+let optionsOpened = 0;
+let toggledTab;
+let settingsTab;
 globalThis.chrome = {
   runtime: { id, getURL: (path) => `chrome-extension://${id}/${path}`,
     onMessage: { addListener: (listener) => { listeners.message = listener; } },
     onInstalled: { addListener: (listener) => { listeners.installed = listener; } },
-    openOptionsPage: async () => {},
+    openOptionsPage: async () => { optionsOpened++; },
   },
   action: { onClicked: { addListener: (listener) => { listeners.action = listener; } } },
-  tabs: { sendMessage: async () => {} },
+  tabs: { sendMessage: async (tab) => { toggledTab = tab; }, create: async (options) => { settingsTab = options; } },
   storage: { local: {
     setAccessLevel: async (options) => { accessLevel = options.accessLevel; },
     get: async (keys) => Object.fromEntries((Array.isArray(keys) ? keys : [keys]).map((key) => [key, stored[key]])),
@@ -39,6 +42,14 @@ const send = async (message, sender = pageSender) => {
 assert.equal(accessLevel, 'TRUSTED_CONTEXTS');
 assert.equal((await send({ type: 'cf-fetch', path: '/health' })).status, 428);
 assert.equal(lastFetch, undefined);
+assert.equal((await send({ type: 'cf-check' }, settingsSender)).value.state, 'unpaired');
+assert.equal(lastFetch, undefined, '未配对时检查状态不应请求服务');
+await listeners.action({ id: 42 });
+assert.equal(toggledTab, 42, '未配对也应打开文章侧栏');
+assert.equal(optionsOpened, 0, '不能强制新用户先配对');
+assert.equal((await send({ type: 'cf-open-settings' })).ok, true);
+assert.equal(settingsTab.url, `chrome-extension://${id}/options.html#connect`);
+assert.equal((await send({ type: 'cf-status' }, { ...settingsSender, url: settingsSender.url + '#connect' })).ok, true);
 assert.equal((await send({ type: 'cf-status' }, { ...settingsSender, id: 'b'.repeat(32) })).ok, false);
 assert.equal((await send({ type: 'cf-status' })).ok, false);
 const token = 'a'.repeat(43);
@@ -46,6 +57,18 @@ assert.equal((await send({ type: 'cf-connect', token, consent: true })).ok, fals
 assert.equal((await send({ type: 'cf-connect', token, consent: false }, settingsSender)).ok, false);
 assert.equal((await send({ type: 'cf-connect', token, consent: true }, settingsSender)).ok, true);
 assert.equal(stored.connection.token, token);
+assert.equal((await send({ type: 'cf-check' }, settingsSender)).value.state, 'connected');
+assert.equal((await send({ type: 'cf-check' })).ok, false, '网页侧不得读取连接诊断');
+const successfulFetch = globalThis.fetch;
+for (const [status, state] of [[401, 'unauthorized'], [403, 'unauthorized'], [404, 'incompatible'], [502, 'error']]) {
+  globalThis.fetch = async () => ({ status, json: async () => ({}) });
+  const result = await send({ type: 'cf-check' }, settingsSender);
+  assert.equal(result.value.state, state);
+  assert.equal(JSON.stringify(result).includes(token), false);
+}
+globalThis.fetch = async () => { throw new Error('offline'); };
+assert.equal((await send({ type: 'cf-check' }, settingsSender)).value.state, 'unavailable');
+globalThis.fetch = successfulFetch;
 assert.equal(JSON.stringify(await send({ type: 'cf-status' }, settingsSender)).includes(token), false);
 await send({ type: 'cf-fetch', path: '/health', init: { headers: { Authorization: 'evil' } } });
 assert.equal(lastFetch.init.headers.Authorization, `Bearer ${token}`);

@@ -67,20 +67,33 @@ try {
   }
   const options = await context.newPage();
   await options.goto(`chrome-extension://${extensionId}/options.html`);
+  await options.locator('#connection-state').filter({ hasText: '尚未连接' }).waitFor({ state: 'attached' });
+  assert.equal(await options.locator('#connect').getAttribute('open'), null);
+  assert.equal(await options.locator('#start-reading').isVisible(), true);
+  await options.screenshot({ path: join(screenshots, 'welcome-1280x800.png') });
+  await options.setViewportSize({ width: 390, height: 844 });
+  assert.equal(await options.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+  await options.screenshot({ path: join(screenshots, 'welcome-390x844.png'), fullPage: true });
+  await options.setViewportSize({ width: 1280, height: 800 });
+  await options.getByRole('link', { name: '我想开启 AI 或笔记同步 ↓' }).click();
+  await options.getByRole('button', { name: '复制配对命令', exact: true }).click();
+  await options.locator('#copy-status').filter({ hasText: '已复制' }).waitFor();
+  console.log('ok 首次欢迎页默认先批注，按需展开连接，窄屏无横向溢出，命令可复制');
   const pairingOutput = execFileSync(process.execPath, ['tools/pair-extension.mjs', extensionId], { cwd: root, env: environment, encoding: 'utf8' });
   const token = pairingOutput.split('\n').find((line) => /^[A-Za-z0-9_-]{43}$/.test(line));
-  await options.locator('#pair-token').fill(token);
-  await options.locator('#consent').check();
-  await options.getByRole('button', { name: '验证并连接' }).click();
-  await options.locator('#status').filter({ hasText: '连接成功' }).waitFor();
-  assert.equal(await options.locator('#pair-token').inputValue(), '');
-  console.log('ok 浏览器实际请求完成独立配对');
 
   fixture = createServer((request, response) => {
     response.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-    response.end(readFileSync(join(root, 'store/demo.html')));
+    response.end(readFileSync(join(root, request.url === '/welcome-site' ? 'store/index.html' : 'store/demo.html')));
   });
   await new Promise((resolve) => fixture.listen(0, '127.0.0.1', resolve));
+  const landing = await context.newPage();
+  await landing.goto(`http://127.0.0.1:${fixture.address().port}/welcome-site`);
+  await landing.getByRole('link', { name: '下载 Chrome 试用版', exact: true }).waitFor();
+  await landing.screenshot({ path: join(screenshots, 'getting-started-site-1280x800.png'), fullPage: true });
+  await landing.setViewportSize({ width: 390, height: 844 });
+  assert.equal(await landing.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+  await landing.close();
   article = await context.newPage();
   article.on('console', (message) => { if (['error', 'warning'].includes(message.type())) logs.push(message.text()); });
   article.on('pageerror', (error) => logs.push(`PAGE_ERROR: ${error.message}`));
@@ -97,9 +110,16 @@ try {
     selection.addRange(range);
     document.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
   });
-  await article.getByRole('button', { name: 'yellow 高亮', exact: true }).click();
+  await article.getByRole('button', { name: '批注', exact: true }).click();
+  await article.locator('[data-contextflow="tip-comment"] textarea').fill('值得保留的不只是原文，还有当时为什么认同它。');
+  await article.getByRole('button', { name: '完成', exact: true }).click();
   await article.getByRole('button', { name: '展开 ContextFlow', exact: true }).click();
   await article.waitForFunction(() => document.querySelector('[data-contextflow="panel"]')?.shadowRoot?.textContent.includes('阅读的价值'));
+  await article.getByRole('button', { name: '开启 AI / 同步', exact: true }).waitFor();
+  await article.waitForFunction(() => {
+    const rect = document.querySelector('[data-contextflow="panel"]')?.shadowRoot?.getElementById('wrap').getBoundingClientRect();
+    return rect && Math.abs(rect.right - innerWidth) < 1;
+  });
   const pageStorage = await article.evaluate(async () => ({ keys: Object.keys(localStorage), databases: (await indexedDB.databases()).map((database) => database.name) }));
   assert.deepEqual(pageStorage, { keys: [], databases: [] });
   await article.screenshot({ path: join(screenshots, 'reading-1280x800.png') });
@@ -111,7 +131,27 @@ try {
   console.log('ok 高亮保存，网页 localStorage / IndexedDB 均没有批注数据');
   await article.reload();
   await article.waitForFunction(() => document.querySelector('[data-contextflow="panel"]')?.shadowRoot?.textContent.includes('阅读的价值'));
-  console.log('ok 刷新后从扩展私有存储恢复');
+  await article.waitForFunction(() => [...document.querySelector('[data-contextflow="panel"]').shadowRoot.querySelectorAll('textarea')]
+    .some((node) => node.value.includes('值得保留')));
+  const firstDownloadPromise = article.waitForEvent('download');
+  await article.getByRole('button', { name: '下载 Markdown', exact: true }).click();
+  assert.ok(readFileSync(await (await firstDownloadPromise).path(), 'utf8').includes('值得保留'));
+  console.log('ok 未配对也能批注、刷新恢复和导出，完成第一次阅读闭环');
+  await options.locator('#pair-token').fill(token);
+  await options.locator('#consent').check();
+  await options.getByRole('button', { name: '验证并连接' }).click();
+  await options.locator('#status').filter({ hasText: '连接成功' }).waitFor();
+  assert.equal(await options.locator('#pair-token').inputValue(), '');
+  await options.getByRole('button', { name: '检查本地服务连接', exact: true }).click();
+  await options.locator('#connection-state').filter({ hasText: '本地服务已连接' }).waitFor();
+  await options.reload();
+  await options.locator('#connection-state').filter({ hasText: '已保存配对信息' }).waitFor();
+  assert.equal(await options.locator('#next-step').isVisible(), false, '保存的凭证不等于当前服务连通');
+  const connectedReady = article.waitForEvent('console', { predicate: (message) => message.text().includes('[ContextFlow] 就绪') });
+  await article.reload();
+  await connectedReady;
+  assert.equal(await article.locator('[data-contextflow="panel"]').evaluate((host) => host.shadowRoot.getElementById('connectionNote').hidden), true);
+  console.log('ok 延后配置可完成真实配对与连接检查；已连通时侧栏收起连接提示');
   const devtools = await context.newCDPSession(article);
   const worlds = [];
   devtools.on('Runtime.executionContextCreated', ({ context: executionContext }) => worlds.push(executionContext));
@@ -125,12 +165,17 @@ try {
   console.log('ok 浏览器拒绝 content script 直接读取配对凭证');
   execFileSync(process.execPath, ['tools/pair-extension.mjs', '--revoke', extensionId], { cwd: root, env: environment, stdio: 'pipe' });
   await options.locator('#pair-token').fill(token);
+  await options.locator('#consent').check();
   await options.getByRole('button', { name: '验证并连接' }).click();
   await options.locator('#status[data-error="true"]').waitFor();
   assert.match(await options.locator('#status').textContent(), /撤销|无效/);
+  await options.getByRole('button', { name: '检查本地服务连接', exact: true }).click();
+  await options.locator('#connection-state').filter({ hasText: '配对码已失效' }).waitFor();
   console.log('ok 撤销后旧配对码无法再次连接');
   service.kill();
   await once(service, 'exit');
+  await options.getByRole('button', { name: '检查本地服务连接', exact: true }).click();
+  await options.locator('#connection-state').filter({ hasText: '本地服务没有响应' }).waitFor();
   const secondQuote = await article.locator('article p').nth(1).textContent();
   await article.locator('article p').nth(1).evaluate((element) => {
     const range = document.createRange();

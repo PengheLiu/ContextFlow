@@ -199,7 +199,9 @@ ${Object.entries(MARKS).map(([k, m]) => `  .item.k-${k} .src.lk{text-decoration-
   #sync .ico{width:14px;height:14px;color:${T.accent}}
   .anchor-stat{position:relative;min-width:0;padding:4px 5px;margin-left:-5px;font-size:12px}
   .stat-main{display:flex;align-items:center;gap:6px;min-width:0;color:${T.quote};white-space:nowrap}
-  .stat-main .led{width:6px;height:6px;border-radius:50%;background:${T.bad};flex:0 0 auto}.stat-main .led.online{background:${T.ok}}
+  .stat-main .led{width:6px;height:6px;border-radius:50%;background:${T.quote};flex:0 0 auto}.stat-main .led.online{background:${T.ok}}
+  .connection-note{flex:0 0 auto;margin:0 16px 12px;padding:10px 11px;border:1px solid ${T.line};border-radius:6px;font-size:12px;color:${T.quote};background:${T.paperRaised}}
+  .connection-note[hidden]{display:none}.connection-note strong{display:block;color:${T.inkSoft};font-size:12px}.connection-note p{margin:3px 0 7px;line-height:1.55}.connection-note button{font-size:12px;color:${T.accent};padding:3px 0}
   .stat-main .warn{color:${T.bad}}
   .stat-tip{position:absolute;left:0;bottom:calc(100% + 10px);z-index:4;width:max-content;max-width:290px;
         padding:10px 11px;border:1px solid ${T.line};border-radius:7px;background:${T.paperRaised};
@@ -298,6 +300,7 @@ export class Panel {
               + `<span>${t.label}</span><span class="badge" id="b-${t.key}"></span></button>`).join('')}
           </div>
         </header>
+        <aside class="connection-note" id="connectionNote" hidden><strong>批注与导出可直接使用</strong><p id="connectionHint"></p><button id="connectService" type="button">开启 AI / 同步</button></aside>
         <div class="body">
           ${TABS.map((t) => `<div class="pane" id="p-${t.key}">${t.key === 'note'
             // 速览（机器生成）摆在你自己写的总结**上面**：打开面板先看它，
@@ -347,10 +350,12 @@ export class Panel {
     // 0/0 仍可点击重新解析；工程细节只放 title，普通用户不再直接看到术语。
     this.$('stat').style.cursor = 'pointer';
     this.$('stat').onclick = () => this.h.onReanchor();
-    this.$('sync').onclick = () => this.doSync();
+    this.$('sync').onclick = this.guard(() => this.doSync());
     this.$('copyMd').onclick = this.guard(async () => this.syncMsg(await this.h.onCopyMarkdown(), 'ok'));
     this.$('downloadMd').onclick = this.guard(async () => this.syncMsg(await this.h.onDownloadMarkdown(), 'ok'));
-    this.$('cfg').onclick = () => this.toggleSettings();
+    this.$('cfg').onclick = this.guard(() => this.h.canConnectService?.() && !this.h.isOnline()
+      ? this.h.onOpenConnection?.() : this.toggleSettings());
+    this.$('connectService').onclick = this.guard(() => this.h.onOpenConnection?.());
     this.$('mode').onclick = () => this.setMode(this.ui.mode === 'push' ? 'float' : 'push');
     for (const k of TAB_KEYS) this.$(`t-${k}`).onclick = () => this.select(k);
 
@@ -395,6 +400,7 @@ export class Panel {
   }
 
   async doSync() {
+    if (this.h.canConnectService?.() && !this.h.isOnline()) return this.h.onOpenConnection?.();
     const label = this.$('syncLabel');
     const old = label.textContent;
     label.textContent = '同步中…';
@@ -640,6 +646,13 @@ export class Panel {
     const ok = s.position + s.quote + s.fuzzy;
     const online = this.h.isOnline();
     const box = this.h.outbox();
+    const canConnect = this.h.canConnectService?.();
+    this.$('connectionNote').hidden = !canConnect || online;
+    const unpaired = this.h.getConnectionIssue?.() === 'PAIRING_REQUIRED';
+    this.$('connectionHint').textContent = unpaired
+      ? 'AI 和自动同步尚未开启。需要时再连接，不影响本地阅读记录。'
+      : '本地服务未连接。记录仍会保存在浏览器，可以复制或下载。';
+    this.$('connectService').textContent = unpaired ? '开启 AI / 同步' : '检查连接';
     const main = n ? `已定位 ${ok}/${n}` : '暂无批注';
     const details = n
       ? `精确 ${s.position} · 文本匹配 ${s.quote} · 模糊恢复 ${s.fuzzy}`
@@ -648,9 +661,9 @@ export class Panel {
     this.$('stat').innerHTML = `<span class="stat-main">`
       + `<span class="led${online ? ' online' : ''}"></span><span>${main}</span>`
       + `${s.orphan ? `<span class="warn">未定位 ${s.orphan}</span>` : ''}`
-      + `${box ? `<span class="warn">待发送 ${box}</span>` : ''}</span>`
+      + `${box ? canConnect && !online ? '<span>本地保存</span>' : `<span class="warn">待发送 ${box}</span>` : ''}</span>`
       + `<span class="stat-tip" id="stat-tip" role="tooltip">${details}<br>`
-      + `${online ? 'AI 通道可用' : '当前离线'} · 点击重新解析</span>`;
+      + `${canConnect ? online ? '本地服务已连接' : '记录保存在本机；AI 与自动同步需连接服务' : online ? 'AI 通道可用' : '当前离线'} · 点击重新解析</span>`;
     this.$('gn').textContent = n ? String(n) : '';
     this.$('b-comments').textContent = n ? String(n) : '';
     // 总结没有"条数"，用一个克制的琥珀点表示已有内容，不再混用字符"·"。

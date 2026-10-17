@@ -33,13 +33,13 @@ shasum -a 256 -c contextflow-companion-0.3.0.zip.sha256
 3. 在桌面和窄屏查看，确认文字、按钮可读。
 4. 用实际站点的 `privacy.html` HTTPS 地址填写商店“隐私政策”字段，首页作为支持说明入口。
 
-目前尚未为该仓库启用 Pages。若选 GitHub Pages，先明确授权要公开的文件和发布分支，再设置托管；不要默认将工作区全部改动推送到公共仓库。
+已启用 GitHub Pages，来源为 `gh-pages` 分支根目录，只发布上述三个静态页面。首页为 https://pengheliu.github.io/ContextFlow/ ，隐私政策为 https://pengheliu.github.io/ContextFlow/privacy.html 。更新时只同步这三个文件，并检查 Pages 构建完成及公开 URL，不部署整个工作区。
 
 ## 配套服务
 
 `contextflow-companion-<版本>.zip` 是用于扩展连接的最小运行包：包括服务源码、三个共享模块、配对与 macOS 常驻工具、依赖锁文件、隐私政策及独立安装说明。仅保留 `server`、`pair`、`service` 命令，不包含开发者本机凭证、浏览器构建产物或笔记。
 
-公开发行前，选择并确认实际发行位置，再上传 ZIP 及其 `.sha256`。审核说明中必须写入审核者能够下载的真实地址，不能只写本地磁盘路径。
+0.3.1 安装包及校验文件已发布至 https://github.com/PengheLiu/ContextFlow/releases/tag/v0.3.1 。新版本仍需上传对应 ZIP 与 `.sha256`，并同步真实下载链接。当前源码的 0.3.2 尚未发行，不能将 0.3.1 下载链接描述为已包含新欢迎页。
 
 安装说明已放入服务 ZIP 的 `README.md`，源文件为 `store/COMPANION.md`。依赖安装使用 `npm ci --omit=dev`；扩展 ID 从用户实际安装后的连接页获取。
 

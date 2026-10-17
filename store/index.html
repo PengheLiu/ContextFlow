@@ -3,46 +3,43 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="ContextFlow 阅读批注扩展的支持信息、隐私政策与阅读示例。">
-  <title>ContextFlow · 阅读与自己的知识连接</title>
+  <meta name="description" content="ContextFlow：在网页原文旁写批注、粘贴截图，把阅读记录导出 Markdown。无需账号或配置 AI 即可开始。">
+  <title>ContextFlow · 把阅读中的想法带回自己的笔记</title>
   <style>
-    :root{color-scheme:light}
-    *{box-sizing:border-box}
-    body{margin:0;background:#fcfbf7;color:#263226;font:17px/1.8 system-ui,sans-serif}
-    main{max-width:820px;margin:64px auto;padding:0 24px}
-    .eyebrow{font-size:13px;letter-spacing:.14em;color:#59714f}
-    h1{font-size:clamp(30px,6vw,46px);line-height:1.3;margin:20px 0}
-    h2{font-size:23px;margin-top:36px}
-    a{color:#365f28;text-underline-offset:4px}
-    a:focus-visible{outline:3px solid #718365;outline-offset:5px}
-    nav{display:flex;gap:12px;flex-wrap:wrap;margin:28px 0}
-    nav a{border:1px solid #a4b09a;border-radius:9px;padding:10px 18px;text-decoration:none}
-    li{margin:8px 0}
-    .note{padding:16px 20px;background:#edf0e7;border-radius:12px}
-    footer{margin:44px 0 28px;border-top:1px solid #dce2d5;padding-top:20px;font-size:14px}
+    *{box-sizing:border-box}body{margin:0;background:#fcfaf6;color:#2c2a25;font:16px/1.8 system-ui,sans-serif}main{max-width:940px;margin:36px auto;padding:0 28px}a{color:#a85613;text-underline-offset:4px}header{display:flex;justify-content:space-between;font-weight:700}header a{font-size:13px;font-weight:400}.hero{padding:64px 0 40px}.eyebrow{font-size:11px;letter-spacing:.12em;color:#a85613}h1{font:500 clamp(32px,5vw,48px)/1.35 Georgia,"Songti SC",serif;letter-spacing:-.03em;margin:12px 0 20px}.lead{font-size:18px;color:#736d63;max-width:680px}.actions{display:flex;gap:14px;flex-wrap:wrap;margin:24px 0 10px}.button{display:inline-block;background:#a85613;color:#fff;text-decoration:none;border:1px solid #a85613;border-radius:7px;padding:11px 19px;font-weight:600}.button.secondary{background:transparent;color:#a85613;border-color:#ded5c7}.small{font-size:12px;color:#736d63}section{padding:28px 0;border-bottom:1px solid #e3dbcf}h2{font:600 25px/1.5 Georgia,"Songti SC",serif;margin:0 0 16px}h3{font-size:16px;margin:0 0 5px}.steps{display:grid;grid-template-columns:repeat(3,1fr);gap:24px;padding:0;list-style:none}.steps p{font-size:14px;color:#736d63;margin:6px 0}.number{display:block;font:italic 24px Georgia,serif;color:#a85613;margin-bottom:8px}li{margin:8px 0}.notice{padding:14px 18px;background:#f2ece2;border-radius:8px;font-size:13px}.notice p{margin:3px 0}details{border-top:1px solid #e3dbcf;padding:16px 0}summary{font-weight:600;cursor:pointer}footer{padding:24px 0 32px;font-size:12px;color:#736d63}:focus-visible{outline:3px solid #d79a5f;outline-offset:4px}@media(max-width:650px){main{padding:0 20px}.hero{padding-top:38px}.steps{grid-template-columns:1fr;gap:8px}.number{display:inline-block;margin-right:10px}}
   </style>
 </head>
 <body>
   <main>
-    <p class="eyebrow">CONTEXTFLOW · 阅读支持</p>
-    <h1>让过去的理解，参与此刻的阅读</h1>
-    <p>在网页上保存高亮、批注与问题，并将阅读记录带回你自己的笔记系统。</p>
-    <nav aria-label="支持资源">
-      <a href="privacy.html">隐私政策</a>
-      <a href="demo.html">打开阅读示例</a>
-      <a href="https://github.com/PengheLiu/ContextFlow/issues" rel="noreferrer">问题反馈</a>
-    </nav>
-    <h2>使用前了解</h2>
-    <ul>
-      <li>高亮、批注和 Markdown 导出无需运行本地服务，阅读记录保存在扩展私有存储。</li>
-      <li>AI、笔记同步和本地 agent 需要 Node.js 22.5+、配套本地服务及相应配置。扩展不提供内置免费模型额度。</li>
-      <li>连接本地服务时，按扩展连接页的提示生成独立配对码；不要把 API key 或配对码提交给维护者。</li>
-    </ul>
-    <p class="note">本地优先不等于所有请求离线处理。AI 功能可能将网页内容、问题及授权读取的笔记发送给你配置的服务。启用前请阅读隐私政策，并了解这些服务的数据处理方式。</p>
-    <h2>反馈问题</h2>
-    <p>本地配套服务和安装说明：<a href="https://github.com/PengheLiu/ContextFlow/releases/tag/v0.3.1">下载 v0.3.1</a>。需要 Node.js 22.5 或更高版本，解压后按包内 README 操作。</p>
-    <p>请说明扩展版本、浏览器版本和复现步骤。不要公开真实笔记、API key、配对码或未经脱敏的日志。</p>
-    <footer>维护者：ContextFlow 项目维护者 PengheLiu</footer>
+    <header><span>ContextFlow</span><a href="https://github.com/PengheLiu/ContextFlow">GitHub ↗</a></header>
+    <div class="hero">
+      <p class="eyebrow">原文 · 你的想法 · 你自己的笔记</p>
+      <h1>读到有启发的地方，<br>就地记下你的想法。</h1>
+      <p class="lead">在网页上高亮、批注、粘贴截图，把原文与理解一起带回 Markdown。需要时，再接入 AI 和自己的笔记库。</p>
+      <div class="actions"><a class="button" href="https://github.com/PengheLiu/ContextFlow/releases/tag/v0.3.1">下载 Chrome 试用版</a><a class="button secondary" href="demo.html">已安装？打开练习文章 →</a></div>
+      <p class="small">Chrome 商店版 v0.3.1 正在审核。当前通过解压加载试用；安装步骤见下方。基础批注与导出无需账号、Node.js 或 API key。</p>
+    </div>
+    <section aria-labelledby="install-title">
+      <h2 id="install-title">先安装，再完成第一条批注</h2>
+      <ol class="steps">
+        <li><span class="number">01</span><h3>下载并解压 Chrome 包</h3><p>在发行页 Assets 中选择 <strong>contextflow-chrome-0.3.1.zip</strong>。首次不用下载 companion 或 Source code。</p></li>
+        <li><span class="number">02</span><h3>加载扩展，刷新文章</h3><p>打开 chrome://extensions，启用开发者模式，点击「加载已解压的扩展程序」，选择含 manifest.json 的文件夹。</p></li>
+        <li><span class="number">03</span><h3>写一条批注并导出</h3><p>打开练习文章，选中文字后点「批注」。右侧栏里点「下载」，得到带来源的 Markdown。刷新后记录会恢复。</p></li>
+      </ol>
+      <p><a href="https://github.com/PengheLiu/ContextFlow/blob/main/docs/GETTING_STARTED.md">查看完整安装与使用指南 ↗</a></p>
+      <div class="notice"><p>练习文章是用于实际操作的普通网页，需要先安装扩展。Chrome 商店页、内部页面和内置 PDF 阅读器不能使用批注。</p><p>首次安装后先刷新已经打开的文章；v0.3.1 的连接页可以暂时关闭，直接使用批注。</p></div>
+    </section>
+    <section>
+      <h2>按你的阅读需要，再多走一步</h2>
+      <details><summary>想自动写入 Obsidian 或 Markdown？</summary><p>下载发行页的 companion 本地服务包，安装 Node.js 22.5+，按扩展连接页配对，再选择笔记保存位置。只同步笔记，不要求配置 AI。</p><p><a href="https://github.com/PengheLiu/ContextFlow/blob/main/docs/GETTING_STARTED.md#开启-ai-和笔记同步">开启自动同步 →</a></p></details>
+      <details><summary>想解释原文、翻译或生成速览？</summary><p>连接本地服务后，配置自己的模型和 API key。使用费用由模型服务决定，扩展不提供内置额度。进一步使用本地 agent 时，可以明确授权个人笔记目录。</p><p>AI 请求可能把网页、问题和授权笔记发给你配置的服务；本地优先不代表所有请求离线处理。</p></details>
+    </section>
+    <section>
+      <h2>记录属于你，也需要你备份</h2>
+      <p>扩展记录保存在浏览器的扩展私有空间；导出的文件可以在其他编辑器和笔记软件继续使用。建议定期导出或同步，卸载扩展会清除扩展内数据。</p>
+      <p><a href="privacy.html">阅读隐私政策</a> · <a href="https://github.com/PengheLiu/ContextFlow/issues">反馈问题</a></p>
+    </section>
+    <footer>MIT License · 维护者：ContextFlow 项目维护者 PengheLiu。反馈前请隐藏配对码、API key 和私人笔记。</footer>
   </main>
 </body>
 </html>

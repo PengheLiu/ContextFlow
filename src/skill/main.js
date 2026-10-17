@@ -135,6 +135,9 @@ export class App {
       getStats: () => this.stats,
       getNote: () => this.noteDraft ?? this.noteItem()?.value ?? '',
       isOnline: () => this.online,
+      canConnectService: () => typeof this.openConnectionSettings === 'function',
+      getConnectionIssue: () => this.connectionIssue,
+      onOpenConnection: () => this.openConnectionSettings?.(),
       outbox: () => this.pendingCount,
       positionOf: (id) => this.pos.get(id) ?? Number.MAX_SAFE_INTEGER,
       isOrphan: (id) => !this.hl.has(id),
@@ -226,6 +229,7 @@ export class App {
     try {
       await api.health();
       this.online = true;
+      this.connectionIssue = null;
       await api.flushAssets();
       const flushed = await api.flushOutbox();
       if (flushed) console.log(`[ContextFlow] 补发 ${flushed} 条积压`);
@@ -246,6 +250,7 @@ export class App {
       this.reanchor();
     } catch (e) {
       this.online = false;
+      this.connectionIssue = e.code || 'SERVICE_UNAVAILABLE';
       console.warn('[ContextFlow] 本地服务不可达，离线模式：', e.message);
     }
     this.panel.render();
@@ -984,6 +989,10 @@ export class App {
       this.panel.renderBrief({ state: 'ok', text: has.value, retry: true });
       return;
     }
+    if (this.openConnectionSettings && !this.online) {
+      this.panel.renderBrief({ state: 'idle', text: 'AI 速览需连接本地服务。你可以先写批注和自己的总结，随时复制或下载。' });
+      return;
+    }
     const deferred = this.items.find((e) => e.action === 'summary' && !e.deletedAt
       && e.extra?.status === 'deferred');
     if (deferred && !fresh) {
@@ -1147,6 +1156,7 @@ export class App {
   }
 
   hintFor(e) {
+    if (e.code === 'PAIRING_REQUIRED') return '在侧栏点击「开启 AI / 同步」完成连接。批注、复制和下载无需连接。';
     if (e.code === 'NO_FILE_TARGET') return '打开“配置”并选择 Obsidian Vault 或 Markdown 文件夹';
     if (e.code === 'FS_PERMISSION') return '打开“配置”并点击重新授权';
     if (e.code === 'FS_UNSUPPORTED') return '当前浏览器不支持文件夹写入，可使用底部“下载”';

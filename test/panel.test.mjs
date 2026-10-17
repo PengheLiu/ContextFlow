@@ -500,4 +500,24 @@ await t('没有速览也没有笔记时角标为空', () => {
   assert.ok(!p.sh.getElementById('b-note').classList.contains('has-content'));
 });
 
+await t('扩展未配对时保留阅读功能，并提供主动连接入口', async () => {
+  let opened = 0;
+  const p = mk({ isOnline: () => false, canConnectService: () => true,
+    outbox: () => 2,
+    getConnectionIssue: () => 'PAIRING_REQUIRED', onOpenConnection: () => { opened++; } });
+  p.renderStatus();
+  assert.equal(p.$('connectionNote').hidden, false);
+  assert.equal(p.$('connectService').textContent, '开启 AI / 同步');
+  assert.match(p.$('stat').textContent, /本地保存/);
+  assert.doesNotMatch(p.$('stat').textContent, /待发送/);
+  p.$('connectService').click();
+  p.$('cfg').click();
+  await p.doSync();
+  assert.equal(opened, 3, '连接、配置和同步都应能引导到配对，而不是请求失败');
+  assert.equal(p.settingsOpen, undefined);
+  p.h.isOnline = () => true;
+  p.renderStatus();
+  assert.equal(p.$('connectionNote').hidden, true);
+});
+
 console.log(`\n${pass} 项通过`);

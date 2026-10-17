@@ -1,309 +1,89 @@
-<p align="center">
-  <img src="./assets/readme/hero-zh.svg" alt="ContextFlow：让过去的理解参与此刻的阅读" width="100%">
-</p>
+# ContextFlow
 
-<p align="center">
-  <a href="#阅读本该是一条回路"><strong>产品愿景</strong></a> ·
-  <a href="#当个人知识回到阅读现场"><strong>阅读场景</strong></a> ·
-  <a href="#从一句原文到一条可复用的知识链"><strong>产品能力</strong></a> ·
-  <a href="#一条完整可控的本地链路"><strong>架构与安全</strong></a> ·
-  <a href="#开始使用"><strong>开始使用</strong></a>
-  <br><br>
-  <code>Chrome Extension</code> · <code>Local-first</code> · <code>Local AI Agent</code> · <code>MCP</code> · <code>Obsidian / 思源 / Markdown</code>
-  <br>
-  <sub><a href="./README.en.md">English</a></sub>
-</p>
+**在网页上高亮、就地批注，把阅读中的想法保存成自己的 Markdown。** 需要时，再接入 AI 和个人笔记库。
 
----
+[下载试用](https://github.com/PengheLiu/ContextFlow/releases/latest) · [安装与使用指南](./docs/GETTING_STARTED.md) · [练习文章](https://pengheliu.github.io/ContextFlow/demo.html) · [English](./README.en.md)
 
-## 阅读，本该是一条回路
+> Chrome 商店版 v0.3.1 已提交审核，尚未正式上架。现在可以通过下方步骤加载试用；审核通过后可直接从商店安装。当前源码中的 v0.3.2 新手引导改进尚未发布为安装包。
 
-网页知道你**正在读什么**，笔记保存你**曾经想过什么**。
+## 你可以用它做什么？
 
-可现实中的阅读往往是一条断掉的直线：文章读完了，高亮留在网页里，判断散在聊天窗口中；几个月后遇到同一个概念，你仍然要重新搜索、重新理解、重新证明。
+- **边读边想：** 选中文字，直接在原文旁写批注或粘贴截图，右侧阅读记录同步更新。
+- **读完带走：** 把原文、想法和来源一起导出 Markdown，放进 Obsidian 或其他笔记软件。
+- **按需深入：** 连接自己的本地服务，用 AI 解释、翻译和速览；还可以让本地 agent 参考你授权的个人笔记。
 
-**ContextFlow 接住阅读发生的过程，并把它送回你的个人知识系统。**
+<img src="./assets/readme/reading-preview.png" alt="实际阅读界面：左侧原文高亮，右侧批注和 Markdown 下载入口" width="100%">
 
-<p align="center">
-  <img src="./assets/readme/knowledge-loop-zh.svg" alt="ContextFlow 闭合从阅读到个人知识的循环" width="100%">
-</p>
+<sub>v0.3.2 开发版界面预览。基础批注与导出在当前 v0.3.1 试用包中也已支持。</sub>
 
-它不替代网页，不替代笔记软件，也不试图成为另一座知识孤岛。它只负责把最容易丢失的两段接起来：
+## 先用起来，不用配置 AI
 
-1. 在网页上保留你的高亮、批注、问题、翻译与总结；
-2. 让本地 AI agent 在你授权的范围内读取个人笔记，把过去的理解带回当前文章；
-3. 再把新的判断、原文与来源写回原来的知识脉络。
+高亮、批注、图片补充和 Markdown 导出**不需要账号、Node.js、API key 或本地服务**。首次只需完成一次「批注 → 导出」。
 
-这不是给浏览器再加一个聊天框，而是给浏览器增加一层**跨文章、跨时间的个人上下文**。
+### 1. 安装扩展
 
----
+商店审核期间，使用当前的 [v0.3.1 试用包](https://github.com/PengheLiu/ContextFlow/releases/tag/v0.3.1)：
 
-## 当个人知识回到阅读现场
+1. 下载 Assets 中的 **contextflow-chrome-0.3.1.zip**，解压到一个固定文件夹。
+2. 在 Chrome 地址栏输入 `chrome://extensions`，打开右上角「开发者模式」。
+3. 点击「加载已解压的扩展程序」，选择**里面有 manifest.json 的文件夹**，不要选择 ZIP。
+4. 打开普通文章网页并刷新一次。扩展的连接设置可以稍后再做。
 
-<p align="center">
-  <img src="./assets/readme/personal-context-zh.svg" alt="当前文章与个人笔记中的定义、证据、问题和判断发生连接" width="100%">
-</p>
+此步骤无需下载 companion 服务包，也无需运行任何命令。最低浏览器版本为 Chromium 111；推荐使用已更新的桌面版 Chrome。
 
-AI 不只回答“这段在讲什么”，还可以结合你已经积累的材料，回答更接近真实思考的问题。
+### 2. 留下第一条批注
 
-<details>
-<summary><strong>01 · 边读边对照</strong>　这个概念，和我以前记下的是一回事吗？</summary>
-<br>
+1. 打开[练习文章](https://pengheliu.github.io/ContextFlow/demo.html)，拖选一句正文。
+2. 在选区旁的工具条点「批注」，写下“这句话为什么对我有用”，或直接粘贴截图。
+3. 打开页面右侧的 ContextFlow 把手，确认能看见这条记录。
+4. 在侧栏底部点「下载」，得到包含原文、想法和来源的 Markdown。
 
-读到一个熟悉概念时，让本地 agent 找出笔记里的旧定义、判断与反例，并说明它们与当前文章的关系：是同义重述、条件不同，还是已经被新证据修正。
+刷新练习页，批注仍应恢复。已安装但没反应？先刷新文章；Chrome 内部页面、商店页和内置 PDF 阅读器不能使用。
 
-> **当前文章：** 长期记忆的关键是“在正确时机召回上下文”。
->
-> **你的笔记：** 4 月曾写下“记忆的价值在召回时机，不在存储规模”。
->
-> **ContextFlow：** 两者方向一致，但当前文章给出了更严格的任务条件。
+## 哪些功能需要额外设置？
 
-</details>
+| 你想做什么 | 需要准备什么 |
+| --- | --- |
+| 高亮、批注、图片补充、复制或下载 Markdown | 只需安装扩展 |
+| 自动写入 Obsidian、Markdown 目录或思源 | 本地配套服务 + 选择保存位置；不要求先配置 AI |
+| AI 翻译、解释、文章速览 | 本地服务 + 自己的模型配置，费用由模型服务决定 |
+| 让 AI 参考以前的个人笔记 | 上述配置 + 已安装的本地 agent + 明确授权笔记目录 |
 
-<details>
-<summary><strong>02 · 交叉验证想法</strong>　不要只找支持，也主动暴露冲突</summary>
-<br>
+### 开启 AI 或笔记同步
 
-将不同来源里的支持证据、反对证据和适用前提放在一起，区分独立证据、相互引用与口径差异。
+1. 下载发行页中的 **contextflow-companion-0.3.1.zip**。这是服务包，不是要加载进 Chrome 的文件。
+2. 安装 [Node.js 22.5+](https://nodejs.org/en/download)，在解压后的服务文件夹运行：
 
-> 这篇文章支持你 4 月的判断，但与你 6 月记录的一项实验冲突。两个来源使用了不同任务与评测指标，因此目前只能说方向相关，还不能互相证明。
+   ~~~bash
+   npm ci --omit=dev
+   npm run server
+   ~~~
 
-</details>
+3. 在扩展自己的「扩展程序选项」页复制专属配对命令，到服务文件夹的**另一个终端**执行。
+4. 把生成的配对码粘贴回扩展页并验证连接，再到文章侧栏「配置」选择笔记位置或模型。
 
-<details>
-<summary><strong>03 · 看见认知演化</strong>　我为什么改变了看法？</summary>
-<br>
+[完整连接步骤、成功标志和故障排查 →](./docs/GETTING_STARTED.md#开启-ai-和笔记同步)
 
-沿时间回看一个观点如何从疑问变成假设，又如何被后来证据修正。笔记不再只是结论的仓库，也保留思考发生的路径。
+配对码不是模型 API key；它只用于本机连接。AI 使用你选择的模型或 agent，扩展不提供内置模型额度。打开阅读面板可能触发 AI 速览；相关内容可能发给你配置的服务。
 
-> 去年：召回越多是否越好？ → 4 月：关键也许是召回时机 → 6 月：错误召回可能比不召回更糟 → 今天：开始关注“什么条件决定正确时机”。
+## 记录在哪里？会不会丢？
 
-</details>
+扩展内的记录保存在**扩展私有存储**；本地服务把同步后的记录写入你选择的目录或笔记服务。ContextFlow 不提供集中存放阅读记录的云端账号。
 
-<details>
-<summary><strong>04 · 让未完成的问题回来</strong>　新材料是不是回答了过去的问题？</summary>
-<br>
+请定期导出或同步。卸载扩展会清除扩展内数据，但不会删除已导出的文件、本地服务数据库或已同步笔记。旧开发版的网页缓存不会自动导入新版，升级前先导出或同步。
 
-让 agent 从笔记中寻找与当前段落相关的未解问题。确认后，将新证据、当前判断和原文来源写回那个问题旁边，而不是再生成一段孤立对话。
+[隐私政策](https://pengheliu.github.io/ContextFlow/privacy.html) · [当前限制与常见问题](./docs/GETTING_STARTED.md#遇到问题)
 
-> 过去的问题不会因为你忘了翻笔记而消失；它会在新的证据出现时，重新回到阅读现场。
+## 让过去的理解，参与此刻的阅读
 
-</details>
+当你已经保存了一些想法，可以进一步让本地 agent 对照个人笔记：这个概念以前怎样理解？新证据支持还是修正了旧判断？哪些未完成的问题又值得回看？
 
-真正的变化不是“更方便地搜索笔记”，而是：**你过去留下的理解，开始参与今天的判断。**
+这是 ContextFlow 的长期方向。先从一条能带走的批注开始，再让个人上下文逐渐回到阅读现场。[了解产品思路 →](./docs/PRODUCT.md)
 
----
+## 开发与贡献
 
-## 从一句原文，到一条可复用的知识链
+普通用户无需克隆代码或自行编译。开发者请看[开发与发布指南](./docs/DEVELOPMENT.md)；架构、锚点恢复与权限边界见 [DESIGN.md](./DESIGN.md)。
 
-<p align="center">
-  <img src="./assets/readme/workflow-zh.svg" alt="ContextFlow 从网页选区到个人知识写回的四步工作流" width="100%">
-</p>
-
-<table>
-  <tr>
-    <td width="33%" valign="top">
-      <strong>阅读现场</strong><br><br>
-      四色高亮与批注<br>
-      截图 / 原文图片直接粘贴进批注、解释补充与总结<br>
-      全文上下文翻译<br>
-      文章速览与总结<br>
-      选区解释与连续追问<br>
-      原文与记录双向定位<br>
-      刷新后恢复高亮<br>
-      非阅读页按页面 / 站点停用
-    </td>
-    <td width="34%" valign="top">
-      <strong>个人上下文</strong><br><br>
-      接入本机 Claude Code / Codex<br>
-      授权读取指定笔记目录<br>
-      跨笔记检索与语义关联<br>
-      对照旧判断与反例<br>
-      引用笔记来源<br>
-      异步任务与本地缓存
-    </td>
-    <td width="33%" valign="top">
-      <strong>沉淀与同步</strong><br><br>
-      一篇文章对应一个长期文档<br>
-      支持 Obsidian / 思源 / Markdown<br>
-      重复同步保持幂等<br>
-      修改内容原地更新<br>
-      原文、问题、回答与来源一起保留<br>
-      数据可读、可搜索、可迁移
-    </td>
-  </tr>
-</table>
+[报告问题](https://github.com/PengheLiu/ContextFlow/issues)时，请提供浏览器版本、扩展版本、操作步骤和经过脱敏的截图。不要提交配对码、API key 或私人笔记。
 
-ContextFlow 的目标不是生成更多内容，而是让一次阅读留下**可定位的原文、可核对的来源、可继续生长的判断**。
-
----
-
-## 一条完整、可控的本地链路
-
-<p align="center">
-  <img src="./assets/readme/architecture-zh.svg" alt="ContextFlow 的本地优先架构与 Safe、Full 权限边界" width="100%">
-</p>
-
-### Local-first，不是口号
-
-- 本地服务只监听 `127.0.0.1`，结构化数据保存在本机 SQLite；
-- LLM API Key 只保存在本地服务，服务 token 只进入扩展 service worker，二者都不会暴露给网页；
-- 内容脚本不持有服务凭证；
-- 笔记直接写入你的文件夹或笔记软件，不经过 ContextFlow 云端；
-- 不需要 ContextFlow 账号，也没有托管的个人知识库；
-- 服务离线时仍可标注，恢复后再继续处理与同步。
-
-### Safe 默认，Full 明确授权
-
-| 权限模式 | 适合什么 | 能力边界 |
-|---|---|---|
-| **Safe（默认）** | 检索笔记、对照观点、交叉验证 | agent 只读指定笔记目录；隔离写入、命令、MCP 与持久会话 |
-| **Full（主动开启）** | 使用本机已配置的完整 agent 工作流 | 可继承命令、网络、MCP 与其他本地工具能力；仅应在理解风险后开启 |
-
-ContextFlow 负责理解眼前正在发生的阅读；本地 agent 负责关联过去的知识；MCP 与笔记后端负责连接现有工具和长期资产。能力越靠近“执行”，权限、确认与来源隔离就越重要。
-
----
-
-## 你的笔记，仍然属于你
-
-一篇文章同步后，是一份普通、可迁移的 Markdown，而不是只能被 ContextFlow 打开的私有格式。
-
-<details>
-<summary><strong>展开查看一篇文章最终留下的内容</strong></summary>
-<br>
-
-```markdown
-# Stealing Reasoning Traces from Proprietary LLM APIs
-
-## 速览
-- 这篇论文提出一种通过公开 API 反推模型推理痕迹的攻击。
-
-## 批注
-- > attackers can only query the model through its public API
-
-- 💬 这个假设决定了攻击成本，需要与之前记录的现实可行性问题一起看。
-
-## 解释
-- **❓ 这个结论和我以前读到的一致吗？**
-
-  > Threat model
-
-  当前结论支持你此前关于“召回时机”的判断，但与另一项实验存在冲突。
-  两个来源的任务和评测口径不同，目前还不能互相证明。
-
-  **我的补充**
-
-  ![论文中的实验图](assets/contextflow/example.png)
-
-## 翻译
-- > agents are increasingly solving more complex tasks
-
-  智能体正在解决日益复杂的任务。
-
-## 总结
-- 本文的核心贡献、与已有笔记的一致之处、冲突点及待验证问题。
-```
-
-</details>
-
-即使将来不再使用 ContextFlow，这些内容依然可读、可搜索，也可以被其他编辑器、脚本和 AI 继续处理。
-
----
-
-## 开始使用
-
-需要 **Node.js ≥ 22.5** 和 **Chromium 111+** 浏览器。
-
-```bash
-git clone https://github.com/PengheLiu/ContextFlow.git
-cd ContextFlow
-npm install
-npm run service       # macOS：安装并启动常驻服务，登录后自动启动
-npm run build:ext     # 构建扩展，并打印固定扩展 ID 与 chrome-extension:// 来源
-```
-
-然后：
-
-1. 打开 `chrome://extensions`，开启“开发者模式”，加载 `extension/dist`；
-2. 在自动打开的扩展连接页，复制 `npm run pair -- <扩展ID>`，到项目目录执行；
-3. 将命令生成的独立配对码填入扩展连接页，阅读数据使用说明后验证连接；无需手改白名单或重启服务；
-4. 打开任意正文网页，在 ContextFlow 面板中进入“配置”；
-5. 配置翻译所用的 LLM、笔记位置，以及需要使用的本地 agent。
-
-扩展版的离线记录保存在扩展私有 IndexedDB，不再写入网页所属存储。从旧开发版升级前，请先同步或导出未同步记录；新版不会自动导入或删除旧网页缓存。撤销本地服务授权可运行 `npm run pair -- --revoke <扩展ID>`，重新配对会让旧码失效。
-
-如果希望 agent 使用个人笔记，在配置中点击“检测”，选择本机 agent，并明确指定允许读取的笔记目录。
-
-macOS 常驻服务命令：
-
-```bash
-npm run service -- status          # 查看 launchd 与 HTTP 健康状态
-npm run service -- restart         # 更新代码或配置后重启
-npm run service -- logs            # 查看最近日志；加 --follow 持续查看
-npm run service -- uninstall       # 卸载自启动，但保留 ~/.contextflow 中的全部数据
-npm run server                     # 前台运行，仅用于开发和排错
-```
-
-服务在登录后自动启动；合盖休眠期间 macOS 会暂停处理请求，唤醒后恢复。仓库位置或 Node 可执行文件变化后，重新运行 `npm run service` 刷新绝对路径。
-
-<details>
-<summary><strong>配置项速查</strong></summary>
-<br>
-
-配置文件位于 `~/.contextflow/config.json`：
-
-| 配置 | 作用 |
-|---|---|
-| `explain.backend` | `llm`：快速解释；`agent`：结合个人笔记回答 |
-| `agent.id` | 使用哪个本地 agent |
-| `agent.notesDir` | agent 被允许读取的笔记目录 |
-| `agent.profile` | `safe`：最小只读权限；`full`：继承本地 agent 的完整能力 |
-| `translate.chunkChars` | 翻译时每轮携带的正文长度，`0` 表示不带全文上下文 |
-| `sync.backend` | `siyuan` / `obsidian` / `markdown` |
-| `allowedOrigins` | 允许访问本地服务的来源；扩展模式加入 `chrome-extension://<id>` |
-
-</details>
-
----
-
-### Chrome Web Store 发布构建
-
-`npm run build:ext` 保留个人开发兼容行为，不应公开分发。使用下面的独立发布流程生成无本机凭证的商店包：
-
-```bash
-npm test
-npm run build:store
-```
-
-产物位于 `release/contextflow-chrome-<版本>.zip`，附 SHA-256 校验文件。商店包安装后必须独立配对；上传草稿后应以商店分配的扩展 ID 为准。商店文案、隐私页面及审核说明见 `store/`，当前仍需将隐私页面和匹配的本地服务版本发布到用户可访问的位置，不能仅凭生成 ZIP 就提交审核。
-
-`npm run build:store-support` 另外生成静态支持站点和本地配套服务 ZIP，均附校验和；`npm run test:store-support` 验证站点内容和服务包全新安装、配对与撤销。部署步骤见 `store/DEPLOY.md`。这些命令只生成本地产物，不会上传网站、推送代码或提交商店审核。
-
-## 已知边界
-
-- 浏览器内置 PDF 阅读器不允许扩展进入正文；阅读 arXiv 时请使用 `/abs/` 或 `/html/` 版本；
-- 本地 agent 需要读取和推理个人笔记，通常比直接调用 LLM 更慢，也会消耗相应 agent 的额度；
-- 页面结构发生大幅变化后，少量高亮可能无法重新定位；它们会被标记为“失锚”，不会静默丢失；
-- 停用名单按浏览器同源规则隔离，`www.` 与裸域、http 与 https 各算一个站点；
-- Full 模式可能继承命令、网络和 MCP 能力，只应在理解风险后主动开启。
-
-## 为什么这样设计
-
-[DESIGN.md](./DESIGN.md) 记录了实现中的架构取舍与实测数据，包括：
-
-- 为什么使用 CSS Custom Highlight API，而不是向原网页注入 `<span>`；
-- 高亮锚点的多层降级策略与命中率；
-- 为什么阅读现场与长期笔记需要分层存储；
-- 如何让长时间运行的本地 agent 任务不阻塞阅读；
-- 为什么工具白名单仍不足以替代权限隔离；
-- 扩展 service worker、本地服务与网页环境之间的凭证边界。
-
----
-
-<p align="center">
-  <strong>真正的个人 AI，不是替你多读几篇文章，<br>而是让你过去的理解，在每一次新阅读中重新参与思考。</strong>
-</p>
-
-<p align="center">
-  <sub>MIT License · A local-first personal project</sub>
-</p>
+MIT License · Local-first · Obsidian / Markdown / 思源

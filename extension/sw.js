@@ -24,7 +24,7 @@ async function fetchService(path, init = {}, token) {
   if (typeof path !== 'string' || !OK_PATH.test(path) || path.includes('\\') || path.includes('..')) {
     return { status: 400, body: { error: `路径不被放行：${path}` } };
   }
-  if (!token) return { status: 428, body: { error: '尚未配对：点击扩展图标打开连接设置', code: 'PAIRING_REQUIRED' } };
+  if (!token) return { status: 428, body: { error: 'AI 和自动同步尚未开启，请在侧栏点击「开启 AI / 同步」；批注和导出可直接使用', code: 'PAIRING_REQUIRED' } };
   if (!['GET', 'POST', 'DELETE'].includes(init.method || 'GET')) {
     return { status: 400, body: { error: '不支持的请求方法' } };
   }
@@ -43,7 +43,7 @@ async function fetchService(path, init = {}, token) {
 
 function senderKind(sender) {
   if (sender.id !== chrome.runtime.id) return null;
-  if (sender.url === chrome.runtime.getURL('options.html')) return 'settings';
+  if (sender.url?.split('#')[0] === chrome.runtime.getURL('options.html')) return 'settings';
   if (/^https?:\/\//.test(sender.url || '') && sender.tab && sender.frameId === 0) return 'page';
   return null;
 }
@@ -70,8 +70,24 @@ async function handleMessage(message, sender, kind) {
     else await chrome.storage.local.set({ [storageKey(message.key)]: message.value });
     return true;
   }
+  if (message.type === 'cf-open-settings') {
+    if (kind !== 'page') throw new Error('仅网页扩展界面可打开连接设置');
+    await chrome.tabs.create({ url: chrome.runtime.getURL('options.html#connect') });
+    return true;
+  }
   if (kind !== 'settings') throw new Error('只能在扩展自己的设置页进行配对');
   if (message.type === 'cf-status') return { paired: !!(await connectionToken()), extensionId: chrome.runtime.id };
+  if (message.type === 'cf-check') {
+    const token = await connectionToken();
+    if (!token) return { state: 'unpaired' };
+    const result = await fetchService('/health', {}, token);
+    if (result.status === 0) return { state: 'unavailable' };
+    if (result.status === 401 || result.status === 403) return { state: 'unauthorized' };
+    if (result.status === 200 && result.body.ok && (token === TOKEN || result.body.extensionPaired === true)) {
+      return { state: 'connected' };
+    }
+    return { state: result.status === 200 || result.status === 404 ? 'incompatible' : 'error' };
+  }
   if (message.type === 'cf-disconnect') {
     await chrome.storage.local.set({ connection: { disconnected: true } });
     return true;
@@ -110,7 +126,7 @@ chrome.runtime.onInstalled.addListener(({ reason }) => {
 });
 
 chrome.action.onClicked.addListener(async (tab) => {
-  if (!(await connectionToken())) return chrome.runtime.openOptionsPage();
+  // 离线批注是完整可用的起点，未配对也应先打开文章侧栏。
   if (tab?.id != null) chrome.tabs.sendMessage(tab.id, { type: 'cf-toggle' })
     .catch(() => chrome.runtime.openOptionsPage());
 });
