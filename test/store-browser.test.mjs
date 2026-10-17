@@ -53,6 +53,7 @@ try {
     } catch { await new Promise((resolve) => setTimeout(resolve, 100)); }
   }
   context = await chromium.launchPersistentContext(join(temporary, 'profile'), {
+    channel: 'chromium',
     executablePath: process.env.CONTEXTFLOW_CHROMIUM_PATH,
     headless: true, viewport: { width: 1280, height: 800 },
     args: [`--disable-extensions-except=${extension}`, `--load-extension=${extension}`],
