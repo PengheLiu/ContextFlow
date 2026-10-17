@@ -75,6 +75,7 @@ const CSS = `${FLOAT}
   .ask button{min-height:38px;display:inline-flex;align-items:center;gap:6px;border:1px solid ${T.accent};
       border-radius:6px;background:${T.accent};color:${T.paperRaised};padding:7px 12px;font-size:13px;font-weight:680;white-space:nowrap}
   .ask button:hover{background:${T.accent};border-color:${T.accent};color:${T.paperRaised};filter:saturate(1.08) brightness(.94)}
+  .ask button:disabled{cursor:wait;opacity:.65;filter:none}
   .ask button .ico{width:14px;height:14px}
 
   .response{display:flex;min-height:0;flex:1 1 auto;flex-direction:column;margin:18px 17px 0;padding-top:14px;border-top:1px solid ${T.line}}
@@ -155,10 +156,15 @@ export class Popover {
     if (this.$('src')) this.$('src').onclick = () => this.toggleSrc();
     this.wireDrag();
     this.wireResize();
-    this.$('re').onclick = () => {
-      this.showRefresh(false);
-      this.o.onRefresh?.(this.question());
+    const submit = (refresh = false) => {
+      if (this.$('go')?.disabled) return;
+      // 顶部提交、Enter 和底部重试共用错误处理与防重复提交状态。
+      try {
+        const r = (refresh ? this.o.onRefresh : this.o.onSubmit)?.(this.question());
+        r?.catch?.((e) => this.body(`出错了：${e?.message || e}`, 'bad'));
+      } catch (e) { this.body(`出错了：${e?.message || e}`, 'bad'); }
     };
+    this.$('re').onclick = () => submit(true);
 
     if (o.supplement) {
       this.supplementComposer = new RichComposer(this.$('suppEditor'), {
@@ -174,22 +180,14 @@ export class Popover {
 
     if (o.input) {
       const q = this.$('q');
-      const submit = () => {
-        const v = q.value.trim();
-        // onSubmit 多是 async：不接住 reject 就只剩一条 unhandledrejection，
-        // 界面上什么都不显示，看起来就是卡死
-        try {
-          const r = this.o.onSubmit?.(v);
-          if (r && typeof r.catch === 'function') {
-            r.catch((e) => this.body(`出错了：${e?.message || e}`, 'bad'));
-          }
-        } catch (e) { this.body(`出错了：${e?.message || e}`, 'bad'); }
-      };
-      this.$('go').onclick = submit;
-      q.addEventListener('input', () => this.growInput());
+      this.$('go').onclick = () => submit();
+      q.addEventListener('input', () => {
+        this.growInput();
+        this.o.onQuestionChange?.(this.question());
+      });
       q.addEventListener('keydown', (e) => {
         // Enter 提交，Shift+Enter 换行 —— 这是输入框的通用预期
-        if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit(); }
+        if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); submit(); }
         if (e.key === 'Escape') this.close();
       });
     }
@@ -351,8 +349,17 @@ export class Popover {
     const b = this.$('b'); b.className = ''; renderMarkdownInto(b, text);
     return this.reposition();
   }
-  /** 命中本地缓存时才露出「重新解释」—— 平时不该占位置 */
+  /** 底部保留快捷入口，顶部提交按钮也可重新解释。 */
   showRefresh(on) { const el = this.$('again'); if (el) el.style.display = on ? 'block' : 'none'; return this; }
+  submitState(label = '提问', busy = false) {
+    const go = this.$('go');
+    if (!go) return this;
+    go.querySelector('span').textContent = label;
+    go.disabled = busy;
+    go.setAttribute('aria-busy', String(busy));
+    this.$('re').disabled = busy;
+    return this;
+  }
   /** 解释记录存在后才显示补充区；记录 id 用来与右侧栏绑定同一份内容。 */
   supplement(id, value = '') {
     if (!this.supplementComposer) return this;

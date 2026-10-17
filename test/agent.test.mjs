@@ -3,7 +3,7 @@
 // Safe 不是一句 prompt：必须由 CLI 参数限制工具面、会话与文件系统。Full 则保留
 // 用户主动确认后的原有能力。这里锁住两档差异，以及每家 CLI 踩过的兼容性参数。
 import assert from 'node:assert/strict';
-import { AGENTS, AGENT_IDS, detect, _argvFor } from '../server/agent.mjs';
+import { AGENTS, AGENT_IDS, detect, _argvFor, _parseOut } from '../server/agent.mjs';
 
 let pass = 0;
 const t = async (name, fn) => {
@@ -178,6 +178,41 @@ await t('detect(true) 绕过缓存', async () => {
   const b = await detect(true);
   assert.notEqual(a, b);
   assert.deepEqual(a.map((x) => x.id), b.map((x) => x.id));
+});
+
+await t('Claude JSON 结果不依赖字段顺序或排版，答案中的括号保持原样', () => {
+  const result = { duration_ms: 321, result: '答案 {x} 与 "type": "result"',
+    usage: { cache_read_input_tokens: 12 }, type: 'result', subtype: 'success', is_error: false };
+  for (const indent of [undefined, 2]) {
+    const out = _parseOut('claude', JSON.stringify(result, null, indent));
+    assert.equal(out.answer, result.result);
+    assert.equal(out.meta.ms, 321);
+    assert.equal(out.meta.cacheRead, 12);
+  }
+});
+
+await t('Claude 逐行输出选择最后的 result，不把日志作为答案', () => {
+  const out = _parseOut('claude', '启动日志\n{"type":"system"}\n'
+    + '{"type":"result","result":"前一条"}\n'
+    + '{"result":"最终答案","type":"result","is_error":false}\n');
+  assert.equal(out.answer, '最终答案');
+});
+
+await t('截图中的 type 在末尾的未登录错误不会再作为成功答案', () => {
+  const data = { duration_api_ms: 0, is_error: true, subtype: 'success',
+    result: 'Not logged in · Please run /login', type: 'result', duration_ms: 359 };
+  assert.throws(() => _parseOut('claude', JSON.stringify(data)),
+    (e) => e.code === 'AGENT_AUTH' && /尚未登录/.test(e.message));
+});
+
+await t('其他错误、损坏 JSON 和非结果输出不能进入答案缓存', () => {
+  assert.throws(() => _parseOut('claude', '{"result":"API error","type":"result","is_error":true}'),
+    (e) => e.code === 'AGENT_ERROR');
+  assert.throws(() => _parseOut('claude', '{"type":"result","subtype":"error_max_turns","errors":["超出轮数"]}'),
+    (e) => e.code === 'AGENT_ERROR' && /超出轮数/.test(e.message));
+  for (const text of ['{"type":"result",', '{"type":"system"}', '诊断文本', '']) {
+    assert.throws(() => _parseOut('claude', text), (e) => e.code === 'AGENT_PARSE');
+  }
 });
 
 console.log(`\n${pass} 项通过`);

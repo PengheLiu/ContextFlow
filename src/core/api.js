@@ -244,7 +244,7 @@ export async function summarize({ urlKey, fresh, onProgress, signal } = {}) {
     if (signal?.aborted) { cancelJob(id); throw Object.assign(new Error('已取消'), { code: 'ABORTED' }); }
     const job = await getJob(id);
     if (job.status === 'done') return job.result;
-    if (job.status === 'error') throw Object.assign(new Error(job.error?.message || '作业失败'), { code: job.error?.code });
+    if (job.status === 'error') throw Object.assign(new Error(job.error?.message || '作业失败'), { code: job.error?.code, status: 502 });
     if (job.status === 'canceled') throw Object.assign(new Error('作业已取消'), { code: 'ABORTED' });
     onProgress?.(job);
     await new Promise((r) => setTimeout(r, 1200));
@@ -271,7 +271,7 @@ export async function explain({ text, question, urlKey, offset, fresh, onProgres
     if (signal?.aborted) { cancelJob(id); throw Object.assign(new Error('已取消'), { code: 'ABORTED' }); }
     const job = await getJob(id);
     if (job.status === 'done') return job.result;
-    if (job.status === 'error') throw Object.assign(new Error(job.error?.message || '作业失败'), { code: job.error?.code });
+    if (job.status === 'error') throw Object.assign(new Error(job.error?.message || '作业失败'), { code: job.error?.code, status: 502 });
     if (job.status === 'canceled') throw Object.assign(new Error('作业已取消'), { code: 'ABORTED' });
     onProgress?.(job);
     await new Promise((r) => setTimeout(r, 1200));

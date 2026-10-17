@@ -233,7 +233,7 @@ const server = createServer(async (req, res) => {
     return json(res, 404, { error: `无此路由 ${req.method} ${path}` });
   } catch (e) {
     const map = { NEED_TEXT: 409, NO_AGENT: 503, AGENT_SPAWN: 503, AGENT_TIMEOUT: 504,
-                  AGENT_EMPTY: 502, AGENT_ERROR: 502, AGENT_PARSE: 502, BAD_AGENT: 400,
+                  AGENT_EMPTY: 502, AGENT_ERROR: 502, AGENT_PARSE: 502, AGENT_AUTH: 502, BAD_AGENT: 400,
                   NO_API_KEY: 503, TOO_LONG: 413, BAD_INPUT: 400, BAD_JSON: 400,
                   TOO_LARGE: 413, SIYUAN_DOWN: 503, SIYUAN_AUTH: 503, SIYUAN: 502,
                   NO_MODEL: 503, NO_BASEURL: 503, UPSTREAM: 502,

@@ -202,11 +202,19 @@ const ARGV_MAX = 120000;
 function parseOut(id, stdout) {
   const text = String(stdout || '');
   if (id === 'claude') {
-    // 末尾那行 type=result 的 JSON 才是最终结果
-    const m = text.match(/\{"type":"result".*\}\s*$/m) || text.match(/\{"type":"result".*\}/);
-    if (!m) return { answer: text.trim(), meta: {} };
-    const r = JSON.parse(m[0]);
-    if (r.is_error) throw err(`agent 返回错误：${r.result || r.subtype}`, 'AGENT_ERROR');
+    // JSON 字段顺序与空白不固定；同时支持完整 JSON 和带日志的逐行输出。
+    const json = (s) => { try { return JSON.parse(s); } catch { return null; } };
+    const full = json(text);
+    const r = full?.type === 'result' ? full
+      : text.split('\n').map(json).findLast((row) => row?.type === 'result');
+    if (!r) throw err('Claude Code 未返回有效的结果 JSON，请查看服务端日志', 'AGENT_PARSE');
+    if (r.is_error || (r.subtype && r.subtype !== 'success')) {
+      const detail = r.result || r.errors?.join('; ') || r.subtype || '未知错误';
+      if (/not logged in/i.test(detail)) {
+        throw err('Claude Code 尚未登录，请在终端运行 claude 并使用 /login 后重试', 'AGENT_AUTH');
+      }
+      throw err(`agent 返回错误：${detail}`, 'AGENT_ERROR');
+    }
     return {
       answer: String(r.result || '').trim(),
       meta: {
@@ -353,4 +361,4 @@ export async function run({
   });
 }
 
-export { argvFor as _argvFor };
+export { argvFor as _argvFor, parseOut as _parseOut };
