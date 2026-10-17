@@ -6,6 +6,7 @@
 //
 // 与 userscript 入口（src/skill/main.js）的唯一差别就是**传输层**：
 // 那边直接 fetch 并把 token 编译进产物；这边转发给 service worker，token 只在 SW 里。
+import { initializePrivateStorage } from './storage.js';
 import { setTransport } from '../core/api.js';
 import { boot } from '../skill/main.js';
 import { blockedScope, showUnblockChip } from '../skill/blocklist.js';
@@ -43,7 +44,12 @@ setTransport((path, init = {}) => new Promise((resolve) => {
   }
 }));
 
-const app = boot();
+let app;
+initializePrivateStorage().then(() => {
+  app = boot();
+}).catch((error) => {
+  console.error('[ContextFlow] 私有存储初始化失败，未启动：', error.message);
+});
 
 // 点扩展图标切换面板。userscript 路径没有这个入口（只能点右缘把手），
 // 扩展有图标就顺手接上。

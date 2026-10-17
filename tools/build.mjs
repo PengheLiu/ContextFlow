@@ -11,6 +11,10 @@ import { execFileSync } from 'node:child_process';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 
+const EXT = process.argv.includes('--ext');
+const PUBLIC_SKILL = process.argv.includes('--public');
+const STORE = EXT && process.argv.includes('--store');
+
 // 从本地配置读出 token 编译进产物，省去手抄。
 // 当 allowAnyOrigin 打开时，X-ContextFlow 的强制预检不再拦任何 origin，
 // token 就成了唯一防线 —— 因此这一步不是便利，而是必需。
@@ -19,14 +23,14 @@ import { join } from 'node:path';
 const CF_DIR = process.env.CONTEXTFLOW_DIR || join(homedir(), '.contextflow');
 let token = '';
 try {
-  token = JSON.parse(readFileSync(join(CF_DIR, 'config.json'), 'utf8')).token || '';
+  if (!STORE && !PUBLIC_SKILL) {
+    token = JSON.parse(readFileSync(join(CF_DIR, 'config.json'), 'utf8')).token || '';
+  }
 } catch { /* 未初始化过服务：留空，服务端 requireToken=false 时不校验 */ }
 
-const EXT = process.argv.includes('--ext');
-const PUBLIC_SKILL = process.argv.includes('--public');
 // 测试构建必须写临时目录，绝不能覆盖开发者实际加载的 extension/dist。
 // test/extbuild.test.mjs 会通过此变量隔离假 token 产物。
-const EXT_DIR = process.env.CONTEXTFLOW_EXT_DIR || 'extension/dist';
+const EXT_DIR = process.env.CONTEXTFLOW_EXT_DIR || (STORE ? 'release/chrome-extension' : 'extension/dist');
 
 const common = {
   bundle: true,
@@ -44,10 +48,10 @@ async function buildExtension() {
   // 稳定的扩展 id：不写 key 的话 id 由目录路径派生，移动目录或换机器就变，
   // 服务端 allowedOrigins 里的白名单会立刻失效。
   const keyPath = 'extension/key.pub';
-  if (!existsSync(keyPath)) {
+  if (!STORE && !existsSync(keyPath)) {
     throw new Error(`缺少 ${keyPath}。生成一次：见 README 的「扩展」一节`);
   }
-  const key = readFileSync(keyPath, 'utf8').trim();
+  const key = STORE ? '' : readFileSync(keyPath, 'utf8').trim();
   const der = Buffer.from(key, 'base64');
   const h = createHash('sha256').update(der).digest('hex').slice(0, 32);
   const id = [...h].map((c) => String.fromCharCode(97 + parseInt(c, 16))).join('');
@@ -73,16 +77,24 @@ async function buildExtension() {
     metafile: true,
   });
 
-  const storeBuild = process.argv.includes('--store');
+  await esbuild.build({
+    ...common,
+    entryPoints: ['src/ext/options.js'],
+    outfile: join(EXT_DIR, 'options.js'),
+    format: 'iife',
+  });
+
+  const storeBuild = STORE;
   const manifest = {
     manifest_version: 3,
     name: 'ContextFlow',
     version: JSON.parse(readFileSync('package.json', 'utf8')).version,
-    description: '划词翻译 / 解释 / 高亮批注 / 全文总结，一键同步到你自己的笔记库。',
+    description: '网页高亮批注与 Markdown 导出；连接自己的本地服务后使用 AI 解释、总结和笔记同步。',
     minimum_chrome_version: '111',
     permissions: ['storage'],
     host_permissions: ['http://127.0.0.1:7317/*'],
     background: { service_worker: 'sw.js', type: 'module' },
+    options_ui: { page: 'options.html', open_in_tab: true },
     action: {
       default_title: 'ContextFlow：开合面板',
       // 工具栏图标用紧贴边界的那套（assets/toolbar-*.png）。
@@ -96,7 +108,7 @@ async function buildExtension() {
         128: 'toolbar-128.png',
       },
     },
-    icons: { 48: 'toolbar-48.png', 128: 'icon-512.png' },
+    icons: { 48: 'toolbar-48.png', 128: 'toolbar-128.png' },
     content_scripts: [{
       matches: ['http://*/*', 'https://*/*'],
       // 不写 world → 默认 ISOLATED。已实测那里的 CSS.highlights 能正常绘制，
@@ -111,11 +123,15 @@ async function buildExtension() {
   if (!storeBuild) manifest.key = key;
   writeFileSync(join(EXT_DIR, 'manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`);
 
-  for (const f of ['icon-512.png', 'toolbar-16.png', 'toolbar-32.png',
+  for (const f of ['toolbar-16.png', 'toolbar-32.png',
     'toolbar-48.png', 'toolbar-128.png']) {
     if (existsSync(`assets/${f}`)) copyFileSync(`assets/${f}`, join(EXT_DIR, f));
     else console.warn(`  ⚠ 缺 assets/${f} —— 先跑 node tools/gen-assets.mjs --png`);
   }
+  for (const file of ['options.html', 'options.css']) {
+    copyFileSync(`extension/${file}`, join(EXT_DIR, file));
+  }
+  copyFileSync('store/privacy.html', join(EXT_DIR, 'privacy.html'));
 
   const kb = (b) => `${(b / 1024).toFixed(1)} KB`;
   const outputBytes = (result) => Object.values(result.metafile.outputs)[0]?.bytes || 0;

@@ -34,15 +34,17 @@ const TABS = [
 ];
 const TAB_KEYS = TABS.map((t) => t.key);
 
+import { browserStorage } from '../core/browser-storage.js';
+
 const UI_KEY = 'contextflow:ui';
 const MIN_W = 260;
 const MAX_FRAC = 0.6;          // 最宽不超过视口 60%
 
 const loadUI = () => {
-  try { return { width: 360, mode: 'push', open: false, ...JSON.parse(localStorage.getItem(UI_KEY) || '{}') }; }
+  try { return { width: 360, mode: 'push', open: false, ...JSON.parse(browserStorage().getItem(UI_KEY) || '{}') }; }
   catch { return { width: 360, mode: 'push', open: false }; }
 };
-const saveUI = (ui) => { try { localStorage.setItem(UI_KEY, JSON.stringify(ui)); } catch { /* 配额 */ } };
+const saveUI = (ui) => { try { browserStorage().setItem(UI_KEY, JSON.stringify(ui)); } catch { /* 配额 */ } };
 const appendTransition = (current, extra) => [
   ...String(current || '').split(',').map((x) => x.trim()).filter((x) => x && !x.startsWith('margin-right')),
   extra,

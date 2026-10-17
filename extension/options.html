@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ContextFlow · 连接与隐私</title>
+  <link rel="stylesheet" href="options.css">
+</head>
+<body>
+  <main>
+    <header><img src="toolbar-48.png" alt=""><div><p class="eyebrow">CONTEXTFLOW</p><h1>连接你自己的知识库</h1></div></header>
+    <p class="lead">高亮与批注保存在扩展私有空间。需要 AI、笔记同步或本地 agent 时，再连接你自己的本地服务。</p>
+    <section>
+      <h2>1. 启动本地服务</h2>
+      <p>需要 Node.js 22.5 或更高版本。在项目目录安装依赖后启动服务：</p>
+      <pre>npm ci
+npm run server</pre>
+      <p>macOS 也可运行 <code>npm run service</code> 配置常驻服务。Windows / Linux 的常驻安装尚未验证，请先使用前台服务。连接地址固定为 <code>127.0.0.1:7317</code>。</p>
+      <a href="https://github.com/PengheLiu/ContextFlow" target="_blank" rel="noreferrer">获取项目与完整安装指南</a>
+    </section>
+    <section>
+      <h2>2. 为当前扩展生成独立配对码</h2>
+      <p>在项目目录另开一个终端运行下面的命令，无需手改白名单或重启服务：</p>
+      <pre id="pair-command"></pre>
+      <p>配对码只用于本机连接，不是模型 API key。不要把它粘贴到普通网页、反馈截图或聊天中。</p>
+      <form id="pair-form">
+        <label for="pair-token">配对码</label>
+        <input id="pair-token" type="password" autocomplete="off" spellcheck="false" required aria-describedby="pair-help">
+        <p id="pair-help">配对码验证成功后仅保存在扩展自己的安全上下文中，页面脚本不能读取。</p>
+        <label class="consent"><input id="consent" type="checkbox" required><span>我了解：启用 AI 时，网页正文、问题及授权读取的笔记可能发送到我配置的模型或 agent 服务；本地优先不代表这些请求离线执行。完整 agent 权限需另外确认。</span></label>
+        <button type="submit">验证并连接</button>
+      </form>
+      <p id="status" role="status" aria-live="polite"></p>
+      <button id="disconnect" type="button" class="secondary">清除本扩展的配对码</button>
+    </section>
+    <section>
+      <h2>3. 返回文章开始阅读</h2>
+      <p>连接成功后刷新已有文章页面，在网页侧栏的“配置”里设置模型和笔记位置。尚未配对时仍可使用离线高亮、批注和 Markdown 导出。</p>
+      <p>不需要本地服务访问时，可在终端撤销授权：</p>
+      <pre id="revoke-command"></pre>
+      <p>重新生成配对码会让旧码失效。清除扩展配对码不会删除本地笔记，也不等于撤销服务端授权。</p>
+    </section>
+    <section>
+      <h2>隐私与旧版数据</h2>
+      <p>浏览器缓存位于扩展私有 IndexedDB，偏好及配对凭证位于扩展存储；不新增遥测、广告或开发者云端同步。AI 及笔记同步仅连接你配置的服务。</p>
+      <p>卸载扩展会清除其浏览器数据，但不会删除本地服务数据库或笔记目录。删除本地数据前请先导出并备份。</p>
+      <p>从旧开发版升级前，请先同步或导出未同步批注；新版不自动信任或导入普通网页存储中的旧缓存，旧数据不会被自动删除。</p>
+      <a href="privacy.html" target="_blank">阅读完整隐私说明</a>
+    </section>
+  </main>
+  <script src="options.js"></script>
+</body>
+</html>

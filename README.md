@@ -224,12 +224,13 @@ npm run build:ext     # 构建扩展，并打印固定扩展 ID 与 chrome-exten
 
 然后：
 
-1. 将 `build:ext` 打印的 `chrome-extension://<id>` 加入 `~/.contextflow/config.json` 的 `allowedOrigins`；
-2. 运行 `npm run service -- restart`，让新的来源白名单生效；
-3. 打开 `chrome://extensions`，开启“开发者模式”；
-4. 选择“加载已解压的扩展程序”，加载 `extension/dist`；
-5. 打开任意正文网页，在 ContextFlow 面板中进入“配置”；
-6. 配置翻译所用的 LLM、笔记位置，以及需要使用的本地 agent。
+1. 打开 `chrome://extensions`，开启“开发者模式”，加载 `extension/dist`；
+2. 在自动打开的扩展连接页，复制 `npm run pair -- <扩展ID>`，到项目目录执行；
+3. 将命令生成的独立配对码填入扩展连接页，阅读数据使用说明后验证连接；无需手改白名单或重启服务；
+4. 打开任意正文网页，在 ContextFlow 面板中进入“配置”；
+5. 配置翻译所用的 LLM、笔记位置，以及需要使用的本地 agent。
+
+扩展版的离线记录保存在扩展私有 IndexedDB，不再写入网页所属存储。从旧开发版升级前，请先同步或导出未同步记录；新版不会自动导入或删除旧网页缓存。撤销本地服务授权可运行 `npm run pair -- --revoke <扩展ID>`，重新配对会让旧码失效。
 
 如果希望 agent 使用个人笔记，在配置中点击“检测”，选择本机 agent，并明确指定允许读取的笔记目录。
 
@@ -264,6 +265,19 @@ npm run server                     # 前台运行，仅用于开发和排错
 </details>
 
 ---
+
+### Chrome Web Store 发布构建
+
+`npm run build:ext` 保留个人开发兼容行为，不应公开分发。使用下面的独立发布流程生成无本机凭证的商店包：
+
+```bash
+npm test
+npm run build:store
+```
+
+产物位于 `release/contextflow-chrome-<版本>.zip`，附 SHA-256 校验文件。商店包安装后必须独立配对；上传草稿后应以商店分配的扩展 ID 为准。商店文案、隐私页面及审核说明见 `store/`，当前仍需将隐私页面和匹配的本地服务版本发布到用户可访问的位置，不能仅凭生成 ZIP 就提交审核。
+
+`npm run build:store-support` 另外生成静态支持站点和本地配套服务 ZIP，均附校验和；`npm run test:store-support` 验证站点内容和服务包全新安装、配对与撤销。部署步骤见 `store/DEPLOY.md`。这些命令只生成本地产物，不会上传网站、推送代码或提交商店审核。
 
 ## 已知边界
 

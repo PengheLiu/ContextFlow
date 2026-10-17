@@ -213,12 +213,17 @@ npm run build:ext     # prints the stable extension ID and chrome-extension:// o
 
 Then:
 
-1. Add the printed `chrome-extension://<id>` to `allowedOrigins` in `~/.contextflow/config.json`;
-2. Run `npm run service -- restart` so the updated origin allowlist takes effect;
-3. Open `chrome://extensions` and enable Developer mode;
-4. Choose **Load unpacked** and select `extension/dist`;
-5. Open an article and enter **Settings** in the ContextFlow side panel;
-6. Configure the LLM used for translation, your note backend, and an optional local agent.
+1. Open `chrome://extensions`, enable Developer mode, and load `extension/dist`;
+2. Copy `npm run pair -- <extension-id>` from the extension's connection page and run it in the project directory;
+3. Paste the generated pairing code into that extension page, review the data-use notice, and verify the connection; no manual origin edits or service restart are needed;
+4. Open an article and enter **Settings** in the ContextFlow side panel;
+5. Configure the LLM used for translation, your note backend, and an optional local agent.
+
+Extension offline data now lives in extension-owned IndexedDB rather than website storage. Before upgrading an older development build, sync or export pending records; old website caches are neither imported nor deleted automatically. Run `npm run pair -- --revoke <extension-id>` to revoke local-service access. Generating a new pairing code invalidates the previous code.
+
+For Chrome Web Store distribution, run `npm test`, `npm run test:store`, and `npm run build:store`. The resulting `release/contextflow-chrome-<version>.zip` contains no publisher-local token and requires runtime pairing. Do not publicly distribute the personal `build:ext` output. Listing drafts, privacy policy and reviewer instructions are in `store/`; the public policy URL and a matching companion-service release must be available before review submission.
+
+`npm run build:store-support` also packages the static support site and the companion service with SHA-256 checksums. `npm run test:store-support` checks site content and a clean production-dependency installation, pairing, and revocation from the service ZIP. See `store/DEPLOY.md` for deployment steps. These commands do not upload a website, push code, or submit a store review.
 
 To let an agent use personal notes, click **Detect**, choose an installed agent, and explicitly select the notes directory it may read.
 

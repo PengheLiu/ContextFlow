@@ -189,7 +189,7 @@ if (built) {
   // 且底色接近白、在工具栏上等于透明。工具栏那套是紧贴边界的构图。
   t('工具栏图标不是 icon-512 的副本（构图不同，不能复用）', () => {
     const a = readFileSync(join(OUT, 'toolbar-128.png'));
-    const b = readFileSync(join(OUT, 'icon-512.png'));
+    const b = readFileSync('assets/icon-512.png');
     assert.ok(!a.equals(b), '工具栏图标直接用了 icon-512');
     assert.ok(!Object.values(mf().action.default_icon).includes('icon-512.png'),
       'action.default_icon 里出现了 icon-512.png —— 那个构图在工具栏上会显得又小又淡');

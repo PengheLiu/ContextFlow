@@ -374,4 +374,41 @@ try {
   performance.now = realNow;
 }
 
+await t('顶部文案反映状态，处理时禁用按钮及 Enter，完成后恢复', () => {
+  let submitted = 0, refreshed = 0, changed;
+  const p = new Popover({ name: 'tip-submit-state', title: '解释', input: true,
+    onSubmit: () => submitted++, onRefresh: () => refreshed++,
+    onQuestionChange: (q) => { changed = q; } }).open(rect);
+  p.submitState('重新解释');
+  assert.equal(p.$('go').textContent.trim(), '重新解释');
+  p.$('go').click();
+  assert.equal(submitted, 1);
+  p.submitState('处理中…', true);
+  p.$('go').click();
+  p.$('re').click();
+  p.$('q').dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter' }));
+  assert.equal(submitted, 1);
+  assert.equal(refreshed, 0);
+  assert.equal(p.$('go').getAttribute('aria-busy'), 'true');
+  p.submitState('提问');
+  p.$('q').value = '  新问题  ';
+  p.$('q').dispatchEvent(new window.Event('input'));
+  assert.equal(changed, '新问题');
+  p.$('q').dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter', isComposing: true }));
+  assert.equal(submitted, 1, '输入法选词不得提交');
+  p.$('q').dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter' }));
+  assert.equal(submitted, 2);
+  assert.equal(p.$('go').disabled, false);
+  p.close();
+});
+
+await t('底部重新解释的异步异常也在面板显示', async () => {
+  const p = new Popover({ name: 'tip-refresh-error', title: '解释', input: true,
+    onRefresh: async () => { throw new Error('重试失败'); } }).open(rect);
+  p.$('re').click();
+  await Promise.resolve();
+  assert.match(p.$('b').textContent, /重试失败/);
+  p.close();
+});
+
 console.log(`\n${pass} 项通过`);

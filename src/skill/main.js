@@ -34,6 +34,7 @@ import {
 import { renderArticleMarkdown, safeMarkdownFilename } from '../core/markdown.js';
 import { assetIds, inlineAssetTokens } from '../core/assets.js';
 import { urlKey } from '../core/urlkey.js';
+import { browserStorage } from '../core/browser-storage.js';
 import {
   blockedScope, blockPage, blockSite, showUnblockChip, BlockControl,
 } from './blocklist.js';
@@ -43,8 +44,8 @@ const MIRROR = 'contextflow:v2:';
 // 会在原文留标记的 action。直接由 MARKS 派生，避免两处各写一份而走形。
 const MARKED = new Set(Object.keys(MARKS));
 
-const mGet = (k) => { try { return JSON.parse(localStorage.getItem(MIRROR + k) || '[]'); } catch { return []; } };
-const mSet = (k, v) => { try { localStorage.setItem(MIRROR + k, JSON.stringify(v)); } catch { /* 配额 */ } };
+const mGet = (k) => { try { return JSON.parse(browserStorage().getItem(MIRROR + k) || '[]'); } catch { return []; } };
+const mSet = (k, v) => { try { browserStorage().setItem(MIRROR + k, JSON.stringify(v)); } catch { /* 配额 */ } };
 
 const TOOLBAR_CSS = `${FLOAT}
   .card{display:none;gap:2px;align-items:center;padding:5px 6px;border-radius:7px;
@@ -85,6 +86,8 @@ export class App {
     // lookup id → 当前轮询的 AbortController。删除 pending 记录时用它中止轮询，
     // 也防止已经晚到的结果把已删除记录用稳定 id "复活"。
     this.lookupRuns = new Map();
+    // 覆盖上传正文到轮询完成的整个提交窗口，避免连点重复排队。
+    this.explainSubmissions = new Set();
   }
 
   async start() {
@@ -675,8 +678,8 @@ export class App {
         submitLabel: '提问',
         supplement: true,
         onSubmit: (q) => this.runExplain(q),
-        // 命中本地缓存后想要新答案，得有个明确的出口，否则只能改问题措辞
         onRefresh: (q) => this.runExplain(q, true),
+        onQuestionChange: () => this.syncExplainSubmit(),
         onSupplementInput: (id, value) => this.updateLookupSupplement(id, value, false, 'popover'),
         onSupplementCommit: (id, value) => this.updateLookupSupplement(id, value, true, 'popover'),
         onAsset: (file) => this.addAsset(file),
@@ -760,11 +763,24 @@ export class App {
       || b.index - a.index)[0]?.e;
     const question = cleanQuestion(prev?.extra?.question);
     if (prev) pop.supplement?.(prev.id, prev.extra?.supplement || '');
-    if (prev?.value) pop.answer(prev.value).foot('本地已有回答 · 可修改问题后再提问').showRefresh(true);
+    if (prev?.value) pop.answer(prev.value).foot('本地已有回答 · 点击上方重新解释，或修改问题后提问').showRefresh(true);
     else if (prev?.extra?.status === 'running') pop.body(prev.extra.progress || '这段正在解释中…', 'prog');
     else if (prev?.extra?.status === 'deferred') pop.body('当前离线，记录已保留', 'bad');
     else if (prev?.extra?.status === 'error') pop.body(`解释失败：${prev.extra.error || '未知错误'}`, 'bad');
     pop.focus(question);
+    this.syncExplainSubmit(pop);
+  }
+
+  /** 按当前选区和输入的问题决定提交含义，不让长答案藏住重试入口。 */
+  syncExplainSubmit(pop = this.pops?.explain) {
+    if (!pop?.submitState || !this.explainCtx) return;
+    const key = lookupKey({ action: 'explain', text: this.explainCtx.text,
+      extra: { question: cleanQuestion(pop.question()) } });
+    const prev = this.items.find((e) => e.action === 'explain' && !e.deletedAt && lookupKey(e) === key);
+    const busy = this.explainSubmissions.has(key) || this.lookupRuns.has(prev?.id);
+    const failed = ['error', 'deferred'].includes(prev?.extra?.status);
+    pop.submitState(busy ? '处理中…' : prev?.value ? '重新解释' : failed ? '重试' : '提问', busy);
+    pop.showRefresh(!busy && !!prev?.value);
   }
 
   async runExplain(question, fresh = false) {
@@ -777,28 +793,38 @@ export class App {
     }
     question = cleanQuestion(question);
     const seed = { action: 'explain', text: ctx.text, extra: { question } };
+    const key = lookupKey(seed);
     const prev = this.items.find((e) => e.action === 'explain' && !e.deletedAt
-      && lookupKey(e) === lookupKey(seed));
-    // 已在当前页面镜像里的完整答案无需再经过服务端缓存，更不能先被 pending 覆盖。
-    if (!fresh && prev?.value) {
-      pop.focus(question).answer(prev.value).foot('本地已有回答').showRefresh(true);
-      pop.supplement?.(prev.id, prev.extra?.supplement || '');
-      return;
+      && lookupKey(e) === key);
+    if (this.explainSubmissions.has(key) || this.lookupRuns.has(prev?.id)) return;
+    // 重开只读缓存；主动提交已有问题则明确请求新答案，包括失败后的重试。
+    fresh ||= !!prev?.value || ['error', 'deferred'].includes(prev?.extra?.status);
+    this.explainSubmissions.add(key);
+    this.syncExplainSubmit(pop);
+    pop.foot('').showRefresh(false);
+    const tk = ticker(pop, '正在准备上下文');
+    try {
+      await this.uploadArticle();
+      const draft = { text: ctx.text, question, anchor: ctx.anchor, offset: ctx.offset };
+      const { id, jobId } = this.beginLookup(draft);
+      if (tk.current && pop.open$) {
+        pop.supplement?.(id, this.items.find((e) => e.id === id)?.extra?.supplement || '');
+      }
+      // 已有作业只附着，不再提交；显示权由 ticker 保证，不覆盖另一个选区。
+      if (jobId) {
+        tk.label('已在进行中，接着看…');
+        await this.followJob(id, jobId, draft, { pop, tk });
+      } else {
+        tk.label('思考中');
+        await this.pollExplain(id, draft, { fresh, pop, tk });
+      }
+    } catch (e) {
+      if (tk.current && pop.open$) pop.body(`解释失败：${e.message}`, 'bad').foot(this.hintFor(e));
+    } finally {
+      tk.stop();
+      this.explainSubmissions.delete(key);
+      this.syncExplainSubmit(pop);
     }
-    await this.uploadArticle();        // 按需：只为真正查过的页面存正文
-    const draft = { text: ctx.text, question, anchor: ctx.anchor, offset: ctx.offset };
-    // 提交即落一条"进行中"记录：原文立刻有标记、面板立刻有条目。
-    // 这样不必守着浮层等 —— agent 一次几十秒，原地等是最糟的交互。
-    const { id, jobId } = this.beginLookup(draft);
-    pop.supplement?.(id, this.items.find((e) => e.id === id)?.extra?.supplement || '');
-    const tk = ticker(pop, '思考中');
-    // 已经在跑就接上去看，别再提交一遍 —— 否则同一个问题会排两个作业
-    if (jobId && !fresh) {
-      tk.label('已在进行中，接着看…');
-      await this.followJob(id, jobId, draft, { pop, tk });
-      return;
-    }
-    await this.pollExplain(id, draft, { fresh, pop, tk });
   }
 
   /**
@@ -847,7 +873,7 @@ export class App {
     this.lookupRuns.get(id)?.abort();
     this.lookupRuns.set(id, ctl);
     const alive = () => !ctl.signal.aborted && this.items.some((e) => e.id === id);
-    this.watching = id;
+    if (tk?.current !== false) this.watching = id;
     try {
       const r = await api.explain({
         text: draft.text, question: draft.question, urlKey: this.key,
@@ -886,6 +912,7 @@ export class App {
         this.lookupRuns.delete(id);
         if (this.watching === id) this.watching = null;
       }
+      this.syncExplainSubmit();
     }
   }
 
@@ -899,7 +926,7 @@ export class App {
     this.lookupRuns.get(id)?.abort();
     this.lookupRuns.set(id, ctl);
     const alive = () => !ctl.signal.aborted && this.items.some((e) => e.id === id);
-    this.watching = id;
+    if (tk?.current !== false) this.watching = id;
     try {
       for (;;) {
         if (!alive()) return;
@@ -915,7 +942,7 @@ export class App {
           return;
         }
         if (job.status === 'error' || job.status === 'canceled') {
-          throw Object.assign(new Error(job.error?.message || '作业已取消'), { code: job.error?.code });
+          throw Object.assign(new Error(job.error?.message || '作业已取消'), { code: job.error?.code, status: 502 });
         }
         const note = job.queuedAhead ? `排队中（前面 ${job.queuedAhead} 个）`
           : (job.progress || '本地 agent 思考中');
@@ -936,6 +963,7 @@ export class App {
         this.lookupRuns.delete(id);
         if (this.watching === id) this.watching = null;
       }
+      this.syncExplainSubmit();
     }
   }
 
@@ -1128,6 +1156,7 @@ export class App {
     if (e.code === 'NO_AGENT') return '在面板「配置」里选一个本地 agent 并点「检测」';
     if (e.code === 'AGENT_SPAWN') return '选中的 agent 没装或不在 PATH 上';
     if (e.code === 'AGENT_TIMEOUT') return 'agent 太久没返回；可在配置里调大超时或改用 LLM';
+    if (e.code === 'AGENT_AUTH') return '请在终端打开 Claude Code 并运行 /login，登录后点击上方重试';
     if (['AGENT_EMPTY', 'AGENT_ERROR', 'AGENT_PARSE'].includes(e.code)) return 'agent 返回异常，看服务端日志';
     if (['NO_API_KEY', 'NO_MODEL', 'NO_BASEURL'].includes(e.code)) return '在面板「配置」里补齐翻译后端设置';
     return e.status ? `服务返回 ${e.status}` : '本地服务未启动？npm run server';

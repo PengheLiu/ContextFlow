@@ -14,6 +14,11 @@ const uid = () => globalThis.crypto?.randomUUID?.()
   || `${now().toString(36)}-${Math.random().toString(36).slice(2)}`;
 
 let dbPromise;
+let offlineTransport;
+
+export function setOfflineTransport(transport) {
+  offlineTransport = transport;
+}
 const req = (r) => new Promise((resolve, reject) => {
   r.onsuccess = () => resolve(r.result);
   r.onerror = () => reject(r.error);
@@ -23,9 +28,10 @@ const done = (tx) => new Promise((resolve, reject) => {
   tx.onabort = tx.onerror = () => reject(tx.error || new Error('IndexedDB 事务失败'));
 });
 
-export function available() { return typeof indexedDB !== 'undefined'; }
+export function available() { return !!offlineTransport || typeof indexedDB !== 'undefined'; }
 
 export function openOfflineStore() {
+  if (offlineTransport) throw new Error('扩展数据必须通过私有存储通道访问');
   if (!available()) return Promise.resolve(null);
   if (dbPromise) return dbPromise;
   dbPromise = new Promise((resolve, reject) => {
@@ -94,6 +100,7 @@ const opFor = (event, kind = event.deletedAt ? 'delete' : 'upsert') => ({
 
 /** 保存事件并按 id 合并出站操作；delete 覆盖更早的 upsert。 */
 export async function saveOfflineEvents(events, { queue = true } = {}) {
+  if (offlineTransport) return offlineTransport('saveOfflineEvents', [events, { queue }]);
   const db = await openOfflineStore();
   if (!db || !events?.length) return events || [];
   const tx = db.transaction(['events', 'operations'], 'readwrite');
@@ -121,12 +128,14 @@ export async function saveOfflineEvents(events, { queue = true } = {}) {
 }
 
 export async function tombstoneOfflineEvents(events) {
+  if (offlineTransport) return offlineTransport('tombstoneOfflineEvents', [events]);
   const stamped = events.map((e) => mutationStamp(e, { deleted: true }));
   await saveOfflineEvents(stamped);
   return stamped;
 }
 
 export async function listOfflineEvents(urlKey, { includeDeleted = false } = {}) {
+  if (offlineTransport) return offlineTransport('listOfflineEvents', [urlKey, { includeDeleted }]);
   const db = await openOfflineStore();
   if (!db) return [];
   const tx = db.transaction('events', 'readonly');
@@ -139,6 +148,7 @@ const hex = (buffer) => [...new Uint8Array(buffer)].map((n) => n.toString(16).pa
 
 /** 图片 Blob 独立于事件保存；事件正文里只出现 64 位内容哈希。 */
 export async function saveOfflineAsset(file, over = {}) {
+  if (offlineTransport) return offlineTransport('saveOfflineAsset', [file, { name: file?.name, ...over }]);
   const mime = String(over.mime || file?.type || '').toLowerCase();
   if (!ASSET_TYPES.has(mime)) throw new Error('仅支持 PNG、JPEG 或 WebP 图片');
   const source = file instanceof Blob ? file : new Blob([file], { type: mime });
@@ -162,6 +172,7 @@ export async function saveOfflineAsset(file, over = {}) {
 }
 
 export async function getOfflineAsset(id) {
+  if (offlineTransport) return offlineTransport('getOfflineAsset', [id]);
   const db = await openOfflineStore();
   if (!db) return null;
   const tx = db.transaction('assets', 'readonly');
@@ -170,6 +181,7 @@ export async function getOfflineAsset(id) {
 }
 
 export async function listPendingAssets(limit = 20) {
+  if (offlineTransport) return offlineTransport('listPendingAssets', [limit]);
   const db = await openOfflineStore();
   if (!db) return [];
   const tx = db.transaction('assets', 'readonly');
@@ -178,6 +190,7 @@ export async function listPendingAssets(limit = 20) {
 }
 
 export async function markOfflineAssetUploaded(id, at = now()) {
+  if (offlineTransport) return offlineTransport('markOfflineAssetUploaded', [id, at]);
   const db = await openOfflineStore();
   if (!db) return;
   const tx = db.transaction('assets', 'readwrite'), os = tx.objectStore('assets');
@@ -188,6 +201,7 @@ export async function markOfflineAssetUploaded(id, at = now()) {
 
 /** 原子 claim；多个 tab 最多各拿到不同操作。 */
 export async function claimOperations(owner, limit = 100, leaseMs = LEASE_MS) {
+  if (offlineTransport) return offlineTransport('claimOperations', [owner, limit, leaseMs]);
   const db = await openOfflineStore();
   if (!db) return [];
   const tx = db.transaction('operations', 'readwrite');
@@ -208,6 +222,7 @@ export async function claimOperations(owner, limit = 100, leaseMs = LEASE_MS) {
 }
 
 export async function acknowledgeOperations(claimed) {
+  if (offlineTransport) return offlineTransport('acknowledgeOperations', [claimed]);
   const db = await openOfflineStore();
   if (!db || !claimed.length) return;
   const tx = db.transaction('operations', 'readwrite');
@@ -220,6 +235,7 @@ export async function acknowledgeOperations(claimed) {
 }
 
 export async function releaseOperations(claimed, error) {
+  if (offlineTransport) return offlineTransport('releaseOperations', [claimed, String(error?.message || error || '')]);
   const db = await openOfflineStore();
   if (!db || !claimed.length) return;
   const tx = db.transaction('operations', 'readwrite');
@@ -234,6 +250,7 @@ export async function releaseOperations(claimed, error) {
 }
 
 export async function operationCount(urlKey) {
+  if (offlineTransport) return offlineTransport('operationCount', [urlKey]);
   const db = await openOfflineStore();
   if (!db) return 0;
   const tx = db.transaction('operations', 'readonly');
@@ -244,6 +261,7 @@ export async function operationCount(urlKey) {
 
 /** 远端结果（含 tombstone）写回本地，但不产生出站操作。 */
 export async function applyRemoteEvents(events) {
+  if (offlineTransport) return offlineTransport('applyRemoteEvents', [events]);
   const db = await openOfflineStore();
   if (!db || !events?.length) return;
   const tx = db.transaction('events', 'readwrite');
@@ -272,6 +290,7 @@ const textHash = (s) => {
 
 /** 正文只存在浏览器本地，供公开userscript的 LLMBridge 上下文使用。 */
 export async function putOfflineArticle({ urlKey, title = '', url = '', text = '' }) {
+  if (offlineTransport) return offlineTransport('putOfflineArticle', [{ urlKey, title, url, text }]);
   const db = await openOfflineStore();
   const raw = String(text || '');
   const body = raw.slice(0, ARTICLE_MAX_CHARS);
@@ -293,6 +312,7 @@ export async function putOfflineArticle({ urlKey, title = '', url = '', text = '
 }
 
 export async function getOfflineArticle(urlKey) {
+  if (offlineTransport) return offlineTransport('getOfflineArticle', [urlKey]);
   const db = await openOfflineStore();
   if (!db) return null;
   const tx = db.transaction('articles', 'readwrite');
@@ -391,6 +411,7 @@ export async function replaceFileEventStates(targetId, urlKey, states) {
 }
 
 export async function migrateLegacyOutbox(legacyEvents = []) {
+  if (offlineTransport) return offlineTransport('migrateLegacyOutbox', [legacyEvents]);
   const db = await openOfflineStore();
   if (!db) return false;
   const marker = 'migrated:legacy-outbox';
@@ -412,6 +433,7 @@ export async function migrateLegacyOutbox(legacyEvents = []) {
 
 /** 当前文章旧镜像的幂等迁移；成功后才写 marker，旧键暂留作降级回退。 */
 export async function migrateArticleMirror(urlKey, legacyEvents = []) {
+  if (offlineTransport) return offlineTransport('migrateArticleMirror', [urlKey, legacyEvents]);
   const db = await openOfflineStore();
   if (!db) return false;
   const marker = `migrated:${urlKey}`;

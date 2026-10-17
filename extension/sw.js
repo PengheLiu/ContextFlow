@@ -1,65 +1,116 @@
-// Service worker：**唯一持有 token 的地方**。
-//
-// 这是扩展载体相对 userscript 的核心优势。userscript 跑在页面 MAIN world，
-// 与页面共享 JS 堆，恶意页面理论上能在我方脚本之前 hook fetch 把 token 偷走 ——
-// 所以那条路必须开 allowAnyOrigin，等于把唯一防线压在 token 上。
-//
-// 这里 fetch 发生在 service worker 里，页面碰不到 token，也拿不到这条通道。
-// 于是服务端可以关掉 allowAnyOrigin、只白名单 `chrome-extension://<id>`：
-// 「所有站点可用」与「白名单最强」第一次可以同时成立。
-//
-// content script 跑在 ISOLATED world（已实测 CSS.highlights 在那里能正常绘制），
-// 所以页面既偷不到 token、也无法伪造发往这里的消息 —— chrome.runtime 通道对页面不可见。
+import * as offline from '../src/core/offline-store.js';
+import { encodeMessage, decodeMessage } from '../src/ext/rpc.js';
 
 const BASE = 'http://127.0.0.1:7317';
-
-// 构建时由 tools/build.mjs 从 ~/.contextflow/config.json 注入。
-// 注意：**只能注入到这个文件**。UI 侧 bundle 必须编译成空串，
-// test/extbuild.test.mjs 会断言这一点。
 const TOKEN = typeof __CONTEXTFLOW_TOKEN__ === 'string' ? __CONTEXTFLOW_TOKEN__ : '';
-
-const HEADERS = {
-  'Content-Type': 'application/json',
-  // 安全模型的一半：强制预检。缺了它，Content-Type: text/plain 的简单 POST
-  // 不走预检，就能绕过 CORS 往库里塞垃圾。
-  'X-ContextFlow': '1',
-  ...(TOKEN ? { Authorization: `Bearer ${TOKEN}` } : {}),
-};
-
-/**
- * 只放行本项目自己的路径，避免这条通道被当成任意 URL 的代理。
- *
- * **加服务端路由时必须同步这里。** 漏了的表现是扩展报
- * "路径不被放行：/xxx"（400）—— 而 userscript 那条路直接 fetch、没有这层，
- * 所以只在扩展上炸，很容易漏（/summary 就漏过一次）。
- * test/extbuild.test.mjs 会拿 server/index.mjs 里的路由与这份名单对账。
- */
 const OK_PATH = /^\/(health|events|assets|article|translate|explain|summary|jobs|config|llm|agents|obsidian|fs|siyuan|sync)(\/|\?|$)/;
+const preferenceKeys = ['contextflow:ui', 'contextflow:pop', 'contextflow:blocklist'];
+const offlineMethods = new Set([
+  'saveOfflineEvents', 'tombstoneOfflineEvents', 'listOfflineEvents',
+  'saveOfflineAsset', 'getOfflineAsset', 'listPendingAssets', 'markOfflineAssetUploaded',
+  'claimOperations', 'acknowledgeOperations', 'releaseOperations', 'operationCount',
+  'applyRemoteEvents', 'putOfflineArticle', 'getOfflineArticle',
+  'migrateLegacyOutbox', 'migrateArticleMirror',
+]);
+const storageReady = chrome.storage.local.setAccessLevel({ accessLevel: 'TRUSTED_CONTEXTS' });
 
-async function forward({ path, init }) {
-  if (typeof path !== 'string' || !OK_PATH.test(path)) {
+async function connectionToken() {
+  await storageReady;
+  const { connection } = await chrome.storage.local.get('connection');
+  return connection ? connection.token || '' : TOKEN;
+}
+
+async function fetchService(path, init = {}, token) {
+  if (typeof path !== 'string' || !OK_PATH.test(path) || path.includes('\\') || path.includes('..')) {
     return { status: 400, body: { error: `路径不被放行：${path}` } };
   }
+  if (!token) return { status: 428, body: { error: '尚未配对：点击扩展图标打开连接设置', code: 'PAIRING_REQUIRED' } };
+  if (!['GET', 'POST', 'DELETE'].includes(init.method || 'GET')) {
+    return { status: 400, body: { error: '不支持的请求方法' } };
+  }
   try {
-    const res = await fetch(BASE + path, {
-      method: init?.method || 'GET',
-      body: init?.body,
-      headers: { ...HEADERS, ...(init?.headers || {}) },
+    const response = await fetch(BASE + path, {
+      method: init.method || 'GET', body: init.body,
+      headers: { 'Content-Type': 'application/json', 'X-ContextFlow': '1', Authorization: `Bearer ${token}`,
+        ...(token !== TOKEN ? { 'X-ContextFlow-Extension': chrome.runtime.id } : {}) },
+      redirect: 'error', signal: AbortSignal.timeout(20000),
     });
-    return { status: res.status, body: await res.json().catch(() => ({})) };
-  } catch (e) {
-    // 服务没起时给 0，客户端据此走 outbox —— 与 userscript 路径行为一致
-    return { status: 0, body: { error: `本地服务不可达：${e.message}` } };
+    return { status: response.status, body: await response.json().catch(() => ({})) };
+  } catch (error) {
+    return { status: 0, body: { error: `本地服务不可达：${error.message}` } };
   }
 }
 
-chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
-  if (msg?.type !== 'cf-fetch') return false;
-  forward(msg).then(reply);
-  return true;                      // 异步 reply，必须返回 true
+function senderKind(sender) {
+  if (sender.id !== chrome.runtime.id) return null;
+  if (sender.url === chrome.runtime.getURL('options.html')) return 'settings';
+  if (/^https?:\/\//.test(sender.url || '') && sender.tab && sender.frameId === 0) return 'page';
+  return null;
+}
+
+async function handleMessage(message, sender, kind) {
+  await storageReady;
+  if (message.type === 'cf-offline') {
+    if (kind !== 'page' || !offlineMethods.has(message.method) || !Array.isArray(message.args)) {
+      throw new Error('不允许的存储操作');
+    }
+    return offline[message.method](...decodeMessage(message.args));
+  }
+  if (message.type === 'cf-ui-snapshot' || message.type === 'cf-ui-write') {
+    if (kind !== 'page') throw new Error('仅网页扩展界面可访问站点偏好');
+    const origin = new URL(sender.url).origin;
+    const storageKey = (key) => `preferences:${origin}:${key}`;
+    if (message.type === 'cf-ui-snapshot') {
+      const stored = await chrome.storage.local.get(preferenceKeys.map(storageKey));
+      return Object.fromEntries(preferenceKeys.map((key) => [key, stored[storageKey(key)] ?? null]));
+    }
+    if (!preferenceKeys.includes(message.key) || (message.value !== null &&
+      (typeof message.value !== 'string' || message.value.length > 65536))) throw new Error('无效的偏好设置');
+    if (message.value === null) await chrome.storage.local.remove(storageKey(message.key));
+    else await chrome.storage.local.set({ [storageKey(message.key)]: message.value });
+    return true;
+  }
+  if (kind !== 'settings') throw new Error('只能在扩展自己的设置页进行配对');
+  if (message.type === 'cf-status') return { paired: !!(await connectionToken()), extensionId: chrome.runtime.id };
+  if (message.type === 'cf-disconnect') {
+    await chrome.storage.local.set({ connection: { disconnected: true } });
+    return true;
+  }
+  if (message.type === 'cf-connect') {
+    const token = typeof message.token === 'string' ? message.token.trim() : '';
+    if (!/^[A-Za-z0-9_-]{43}$/.test(token)) throw new Error('配对码格式不正确，请重新从本地命令复制');
+    if (message.consent !== true) throw new Error('请先阅读并确认数据使用说明');
+    const result = await fetchService('/health', {}, token);
+    if (result.status !== 200 || !result.body.ok || result.body.extensionPaired !== true) {
+      throw new Error(result.body.error || '连接失败，请确认本地服务已启动，并使用当前扩展 ID 生成配对码');
+    }
+    await chrome.storage.local.set({ connection: { token, consentVersion: 1, pairedAt: Date.now() } });
+    return { paired: true };
+  }
+  throw new Error('未知扩展消息');
+}
+
+chrome.runtime.onMessage.addListener((message, sender, reply) => {
+  if (typeof message?.type !== 'string' || !message.type.startsWith('cf-')) return false;
+  const kind = senderKind(sender);
+  if (!kind) { reply({ ok: false, error: '不可信的消息来源' }); return false; }
+  if (message.type === 'cf-fetch') {
+    connectionToken().then((token) => fetchService(message.path, message.init, token))
+      .then(reply).catch(() => reply({ status: 0, body: { error: '扩展安全存储不可用' } }));
+  } else {
+    handleMessage(message, sender, kind).then(encodeMessage)
+      .then((value) => reply({ ok: true, value }))
+      .catch((error) => reply({ ok: false, error: error.message }));
+  }
+  return true;
 });
 
-// 点扩展图标 = 打开/收起面板。content script 里监听同一个消息。
-chrome.action?.onClicked?.addListener((tab) => {
-  if (tab?.id != null) chrome.tabs.sendMessage(tab.id, { type: 'cf-toggle' }).catch(() => {});
+chrome.runtime.onInstalled.addListener(({ reason }) => {
+  if (reason === 'install') chrome.runtime.openOptionsPage();
+});
+
+chrome.action.onClicked.addListener(async (tab) => {
+  if (!(await connectionToken())) return chrome.runtime.openOptionsPage();
+  if (tab?.id != null) chrome.tabs.sendMessage(tab.id, { type: 'cf-toggle' })
+    .catch(() => chrome.runtime.openOptionsPage());
 });

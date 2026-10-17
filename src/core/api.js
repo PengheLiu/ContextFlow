@@ -5,6 +5,7 @@ import {
   claimOperations, acknowledgeOperations, releaseOperations, operationCount,
   migrateLegacyOutbox, listPendingAssets, markOfflineAssetUploaded, saveOfflineAsset,
 } from './offline-store.js';
+import { browserStorage } from './browser-storage.js';
 
 const BASE = 'http://127.0.0.1:7317';
 const OUTBOX = 'contextflow:outbox';
@@ -12,11 +13,12 @@ const OUTBOX = 'contextflow:outbox';
 // 改名前的键是 ctxit:*。一次性搬过来，否则未推送的 outbox 和面板偏好会凭空消失。
 (function migrateLegacyKeys() {
   try {
-    for (const k of Object.keys(localStorage)) {
+    const storage = browserStorage();
+    for (const k of Object.keys(storage)) {
       if (!k.startsWith('ctxit:')) continue;
       const nk = 'contextflow:' + k.slice('ctxit:'.length);
-      if (localStorage.getItem(nk) === null) localStorage.setItem(nk, localStorage.getItem(k));
-      localStorage.removeItem(k);
+      if (storage.getItem(nk) === null) storage.setItem(nk, storage.getItem(k));
+      storage.removeItem(k);
     }
   } catch { /* 隐私模式下 localStorage 不可用，忽略 */ }
 })();
@@ -52,10 +54,10 @@ let transport = async (path, init = {}) => {
 export function setTransport(fn) { transport = fn; }
 
 const readOutbox = () => {
-  try { return JSON.parse(localStorage.getItem(OUTBOX) || '[]'); } catch { return []; }
+  try { return JSON.parse(browserStorage().getItem(OUTBOX) || '[]'); } catch { return []; }
 };
 const writeOutbox = (list) => {
-  try { localStorage.setItem(OUTBOX, JSON.stringify(list.slice(-500))); } catch { /* 配额满，丢弃最旧 */ }
+  try { browserStorage().setItem(OUTBOX, JSON.stringify(list.slice(-500))); } catch { /* 配额满，丢弃最旧 */ }
 };
 
 async function call(path, init = {}) {
@@ -244,7 +246,7 @@ export async function summarize({ urlKey, fresh, onProgress, signal } = {}) {
     if (signal?.aborted) { cancelJob(id); throw Object.assign(new Error('已取消'), { code: 'ABORTED' }); }
     const job = await getJob(id);
     if (job.status === 'done') return job.result;
-    if (job.status === 'error') throw Object.assign(new Error(job.error?.message || '作业失败'), { code: job.error?.code });
+    if (job.status === 'error') throw Object.assign(new Error(job.error?.message || '作业失败'), { code: job.error?.code, status: 502 });
     if (job.status === 'canceled') throw Object.assign(new Error('作业已取消'), { code: 'ABORTED' });
     onProgress?.(job);
     await new Promise((r) => setTimeout(r, 1200));
@@ -271,7 +273,7 @@ export async function explain({ text, question, urlKey, offset, fresh, onProgres
     if (signal?.aborted) { cancelJob(id); throw Object.assign(new Error('已取消'), { code: 'ABORTED' }); }
     const job = await getJob(id);
     if (job.status === 'done') return job.result;
-    if (job.status === 'error') throw Object.assign(new Error(job.error?.message || '作业失败'), { code: job.error?.code });
+    if (job.status === 'error') throw Object.assign(new Error(job.error?.message || '作业失败'), { code: job.error?.code, status: 502 });
     if (job.status === 'canceled') throw Object.assign(new Error('作业已取消'), { code: 'ABORTED' });
     onProgress?.(job);
     await new Promise((r) => setTimeout(r, 1200));

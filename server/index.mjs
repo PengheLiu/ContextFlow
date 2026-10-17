@@ -17,6 +17,7 @@ import { originAllowed, EXT_ORIGIN_RE } from './origin.mjs';
 import { detect as detectAgents } from './agent.mjs';
 import { detectVaults, listFolders } from './obsidian.mjs';
 import { getAsset, saveAsset } from './assets.mjs';
+import { pairedOrigin, extensionAuthorized } from './extension-pairing.mjs';
 
 let cfg = loadConfig();   // POST /config 会热替换
 const MAX_BODY = 2 * 1024 * 1024;
@@ -33,7 +34,7 @@ const rejected = new Set();   // 同一 origin 只提示一次，避免刷屏
 function applyCors(req, res) {
   const origin = req.headers.origin;
   if (!origin) return true;                       // 无 Origin：curl / 同源，放行
-  if (!originAllowed(cfg, origin)) {
+  if (!originAllowed(cfg, origin) && !pairedOrigin(origin)) {
     if (!rejected.has(origin)) {
       rejected.add(origin);
       console.warn(`[cors] 拒绝 ${origin}\n`
@@ -43,7 +44,7 @@ function applyCors(req, res) {
   }
   res.setHeader('Access-Control-Allow-Origin', origin);
   res.setHeader('Vary', 'Origin');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-ContextFlow, X-Ctxit, Authorization');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-ContextFlow, X-Ctxit, X-ContextFlow-Extension, Authorization');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
   res.setHeader('Access-Control-Max-Age', '600');
   return true;
@@ -70,25 +71,36 @@ const server = createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host}`);
   const path = url.pathname;
 
-  if (!applyCors(req, res)) {
-    return json(res, 403, { error: `origin 不在白名单：${req.headers.origin}`, hint: `编辑 ${CONFIG_PATH} 的 allowedOrigins` });
-  }
-  if (req.method === 'OPTIONS') { res.writeHead(204); return res.end(); }
+  try {
+    const extensionId = req.headers['x-contextflow-extension'];
+    const claimedOrigin = extensionId ? `chrome-extension://${extensionId}` : req.headers.origin;
+    if (extensionId && (!/^[a-p]{32}$/.test(extensionId) ||
+      (req.headers.origin && req.headers.origin !== claimedOrigin))) {
+      return json(res, 403, { error: '扩展身份与请求来源不一致' });
+    }
+    if (!applyCors(req, res)) {
+      return json(res, 403, { error: `origin 不在白名单：${req.headers.origin}`, hint: `编辑 ${CONFIG_PATH} 的 allowedOrigins` });
+    }
+    if (req.method === 'OPTIONS') { res.writeHead(204); return res.end(); }
 
   // 强制预检的关键：缺这个头直接拒。
   // 同时接受改名前的 X-Ctxit —— 否则宿主里还粘着旧版 dist/skill.js 时，
   // 一升级服务端就全线 403，且错误信息在 CORS 下读不到，极难自查。
-  if (req.headers['x-contextflow'] !== '1' && req.headers['x-ctxit'] !== '1') {
-    return json(res, 403, { error: '缺少 X-ContextFlow: 1 请求头' });
-  }
-  if (cfg.requireToken) {
+    if (req.headers['x-contextflow'] !== '1' && req.headers['x-ctxit'] !== '1') {
+      return json(res, 403, { error: '缺少 X-ContextFlow: 1 请求头' });
+    }
     const tok = (req.headers.authorization || '').replace(/^Bearer\s+/i, '');
-    if (tok !== cfg.token) return json(res, 401, { error: 'token 无效' });
-  }
+    const extensionAuth = extensionAuthorized(claimedOrigin, tok);
+    if (extensionAuth === false || (extensionId && extensionAuth !== true)) {
+      return json(res, 401, { error: '扩展尚未配对、配对已撤销或配对码无效' });
+    }
+    if (extensionAuth === null && cfg.requireToken) {
+      if (tok !== cfg.token) return json(res, 401, { error: 'token 无效' });
+    }
 
-  try {
     if (path === '/health') {
       return json(res, 200, { ok: true, stats: db.stats(cfg.sync.backend),
+        extensionPaired: extensionAuth === true,
         hasApiKey: !!cfg.translate.apiKey, backend: cfg.sync.backend, backends: BACKENDS });
     }
 
@@ -233,7 +245,7 @@ const server = createServer(async (req, res) => {
     return json(res, 404, { error: `无此路由 ${req.method} ${path}` });
   } catch (e) {
     const map = { NEED_TEXT: 409, NO_AGENT: 503, AGENT_SPAWN: 503, AGENT_TIMEOUT: 504,
-                  AGENT_EMPTY: 502, AGENT_ERROR: 502, AGENT_PARSE: 502, BAD_AGENT: 400,
+                  AGENT_EMPTY: 502, AGENT_ERROR: 502, AGENT_PARSE: 502, AGENT_AUTH: 502, BAD_AGENT: 400,
                   NO_API_KEY: 503, TOO_LONG: 413, BAD_INPUT: 400, BAD_JSON: 400,
                   TOO_LARGE: 413, SIYUAN_DOWN: 503, SIYUAN_AUTH: 503, SIYUAN: 502,
                   NO_MODEL: 503, NO_BASEURL: 503, UPSTREAM: 502,

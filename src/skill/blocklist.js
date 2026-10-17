@@ -17,12 +17,14 @@ import { urlKey } from '../core/urlkey.js';
 import { T, FLOAT, shadowHost } from './theme.js';
 import { icon } from './icons.js';
 
+import { browserStorage } from '../core/browser-storage.js';
+
 const KEY = 'contextflow:blocklist';
 
 const read = () => {
-  try { return JSON.parse(localStorage.getItem(KEY)) || {}; } catch { return {}; }
+  try { return JSON.parse(browserStorage().getItem(KEY)) || {}; } catch { return {}; }
 };
-const write = (list) => { try { localStorage.setItem(KEY, JSON.stringify(list)); } catch { /* 配额 */ } };
+const write = (list) => { try { browserStorage().setItem(KEY, JSON.stringify(list)); } catch { /* 配额 */ } };
 
 /** 站点显示名：去掉协议前缀，比裸 origin 亲切一点 */
 export function siteLabel(href = location.href) {
