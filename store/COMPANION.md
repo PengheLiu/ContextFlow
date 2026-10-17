@@ -4,7 +4,7 @@
 
 ## 你是否需要这个包？
 
-首次体验批注，请先安装 Chrome 扩展并完成一次 Markdown 导出。这个 companion 包只负责 AI 和自动同步，不是要加载进 Chrome 的文件。
+首次体验批注，请先安装 Chrome 扩展并完成一次 Markdown 导出。这个 companion 包只负责 AI 和笔记同步，不是要加载进 Chrome 的文件。
 
 完整用户指南（含打开终端、成功标志和故障排查）：https://github.com/PengheLiu/ContextFlow/blob/main/docs/GETTING_STARTED.md
 

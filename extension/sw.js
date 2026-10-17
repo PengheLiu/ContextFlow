@@ -24,7 +24,7 @@ async function fetchService(path, init = {}, token) {
   if (typeof path !== 'string' || !OK_PATH.test(path) || path.includes('\\') || path.includes('..')) {
     return { status: 400, body: { error: `路径不被放行：${path}` } };
   }
-  if (!token) return { status: 428, body: { error: 'AI 和自动同步尚未开启，请在侧栏点击「开启 AI / 同步」；批注和导出可直接使用', code: 'PAIRING_REQUIRED' } };
+  if (!token) return { status: 428, body: { error: 'AI 和笔记同步尚未开启，请在侧栏点击「开启 AI / 同步」；批注和导出可直接使用', code: 'PAIRING_REQUIRED' } };
   if (!['GET', 'POST', 'DELETE'].includes(init.method || 'GET')) {
     return { status: 400, body: { error: '不支持的请求方法' } };
   }

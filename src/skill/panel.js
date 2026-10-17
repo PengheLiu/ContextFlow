@@ -650,7 +650,7 @@ export class Panel {
     this.$('connectionNote').hidden = !canConnect || online;
     const unpaired = this.h.getConnectionIssue?.() === 'PAIRING_REQUIRED';
     this.$('connectionHint').textContent = unpaired
-      ? 'AI 和自动同步尚未开启。需要时再连接，不影响本地阅读记录。'
+      ? 'AI 和笔记同步尚未开启。需要时再连接，不影响本地阅读记录。'
       : '本地服务未连接。记录仍会保存在浏览器，可以复制或下载。';
     this.$('connectService').textContent = unpaired ? '开启 AI / 同步' : '检查连接';
     const main = n ? `已定位 ${ok}/${n}` : '暂无批注';
@@ -663,7 +663,7 @@ export class Panel {
       + `${s.orphan ? `<span class="warn">未定位 ${s.orphan}</span>` : ''}`
       + `${box ? canConnect && !online ? '<span>本地保存</span>' : `<span class="warn">待发送 ${box}</span>` : ''}</span>`
       + `<span class="stat-tip" id="stat-tip" role="tooltip">${details}<br>`
-      + `${canConnect ? online ? '本地服务已连接' : '记录保存在本机；AI 与自动同步需连接服务' : online ? 'AI 通道可用' : '当前离线'} · 点击重新解析</span>`;
+      + `${canConnect ? online ? '本地服务已连接' : '记录保存在本机；AI 与笔记同步需连接服务' : online ? 'AI 通道可用' : '当前离线'} · 点击重新解析</span>`;
     this.$('gn').textContent = n ? String(n) : '';
     this.$('b-comments').textContent = n ? String(n) : '';
     // 总结没有"条数"，用一个克制的琥珀点表示已有内容，不再混用字符"·"。

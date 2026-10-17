@@ -27,9 +27,11 @@ Reload the article to check that your annotation returns. Pin ContextFlow from C
 | What you want | What you need |
 | --- | --- |
 | Highlights, annotations, pasted images, Markdown copy/download | Extension only |
-| Automatic sync to Obsidian, a Markdown folder, or SiYuan | Local companion service and an output destination; AI is optional |
+| Sync to Obsidian, a Markdown folder, or SiYuan | Local companion service and an output destination; AI is optional |
 | AI translation, explanations, article overviews | Local service and your own model configuration |
 | Answers grounded in personal notes | A local agent and explicit permission to read a notes directory |
+
+Annotations save automatically in the browser. To write them to your note destination, click **同步** (Sync) in the reading panel.
 
 ### Connect the optional companion
 
