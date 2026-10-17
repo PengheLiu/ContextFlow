@@ -56,3 +56,13 @@ macOS 服务管理：`npm run service -- status`、`restart`、`logs`、`uninsta
 `npm run pair -- --revoke <扩展ID>` 会立即撤销对应扩展授权；不需要重启服务。诊断日志与反馈中不得包含配对码、API key 或笔记内容。
 
 更多架构背景见 [DESIGN.md](../DESIGN.md)。
+
+## README 产品截图
+
+首页使用真实扩展界面，不在 HTML 中仿制功能面板。原创样文位于 `assets/readme/reading-article.html`，截图脚本会创建临时扩展与浏览器配置，实际输入批注，验证侧栏镜像和 Markdown 导出，然后生成 `assets/readme/inline-annotation.png`。
+
+```bash
+CONTEXTFLOW_PLAYWRIGHT_DIR=/path/to/runtime node tools/capture-readme.mjs
+```
+
+该运行目录需已安装 Playwright 与支持扩展的 Chromium；也可通过 `CONTEXTFLOW_CHROMIUM_PATH` 指定浏览器。截图不读取个人浏览器资料、不需要模型或本地服务。更新画面时同步核对 README 的版本说明。

@@ -1,91 +1,98 @@
-# ContextFlow
+<div align="center">
 
-**在网页上高亮、就地批注，把阅读中的想法保存成自己的 Markdown。** 需要时，再接入 AI 和个人笔记库。
+<img src="./assets/mark.svg" alt="" width="64" height="64">
 
-[下载试用](https://github.com/PengheLiu/ContextFlow/releases/latest) · [安装与使用指南](./docs/GETTING_STARTED.md) · [练习文章](https://pengheliu.github.io/ContextFlow/demo.html) · [English](./README.en.md)
+<h1>ContextFlow</h1>
 
-> Chrome 商店版 v0.3.1 已提交审核，尚未正式上架。现在可以通过下方步骤加载试用；审核通过后可直接从商店安装。当前源码中的 v0.3.2 新手引导改进尚未发布为安装包。
+<h3>把阅读，变成可复用的上下文。</h3>
 
-## 你可以用它做什么？
+<p>在原文旁思考，用 AI 深入理解，让阅读回到自己的知识系统。</p>
 
-- **边读边想：** 选中文字，直接在原文旁写批注或粘贴截图，右侧阅读记录同步更新。
-- **读完带走：** 把原文、想法和来源一起导出 Markdown，放进 Obsidian 或其他笔记软件。
-- **按需深入：** 连接自己的本地服务，用 AI 解释、翻译和速览；还可以让本地 agent 参考你授权的个人笔记。
+<p>
+  <a href="https://github.com/PengheLiu/ContextFlow/releases/latest"><strong>下载 Chrome 扩展</strong></a>
+  · <a href="./docs/GETTING_STARTED.md">开始使用</a>
+  · <a href="./README.en.md">English</a>
+</p>
 
-<img src="./assets/readme/reading-preview.png" alt="实际阅读界面：左侧原文高亮，右侧批注和 Markdown 下载入口" width="100%">
+<p><sub>开源 · 本地优先 · Markdown · Obsidian · 思源</sub></p>
 
-<sub>v0.3.2 开发版界面预览。基础批注与导出在当前 v0.3.1 试用包中也已支持。</sub>
+</div>
 
-## 先用起来，不用配置 AI
+> **发布状态：** Chrome 商店版 v0.3.1 正在审核，当前请[下载扩展包并手动安装](./docs/GETTING_STARTED.md#安装扩展)。商店上架后会在这里更新安装入口。
 
-高亮、批注、图片补充和 Markdown 导出**不需要账号、Node.js、API key 或本地服务**。首次只需完成一次「批注 → 导出」。
+ContextFlow 是为深度阅读打造的浏览器阅读工作台。读论文、技术文章或研究报告时，把**原文、疑问和自己的判断**留在一起，再将它们整理进自己的笔记，而不是散落在收藏夹、聊天窗口和临时文档里。
 
-### 1. 安装扩展
+<img src="./assets/readme/inline-annotation.png" alt="真实操作界面：选中网页原文后就地写批注，同一条批注同时出现在右侧阅读记录中" width="100%">
 
-商店审核期间，使用当前的 [v0.3.1 试用包](https://github.com/PengheLiu/ContextFlow/releases/tag/v0.3.1)：
+<sub>原文旁直接写，侧栏同步收录。使用原创样文与示例批注，截自 v0.3.2 开发版；当前 v0.3.1 发行包已支持原位批注、侧栏同步与 Markdown 导出。</sub>
 
-1. 下载 Assets 中的 **contextflow-chrome-0.3.1.zip**，解压到一个固定文件夹。
-2. 在 Chrome 地址栏输入 `chrome://extensions`，打开右上角「开发者模式」。
-3. 点击「加载已解压的扩展程序」，选择**里面有 manifest.json 的文件夹**，不要选择 ZIP。
-4. 打开普通文章网页并刷新一次。扩展的连接设置可以稍后再做。
+## 不只保存文章，也保留你为什么读它
 
-此步骤无需下载 companion 服务包，也无需运行任何命令。最低浏览器版本为 Chromium 111；推荐使用已更新的桌面版 Chrome。
+### 思考，不必离开原文
 
-### 2. 留下第一条批注
+选中一段话，就能在原文旁高亮、写批注、粘贴截图。无需先切到侧栏寻找输入框，也不用把一句话搬到另一个工具里才能记录想法。
 
-1. 打开[练习文章](https://pengheliu.github.io/ContextFlow/demo.html)，拖选一句正文。
-2. 在选区旁的工具条点「批注」，写下“这句话为什么对我有用”，或直接粘贴截图。
-3. 打开页面右侧的 ContextFlow 把手，确认能看见这条记录。
-4. 在侧栏底部点「下载」，得到包含原文、想法和来源的 Markdown。
+原位面板与侧栏编辑的是**同一条记录**：就地捕捉想法，在侧栏集中回看；点击记录，可以定位回原文。重新打开文章时，已保存的标记会尝试恢复。
 
-刷新练习页，批注仍应恢复。已安装但没反应？先刷新文章；Chrome 内部页面、商店页和内置 PDF 阅读器不能使用。
+### 有疑问，就沿着上下文追问
 
-## 哪些功能需要额外设置？
+对选中内容进行解释或翻译，在当前页面继续追问；长文可以先看速览，再回到具体段落深入理解。AI 结果和自己的补充一起留在阅读记录中，也可以在补充里粘贴图片。
 
-| 你想做什么 | 需要准备什么 |
-| --- | --- |
-| 高亮、批注、图片补充、复制或下载 Markdown | 只需安装扩展 |
-| 把记录同步到 Obsidian、Markdown 目录或思源 | 本地配套服务 + 选择保存位置；不要求先配置 AI |
-| AI 翻译、解释、文章速览 | 本地服务 + 自己的模型配置，费用由模型服务决定 |
-| 让 AI 参考以前的个人笔记 | 上述配置 + 已安装的本地 agent + 明确授权笔记目录 |
+你选择模型与本地 agent，ContextFlow 负责把问题带到阅读现场。AI 能力需要连接配套服务，不影响基础批注和导出的独立使用。
 
-批注输入会自动保存在浏览器；写入笔记软件时，需要点击侧栏底部的「同步」。
+### 读完之后，回到自己的笔记
 
-### 开启 AI 或笔记同步
+把速览、批注、解释、翻译和自己的总结整理为带来源的 Markdown，直接复制或下载；连接本地服务后，也能同步到 **Obsidian、Markdown 目录或思源笔记**。
 
-1. 下载发行页中的 **contextflow-companion-0.3.1.zip**。这是服务包，不是要加载进 Chrome 的文件。
-2. 安装 [Node.js 22.5+](https://nodejs.org/en/download)，在解压后的服务文件夹运行：
-
-   ~~~bash
-   npm ci --omit=dev
-   npm run server
-   ~~~
-
-3. 在扩展自己的「扩展程序选项」页复制专属配对命令，到服务文件夹的**另一个终端**执行。
-4. 把生成的配对码粘贴回扩展页并验证连接，再到文章侧栏「配置」选择笔记位置或模型。
-
-[完整连接步骤、成功标志和故障排查 →](./docs/GETTING_STARTED.md#开启-ai-和笔记同步)
-
-配对码不是模型 API key；它只用于本机连接。AI 使用你选择的模型或 agent，扩展不提供内置模型额度。打开阅读面板可能触发 AI 速览；相关内容可能发给你配置的服务。
-
-## 记录在哪里？会不会丢？
-
-扩展内的记录保存在**扩展私有存储**；本地服务把同步后的记录写入你选择的目录或笔记服务。ContextFlow 不提供集中存放阅读记录的云端账号。
-
-请定期导出或同步。卸载扩展会清除扩展内数据，但不会删除已导出的文件、本地服务数据库或已同步笔记。旧开发版的网页缓存不会自动导入新版，升级前先导出或同步。
-
-[隐私政策](https://pengheliu.github.io/ContextFlow/privacy.html) · [当前限制与常见问题](./docs/GETTING_STARTED.md#遇到问题)
+同一篇文章持续更新同一份笔记，减少反复整理。浏览器内输入自动保存；写入笔记软件由你点击「同步」触发。笔记保留为你能够管理、迁移和继续编辑的内容。
 
 ## 让过去的理解，参与此刻的阅读
 
-当你已经保存了一些想法，可以进一步让本地 agent 对照个人笔记：这个概念以前怎样理解？新证据支持还是修正了旧判断？哪些未完成的问题又值得回看？
+笔记不必只成为阅读的终点，也可以成为下一次理解的起点。
 
-这是 ContextFlow 的长期方向。先从一条能带走的批注开始，再让个人上下文逐渐回到阅读现场。[了解产品思路 →](./docs/PRODUCT.md)
+为本地 agent 授权指定笔记目录后，可以让它参考你的积累，围绕当前文章继续提问：
 
-## 开发与贡献
+- **对照旧观点：** 这个结论，与我之前的理解有什么不同？
+- **寻找关联：** 哪些笔记讨论过相同的问题？
+- **继续研究：** 新材料是否回答了我以前留下的疑问？
 
-普通用户无需克隆代码或自行编译。开发者请看[开发与发布指南](./docs/DEVELOPMENT.md)；架构、锚点恢复与权限边界见 [DESIGN.md](./DESIGN.md)。
+这是 ContextFlow 连接网页、AI 与个人知识库的方式，而不是另建一个封闭的收藏库。实际检索与回答取决于你配置的 agent、授权范围和笔记内容，重要结论仍需核对原文。[了解产品理念 →](./docs/PRODUCT.md)
 
-[报告问题](https://github.com/PengheLiu/ContextFlow/issues)时，请提供浏览器版本、扩展版本、操作步骤和经过脱敏的截图。不要提交配对码、API key 或私人笔记。
+## 开始使用
 
-MIT License · Local-first · Obsidian / Markdown / 思源
+**先完成一次有价值的阅读，不必先配置 AI。** 高亮、批注、粘贴图片和 Markdown 导出，只需扩展，不需要账号、API key 或本地服务。
+
+1. **安装扩展。** 下载 [Chrome 扩展包 v0.3.1](https://github.com/PengheLiu/ContextFlow/releases/download/v0.3.1/contextflow-chrome-0.3.1.zip)，解压后在 `chrome://extensions` 开启开发者模式，点击「加载已解压的扩展程序」，选择含 `manifest.json` 的文件夹。
+2. **留下想法。** 刷新一篇文章，选中一句正文，点击「批注」。可以从[阅读练习页](https://pengheliu.github.io/ContextFlow/demo.html)开始。
+3. **把记录带走。** 打开右侧阅读记录，在底部点击「下载」，得到带原文、批注与来源的 Markdown。
+
+[查看完整安装指南与常见问题 →](./docs/GETTING_STARTED.md)
+
+支持桌面 Chrome / Chromium 111+ 的普通网页。Chrome 内部页面、扩展商店和内置 PDF 阅读器暂不支持。当前界面主要为中文。
+
+### 按你的工作方式，开启更多能力
+
+| 能力 | 需要准备 |
+| --- | --- |
+| 高亮、原位批注、图片补充、Markdown 导出 | 仅安装扩展 |
+| 同步到 Obsidian / Markdown / 思源 | 本地配套服务 + 保存位置，无需配置 AI |
+| AI 速览、解释、追问、翻译 | 本地服务 + 自己的模型或 agent 配置 |
+| 参考个人笔记回答问题 | 本地 agent + 明确授权的笔记目录 |
+
+配套服务需要 Node.js 22.5+；目前通过终端安装和启动。模型费用由你使用的服务决定，ContextFlow 不提供内置模型额度。[配置 AI 与笔记同步 →](./docs/GETTING_STARTED.md#开启-ai-和笔记同步)
+
+## 数据在你的工具里，权限由你决定
+
+- **本地优先，不设阅读云账号。** 浏览器记录保存在扩展私有存储；配套服务在本机运行，写入你选择的目录或笔记服务。
+- **AI 去向取决于你的配置。** 文章、问题及授权笔记内容可能发送到所选模型或 agent 服务。本地优先不等于所有 AI 都离线运行。
+- **个人笔记按范围授权。** 本地 agent 默认使用受限配置；完整权限需要显式选择。不要把配对码、API key 或私人笔记上传到公开反馈中。
+
+请定期导出或同步备份。卸载扩展会清除浏览器内记录，不会删除已导出的文件或已同步笔记；网页结构变化也可能影响原文标记恢复。
+
+[隐私政策](https://pengheliu.github.io/ContextFlow/privacy.html) · [数据保存与升级说明](./docs/GETTING_STARTED.md#日常运行与升级)
+
+## 反馈与参与
+
+遇到问题或有使用建议，欢迎[提交 Issue](https://github.com/PengheLiu/ContextFlow/issues)。请附上扩展版本、浏览器版本、复现步骤和脱敏截图。
+
+[发行记录](https://github.com/PengheLiu/ContextFlow/releases) · [开发指南](./docs/DEVELOPMENT.md) · [架构与安全设计](./DESIGN.md) · [MIT License](./LICENSE)

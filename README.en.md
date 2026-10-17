@@ -1,83 +1,96 @@
-# ContextFlow
+<div align="center">
 
-**Highlight a web page, annotate beside the source, and keep your reading notes as Markdown.** Add AI and your personal notes when you need them.
+<img src="./assets/mark.svg" alt="" width="64" height="64">
 
-[Download](https://github.com/PengheLiu/ContextFlow/releases/latest) · [中文](./README.md) · [Practice article](https://pengheliu.github.io/ContextFlow/demo.html)
+<h1>ContextFlow</h1>
 
-> v0.3.1 has been submitted to the Chrome Web Store and is awaiting review. Until approval, use the unpacked extension below. The v0.3.2 onboarding improvements in the source have not been released as an installation package. The extension UI is currently in Chinese.
+<h3>Turn what you read into context you can reuse.</h3>
 
-## Start with one annotation
+<p>Think beside the source. Go deeper with AI. Keep the knowledge in your own tools.</p>
 
-Highlights, annotations, image attachments, and Markdown export require **no account, Node.js, API key, or local service**.
+<p>
+  <a href="https://github.com/PengheLiu/ContextFlow/releases/latest"><strong>Download for Chrome</strong></a>
+  · <a href="#get-started">Get started</a>
+  · <a href="./README.md">中文</a>
+</p>
 
-1. Open the [v0.3.1 release](https://github.com/PengheLiu/ContextFlow/releases/tag/v0.3.1) and download **contextflow-chrome-0.3.1.zip**.
-2. Extract it. Open `chrome://extensions`, enable Developer mode, and choose **Load unpacked**.
-3. Select the extracted folder containing `manifest.json`. Refresh an ordinary article tab after installation.
-4. Open the [practice article](https://pengheliu.github.io/ContextFlow/demo.html), select a sentence, and click **批注** (Annotate).
-5. Write a thought beside the passage. Open the right-hand reading panel and click **下载** (Download) to keep the article's records as Markdown.
+<p><sub>Open source · Local-first · Markdown · Obsidian · SiYuan</sub></p>
 
-Reload the article to check that your annotation returns. Pin ContextFlow from Chrome's puzzle-piece menu for easier access.
+</div>
 
-<img src="./assets/readme/reading-preview.png" alt="Actual reading UI: source highlighting, a personal annotation, and Markdown export" width="100%">
+> **Availability:** v0.3.1 is awaiting Chrome Web Store review. For now, [download and load the unpacked extension](#get-started). The extension UI is currently primarily in Chinese.
 
-<sub>Preview of the v0.3.2 development UI. Core annotations and export are also available in the current v0.3.1 trial package.</sub>
+ContextFlow is a browser reading workspace for people who read to understand. Keep **passages, questions, and your own judgments** together as you work through papers, technical articles, and research reports—then bring them back to your notes.
 
-## Choose what to enable next
+<img src="./assets/readme/inline-annotation.png" alt="Actual extension UI: write beside a selected passage while the same annotation appears in the reading panel" width="100%">
 
-| What you want | What you need |
+<sub>Write beside the source; review in the panel. Captured from the v0.3.2 development build using original sample text and an example annotation. Inline annotations, panel mirroring, and Markdown export are already available in v0.3.1.</sub>
+
+## Keep more than the article. Keep why it mattered.
+
+### Think without leaving the source
+
+Select a passage to highlight it, write an inline annotation, or paste a screenshot. Capture a thought where it occurs without moving it to a separate document first.
+
+The inline editor and reading panel share **one record**. Write in place, review in the panel, and jump back to the original passage. ContextFlow attempts to restore saved highlights when you revisit the article.
+
+### Follow the question, in context
+
+Explain or translate a selection and ask follow-up questions on the page. Start with an overview of a long article, then investigate the passages that matter. AI results stay with your reading records, alongside your own additions and pasted images.
+
+Choose your own model or local agent. AI requires the optional companion service; annotations and export work independently.
+
+### Bring the reading back to your notes
+
+Copy or download Markdown that includes the source, reading records, and your own summary. With the companion connected, sync to **Obsidian, a Markdown folder, or SiYuan**.
+
+The same article updates the same note rather than creating a new copy on every sync. Input saves automatically in the browser; writing to your note destination happens when you click **同步** (Sync). Your notes remain portable and editable in your own tools.
+
+## Bring earlier understanding into what you read now
+
+Your notes can be more than an output destination. Give a local agent permission to read a chosen notes directory, then ask questions that connect the current article to earlier work:
+
+- **Compare perspectives:** How does this conclusion differ from my previous understanding?
+- **Find connections:** Which notes discuss the same problem?
+- **Continue an investigation:** Does this evidence answer a question I left open?
+
+ContextFlow connects the web, AI, and your existing knowledge rather than creating another closed collection. Retrieval and answer quality depend on your agent, permissions, and notes. Verify important conclusions against the sources. [Product philosophy (Chinese) →](./docs/PRODUCT.md)
+
+## Get started
+
+**Start with useful reading, not AI configuration.** Highlights, inline annotations, pasted images, and Markdown export need no account, API key, Node.js, or running service.
+
+1. **Install.** Download the [Chrome extension v0.3.1](https://github.com/PengheLiu/ContextFlow/releases/download/v0.3.1/contextflow-chrome-0.3.1.zip) and extract it. Open `chrome://extensions`, enable Developer mode, choose **Load unpacked**, and select the folder containing `manifest.json`.
+2. **Capture a thought.** Refresh an article, select a sentence, and click **批注** (Annotate). The [practice article](https://pengheliu.github.io/ContextFlow/demo.html) provides a guided first use.
+3. **Keep the result.** Open the right-hand reading panel and click **下载** (Download) for Markdown containing your source and annotations.
+
+[Full installation and troubleshooting guide (Chinese) →](./docs/GETTING_STARTED.md)
+
+Works on ordinary web pages in desktop Chrome / Chromium 111+. Chrome internal pages, Web Store pages, and the built-in PDF viewer are not supported.
+
+### Enable only what your workflow needs
+
+| Capability | Requirements |
 | --- | --- |
-| Highlights, annotations, pasted images, Markdown copy/download | Extension only |
-| Sync to Obsidian, a Markdown folder, or SiYuan | Local companion service and an output destination; AI is optional |
-| AI translation, explanations, article overviews | Local service and your own model configuration |
-| Answers grounded in personal notes | A local agent and explicit permission to read a notes directory |
+| Highlights, inline annotations, pasted images, Markdown export | Extension only |
+| Sync to Obsidian / Markdown / SiYuan | Local companion and an output destination; AI is optional |
+| AI overviews, explanations, follow-up questions, translation | Local companion and your own model or agent configuration |
+| Answers informed by personal notes | Local agent and explicit permission to read a notes directory |
 
-Annotations save automatically in the browser. To write them to your note destination, click **同步** (Sync) in the reading panel.
+The companion requires Node.js 22.5+ and currently uses terminal-based installation and startup. Model charges are set by your provider; ContextFlow includes no model credits. [Companion setup (Chinese) →](./docs/GETTING_STARTED.md#开启-ai-和笔记同步)
 
-### Connect the optional companion
+## Your tools. Your data. Explicit permissions.
 
-Download **contextflow-companion-0.3.1.zip** from the release page. This is the local service, not the Chrome extension.
+- **Local-first, without a reading-history cloud account.** Browser records live in extension-private storage. The companion runs on your computer and writes to your selected directory or note service.
+- **AI destinations are your choice.** Article content, questions, and authorized note excerpts may be sent to the model or agent services you configure. Local-first does not mean all AI runs offline.
+- **Grant access deliberately.** Local agents default to a restricted profile; full permissions require an explicit choice. Never include pairing codes, API keys, or private notes in public reports.
 
-Install [Node.js 22.5 or later](https://nodejs.org/en/download), open a terminal in the extracted companion folder, and run:
+Export or sync regularly. Uninstalling the extension clears its browser records, not exported files or synced notes. Changes to a web page can also affect highlight restoration.
 
-~~~bash
-npm ci --omit=dev
-npm run server
-~~~
+[Privacy policy](https://pengheliu.github.io/ContextFlow/privacy.html) · [Storage and upgrade notes (Chinese)](./docs/GETTING_STARTED.md#日常运行与升级)
 
-Keep that terminal running. Open ContextFlow's **Extension options**, copy its pairing command, and run it in a second terminal in the same folder. Paste the generated code into the extension's own page and verify the connection.
+## Feedback and contribution
 
-Refresh the article. Open **配置** (Settings) in the reading panel:
+[Report a bug or suggest an improvement](https://github.com/PengheLiu/ContextFlow/issues). Include your extension version, browser version, reproduction steps, and a redacted screenshot.
 
-- For note sync, select a Markdown folder, Obsidian vault, or SiYuan destination, save, and click **同步** (Sync).
-- For AI, configure your own provider, model, and API key. Test a short passage with **解释** (Explain).
-- Enable a local agent and a notes directory later if you want personal context.
-
-The pairing code authorizes this extension to access your own local service. It is not a model API key. Model usage may incur charges; ContextFlow includes no free model allowance. Opening the reading panel can trigger an AI overview once configured.
-
-## Data and privacy
-
-Reading records and images live in extension-private storage. The optional companion stores data locally and writes notes to your chosen destination. There is no developer-hosted reading-history account.
-
-AI requests may send article content, questions, and authorized note excerpts to services you configure. Local-first does not mean every AI request runs offline. [Privacy policy](https://pengheliu.github.io/ContextFlow/privacy.html).
-
-Export or sync regularly. Uninstalling the extension removes its browser data, but not exported files, the companion database, or synced notes. Export/sync old development-build records before upgrading: old page-owned caches are not imported automatically.
-
-## If something does not work
-
-- No toolbar after installation: refresh the article. Chrome internal pages, Web Store pages, and the built-in PDF viewer are unsupported.
-- No `npm` command: install Node.js and reopen your terminal.
-- Missing `package.json`: run the command inside the extracted companion folder.
-- Connection fails: keep the server terminal open, use the pairing command from your installed extension, and generate a new code if the old one was revoked.
-- No AI answer: verify the provider, model, API key, and any local agent's login. Offline annotations still work.
-
-macOS can optionally use `npm run service` for a login service. Windows/Linux currently use foreground `npm run server`; unattended installation has not been validated.
-
-[Detailed setup guide (Chinese)](./docs/GETTING_STARTED.md) · [Report an issue](https://github.com/PengheLiu/ContextFlow/issues)
-
-## The longer-term idea
-
-Keep what you thought before available while you read something new: compare earlier definitions, surface conflicting evidence, and return unfinished questions to the page. Your notes remain ordinary, portable Markdown.
-
-For source builds and release tooling, see the [development guide](./docs/DEVELOPMENT.md). Architecture and security decisions are documented in [DESIGN.md](./DESIGN.md).
-
-MIT License · Local-first
+[Releases](https://github.com/PengheLiu/ContextFlow/releases) · [Development guide](./docs/DEVELOPMENT.md) · [Architecture and security](./DESIGN.md) · [MIT License](./LICENSE)
