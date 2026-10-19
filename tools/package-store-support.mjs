@@ -9,7 +9,7 @@ const root = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const runtimeFiles = [
   'server/agent.mjs', 'server/assets.mjs', 'server/config.mjs', 'server/convo.mjs',
   'server/db.mjs', 'server/extension-pairing.mjs', 'server/index.mjs', 'server/jobs.mjs',
-  'server/layout.mjs', 'server/llm.mjs', 'server/lookup.mjs', 'server/mdfile.mjs',
+  'server/layout.mjs', 'server/llm.mjs', 'server/lookup.mjs', 'server/mdfile.mjs', 'server/paths.mjs',
   'server/obsidian.mjs', 'server/origin.mjs', 'server/siyuan.mjs', 'server/sync.mjs',
   'src/core/assets.js', 'src/core/lookupkey.js', 'src/core/markdown.js',
   'tools/pair-extension.mjs', 'tools/service.mjs', 'package-lock.json', 'LICENSE',

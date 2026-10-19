@@ -25,12 +25,13 @@
 //   3. 分类标题带 `<!-- cf:cat <key> -->`、文章头带 `<!-- cf:art <urlKey> -->`，
 //      因此用户改标题文字也不会导致重复建节
 import { mkdirSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, join } from 'node:path';
 import * as db from './db.mjs';
 import { CATEGORIES, LABEL_OF, groupByCategory, docName, contentHash } from './layout.mjs';
 import { renderEventMarkdown, renderSourceMarkdown } from '../src/core/markdown.js';
 import { assetIds, replaceAssetTokens } from '../src/core/assets.js';
 import { copyAsset } from './assets.mjs';
+import { resolveWithin } from './paths.mjs';
 
 const err = (msg, code) => Object.assign(new Error(msg), { code });
 
@@ -199,12 +200,7 @@ function resolveDir(backend, root, folder) {
       ? '未配置 Obsidian vault 路径（在面板「配置」里填）'
       : '未配置 Markdown 导出目录（在面板「配置」里填）', 'NO_TARGET');
   }
-  const dir = resolve(root, (folder || '').replace(/^[/\\]+/, ''));
-  // 防越界：folder 里若写了 ../ 就会跑到 vault 外面
-  if (!resolve(dir).startsWith(resolve(root))) {
-    throw err(`目标目录越出根目录：${folder}`, 'BAD_TARGET');
-  }
-  return dir;
+  return resolveWithin(root, folder);
 }
 
 /**

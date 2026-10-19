@@ -61,6 +61,10 @@ initializePrivateStorage().then(() => {
 // 实例不存在且页面在停用名单里时，图标点击就是恢复入口 —— 扩展载体没有
 // userscript那种"重复执行"的手势，用户主动点图标是唯一明确的敲门信号。
 chrome.runtime.onMessage.addListener((msg) => {
+  if (msg?.type === 'cf-connection-changed') {
+    app?.refreshConnection?.();
+    return;
+  }
   if (msg?.type !== 'cf-toggle') return;
   if (app) app.panel?.toggle();
   else {

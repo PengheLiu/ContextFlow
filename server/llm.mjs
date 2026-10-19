@@ -12,14 +12,24 @@ import Anthropic from '@anthropic-ai/sdk';
 export const err = (msg, code) => Object.assign(new Error(msg), { code });
 
 /** 去掉末尾 /v1，各家 SDK/接口自己会补 */
-export const trimBase = (u) => String(u || '').replace(/\/+$/, '').replace(/\/v1$/, '');
+export const trimBase = (u) => String(u || '').trim().replace(/\/+$/, '')
+  .replace(/\/(?:chat\/completions|messages|models)$/, '').replace(/\/v1$/, '');
+
+function validateBase(t) {
+  if (!t.baseUrl && t.provider === 'anthropic') return;
+  if (!t.baseUrl) throw err('OpenAI 兼容模式必须填 Base URL（模型服务地址，不是本机配对地址）', 'NO_BASEURL');
+  try {
+    const url = new URL(t.baseUrl);
+    if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.search || url.hash) throw new Error('invalid');
+  } catch { throw err('Base URL 请填写 http:// 或 https:// 开头的模型服务地址，不要填写控制台页面、密钥或带查询参数的链接', 'NO_BASEURL'); }
+}
 
 /** 上游是否因为「不认识这个推理参数」而拒绝 */
 const rejectedThinking = (e) =>
   (e?.status === 400 || e?.status === 422)
   && /thinking|budget_tokens|reasoning|effort/i.test(String(e?.message || ''));
 
-async function viaAnthropic({ baseUrl, apiKey, model, system, messages, maxTokens, thinking }) {
+async function viaAnthropic({ baseUrl, apiKey, model, system, messages, maxTokens, thinking, signal }) {
   const client = new Anthropic({ apiKey, ...(baseUrl ? { baseURL: trimBase(baseUrl) } : {}) });
   const base = { model, max_tokens: maxTokens, system, messages };
   // 注意：不要传 output_config.effort —— Haiku 4.5 不支持，传了直接报错。
@@ -33,7 +43,7 @@ async function viaAnthropic({ baseUrl, apiKey, model, system, messages, maxToken
   let res, applied = thinking, lastErr;
   for (let i = 0; i < attempts.length; i++) {
     try {
-      res = await client.messages.create(attempts[i]);
+      res = await client.messages.create(attempts[i], { signal });
       applied = thinking && i < attempts.length - 1;
       break;
     } catch (e) {
@@ -60,10 +70,10 @@ async function viaAnthropic({ baseUrl, apiKey, model, system, messages, maxToken
   };
 }
 
-async function viaOpenAI({ baseUrl, apiKey, model, system, messages, maxTokens, thinking }) {
+async function viaOpenAI({ baseUrl, apiKey, model, system, messages, maxTokens, thinking, signal }) {
   const url = `${trimBase(baseUrl)}/v1/chat/completions`;
   const send = (extra) => fetch(url, {
-    method: 'POST',
+    method: 'POST', signal,
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
     body: JSON.stringify({
       model,
@@ -109,9 +119,7 @@ export function requireLLM(cfg) {
   const t = cfg.translate;                       // 翻译与解释共用同一份后端配置
   if (!t.apiKey) throw err('未配置 API key：在面板「配置」里填写，或设置环境变量 ANTHROPIC_API_KEY', 'NO_API_KEY');
   if (!t.model) throw err('未配置模型名：在面板「配置」里点「获取可选模型」挑一个', 'NO_MODEL');
-  if (t.provider === 'openai' && !t.baseUrl) {
-    throw err('OpenAI 兼容模式必须填 Base URL（如 https://api.deepseek.com）', 'NO_BASEURL');
-  }
+  validateBase(t);
   return t;
 }
 
@@ -122,23 +130,33 @@ export function requireLLM(cfg) {
  * @param {Array}  [o.messages]  连续对话；给了就用它，前缀恒定才能命中缓存
  * @returns {{out, usage, truncated, thinking, model}}
  */
-export async function chat({ cfg, system, user, messages, maxTokens = 2048 }) {
+export async function chat({ cfg, system, user, messages, maxTokens = 2048, signal }) {
   const t = requireLLM(cfg);
   const msgs = messages?.length ? messages : [{ role: 'user', content: user }];
   const args = {
     baseUrl: t.baseUrl, apiKey: t.apiKey, model: t.model,
-    system, messages: msgs, maxTokens, thinking: !!t.thinking,
+    system, messages: msgs, maxTokens, thinking: !!t.thinking, signal,
   };
   const r = t.provider === 'openai' ? await viaOpenAI(args) : await viaAnthropic(args);
   if (!r.out) throw err('模型返回空内容', 'EMPTY');
   return { ...r, model: t.model };
 }
 
+export async function testConnection(cfg) {
+  try {
+    const result = await chat({ cfg: { ...cfg, translate: { ...cfg.translate, thinking: false } }, system: 'This is a connection check. Reply only OK.', user: 'OK', maxTokens: 128, signal: AbortSignal.timeout(15000) });
+    return { ok: true, model: result.model };
+  } catch (error) {
+    if (error.name === 'TimeoutError' || error.name === 'AbortError') throw err('模型连接测试超时，请检查服务地址或网络后重试', 'UPSTREAM');
+    throw error;
+  }
+}
+
 /** 「一键获取可选模型」：拉取上游模型列表 */
 export async function listModels(cfg) {
   const t = cfg.translate;
   if (!t.apiKey) throw err('先填 API key 再获取模型列表', 'NO_API_KEY');
-  if (t.provider === 'openai' && !t.baseUrl) throw err('OpenAI 兼容模式必须先填 Base URL', 'NO_BASEURL');
+  validateBase(t);
   const base = trimBase(t.baseUrl);
 
   if (t.provider === 'openai') {

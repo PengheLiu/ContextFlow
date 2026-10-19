@@ -31,36 +31,59 @@
         <p>本地服务负责连接你自己的模型和笔记软件，只需在本机配对一次。扩展不提供免费模型额度；仅同步笔记时，不需要先配置 AI。</p>
         <p class="connection-state" id="connection-state" role="status" aria-live="polite">正在读取连接状态…</p>
         <button id="check-connection" class="secondary" type="button" hidden>检查本地服务连接</button>
+        <div id="first-setup">
         <section class="setup-step">
-          <h3><span>1</span> 下载并启动本地服务</h3>
-          <p>先安装 <a href="https://nodejs.org/en/download" target="_blank" rel="noreferrer">Node.js（22.5 或更高版本）</a>，再下载 <a href="https://github.com/PengheLiu/ContextFlow/releases/latest" target="_blank" rel="noreferrer">发行页中的 contextflow-companion 服务包</a>，解压到固定文件夹。</p>
-          <p>在解压后的文件夹打开终端，运行：</p>
-          <div class="command"><pre id="install-command">npm ci --omit=dev
-npm run server</pre><button type="button" data-copy="install-command" aria-label="复制启动服务命令">复制</button></div>
-          <p class="small">终端出现 <code>127.0.0.1:7317</code> 即已启动；保持这个终端运行。<a href="https://github.com/PengheLiu/ContextFlow/blob/main/docs/GETTING_STARTED.md#开启-ai-和笔记同步" target="_blank" rel="noreferrer">怎样打开终端？看分步指南 ↗</a></p>
+          <h3><span>1</span> 下载并解压服务包</h3>
+          <p>Chrome 扩展不会自动在电脑上安装服务。先安装 <a href="https://nodejs.org/en/download" target="_blank" rel="noreferrer">Node.js（22.13 或更高版本）</a>，再<a id="download-companion" href="https://github.com/PengheLiu/ContextFlow/releases/latest">下载 ContextFlow 本地服务包</a>，解压到以后不会随意移动的文件夹。</p>
+          <p class="small">请选择 companion 服务包，不是 Chrome 扩展包或 Source code。解压后的服务文件夹内应能看到 <code>package.json</code>、<code>server</code> 和 <code>tools</code>。</p>
         </section>
         <section class="setup-step">
-          <h3><span>2</span> 复制本扩展专属的配对命令</h3>
-          <p>在同一个文件夹另开一个终端，运行下面这条命令：</p>
-          <div class="command"><pre id="pair-command"></pre><button type="button" data-copy="pair-command" aria-label="复制配对命令">复制</button></div>
-          <p class="small">命令会生成配对码。它只用于连接本机服务，不是模型 API key；请仅粘贴到下面的输入框。</p>
+          <h3><span>2</span> 先进入服务文件夹，确认目录</h3>
+          <ol class="directory-instructions">
+            <li><strong>macOS：</strong>打开「终端」，输入 <code>cd</code> 后敲一个空格，把刚解压的服务文件夹拖进终端，再按回车。只打开终端不会自动进入该目录。</li>
+            <li><strong>Windows：</strong>在文件资源管理器中打开服务文件夹，在地址栏输入 <code>cmd</code> 并回车。以下命令使用命令提示符，不使用旧版 PowerShell。</li>
+            <li><strong>Linux：</strong>在服务文件夹右键选择「在终端中打开」，或先用 <code>cd</code> 进入该目录。</li>
+          </ol>
+          <p class="setup-warning">不要在用户主目录（提示符常显示 <code>~</code>）直接运行 <code>npm ci</code>。它会安装当前目录里其他项目的依赖，而不是 ContextFlow。</p>
+          <p>复制下方命令到终端检查。看到「目录确认：ContextFlow」后，再进行第 3 步；否则先返回本步重新进入文件夹。</p>
+          <div class="command"><pre id="directory-command"></pre><button type="button" data-copy="directory-command" aria-label="复制目录检查命令">复制</button></div>
+        </section>
+        <section class="setup-step">
+          <h3><span>3</span> 安装、生成配对码并启动</h3>
+          <p>在刚才确认过目录的终端运行下方完整命令。它先校验目录与 Node.js 版本，再安装依赖、生成配对码并启动服务；某步失败不会继续下一步。</p>
+          <div class="command"><pre id="install-command"></pre><button type="button" data-copy="install-command" aria-label="复制启动服务命令">复制</button></div>
+          <p class="small">看到配对码和 <code>127.0.0.1:7317</code> 后，保持终端打开，直接回本页完成第 4 步。不需要再开第二个终端。<a href="https://github.com/PengheLiu/ContextFlow/blob/main/docs/GETTING_STARTED.md#开启-ai-和笔记同步" target="_blank" rel="noreferrer">查看完整分步指南 ↗</a></p>
+        </section>
+        </div>
+        <section class="setup-step" id="pair-section">
+          <h3><span>4</span> 粘贴终端里的配对码</h3>
+          <p>复制第 3 步终端里单独一行的 43 位配对码，不是整段终端输出，也不是模型 API key。</p>
           <form id="pair-form">
             <label for="pair-token">粘贴配对码</label>
-            <input id="pair-token" type="password" autocomplete="off" spellcheck="false" required minlength="43" maxlength="43" pattern="[A-Za-z0-9_-]{43}" placeholder="从终端复制的 43 位配对码" aria-describedby="pair-help">
+            <input id="pair-token" type="password" autocomplete="off" spellcheck="false" required minlength="43" maxlength="256" pattern="[A-Za-z0-9_-]{43}" title="请只复制终端中单独一行的 43 位配对码" placeholder="从终端复制的 43 位配对码" aria-describedby="pair-help">
             <p id="pair-help" class="small">配对码保存在扩展私有存储，不会发给 ContextFlow 维护者。</p>
             <label class="consent"><input id="consent" type="checkbox" required><span>我了解：启用 AI 时，网页正文、问题及授权读取的笔记可能发送到我配置的模型或 agent 服务。完整 agent 权限需另外确认。</span></label>
             <button type="submit">验证并连接</button>
           </form>
           <p id="status" role="status" aria-live="polite"></p>
         </section>
-        <section class="setup-step next-step" id="next-step" hidden>
-          <h3><span>3</span> 连接成功，选择你接下来要做的事</h3>
-          <p><strong>同步到笔记：</strong>刷新文章，打开侧栏「配置」，选择 Markdown 或 Obsidian，填写保存位置后保存，再点「同步」。</p>
-          <p><strong>使用 AI：</strong>在同一「配置」页选择模型并填入自己的 API key，再选一小段原文点击「解释」验证。个人笔记和 agent 可以以后再设置。</p>
-          <a href="https://pengheliu.github.io/ContextFlow/demo.html" target="_blank" rel="noreferrer">返回练习文章 →</a>
+        <section class="setup-step" id="restart-help" hidden>
+          <h3>配对信息已保存，只需重新启动服务</h3>
+          <p>先进入之前解压的服务文件夹，再运行下方命令。无需重新安装或生成配对码；看到服务地址后点击「检查本地服务连接」。</p>
+          <div class="command"><pre id="restart-command"></pre><button type="button" data-copy="restart-command" aria-label="复制重新启动命令">复制</button></div>
         </section>
-        <details class="troubleshooting"><summary>连接不上？先检查这几件事</summary><ul><li>「npm 不是内部命令」或「command not found」：安装 Node.js 后重新打开终端。</li><li>无法找到 package.json：终端需进入解压后有 package.json 的文件夹。</li><li>服务未连接：保持运行服务的终端打开，再点「检查本地服务连接」。</li><li>配对失效：重新复制上方命令生成配对码，旧码会同时失效。</li></ul><p><a href="https://github.com/PengheLiu/ContextFlow/blob/main/docs/GETTING_STARTED.md#遇到问题" target="_blank" rel="noreferrer">查看完整排查指南 ↗</a></p></details>
-        <details class="troubleshooting"><summary>停止连接、常驻运行与撤销授权</summary><p>临时停止服务：在运行服务的终端按 Ctrl+C。macOS 可使用 <code>npm run service</code> 设置登录后自动启动；Windows / Linux 目前先使用前台运行。</p><button id="disconnect" type="button" class="secondary" hidden>清除本扩展的配对码</button><p>如需立即撤销服务端授权，在服务文件夹运行：</p><pre id="revoke-command"></pre><p class="small">清除配对码不会删除笔记，也不等于撤销服务端授权。</p></details>
+        <section class="setup-step next-step" id="next-step" hidden>
+          <h3><span>5</span> 连接成功，选择你接下来要做的事</h3>
+          <p>连接本机服务不等于模型已配置。直接在下方完成配置，无需先切回文章。</p>
+          <p id="setup-progress" role="status" aria-live="polite"></p>
+          <p><strong>笔记：</strong>选择归档位置并保存；然后打开练习文章，在侧栏点击「同步」，核对生成的 Markdown。每篇文章更新同一份笔记。</p>
+          <p><strong>AI：</strong>填写模型服务地址、API key 和模型，主动点击「保存并测试模型连接」。测试会消耗少量模型额度，不会发送文章或笔记。</p>
+          <div id="configuration"></div>
+          <a href="https://pengheliu.github.io/ContextFlow/demo.html" target="_blank" rel="noreferrer">配置完成，去练习批注与同步 →</a>
+        </section>
+        <details class="troubleshooting" id="repair-pairing"><summary>已有服务，或需要重新生成配对码？</summary><p>在服务文件夹另开终端运行。只有首次配对、配对失效或切换扩展时才需要；重新生成会让旧码失效，日常启动不要重复执行。</p><div class="command"><pre id="pair-command"></pre><button type="button" data-copy="pair-command" aria-label="复制配对命令">复制</button></div></details>
+        <details class="troubleshooting"><summary>连接不上？先检查这几件事</summary><ul><li>「npm 不是内部命令」或「command not found」：安装 Node.js 后重新打开终端。</li><li>「目录不对」或无法找到 package.json：回到第 2 步，进入解压后的服务文件夹。</li><li>安装时出现陌生包名或 npm E404：先核对当前目录，可能运行了其他项目的安装；不要急着换源或删文件。</li><li>服务未连接：保持运行服务的终端打开，再点「检查本地服务连接」。</li><li>配对失效：重新复制上方命令生成配对码，旧码会同时失效。</li></ul><p><a href="https://github.com/PengheLiu/ContextFlow/blob/main/docs/GETTING_STARTED.md#遇到问题" target="_blank" rel="noreferrer">查看完整排查指南 ↗</a></p></details>
+        <details class="troubleshooting"><summary>停止连接、常驻运行与撤销授权</summary><p>临时停止服务：在运行服务的终端按 Ctrl+C。关闭终端后 AI / 同步会断开，但配对信息和批注保留。下次使用上方的重新启动命令，不用重新配对。</p><p>macOS：先用 Ctrl+C 停止前台服务，再在同一个服务文件夹运行下方命令，设置登录后自动启动。Windows / Linux 目前先保持前台终端运行。</p><div class="command"><pre id="service-command"></pre><button type="button" data-copy="service-command" aria-label="复制 macOS 常驻服务命令">复制</button></div><button id="disconnect" type="button" class="secondary" hidden>清除本扩展的配对码</button><p>如需立即撤销服务端授权，在服务文件夹运行：</p><pre id="revoke-command"></pre><p class="small">清除配对码不会删除笔记，也不等于撤销服务端授权。</p></details>
       </div>
     </details>
     <p id="copy-status" class="small" role="status" aria-live="polite"></p>

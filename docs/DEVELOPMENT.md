@@ -4,7 +4,9 @@
 
 ## 从源码运行
 
-需要 Node.js 22.5+ 和桌面 Chromium 111+。
+需要 Node.js 22.13+ 和桌面 Chromium 111+。
+
+最低版本依据：Node 的 [SQLite 版本历史](https://nodejs.org/docs/latest-v22.x/api/sqlite.html)表明，22.13 起无需额外实验启动参数。本项目直接使用内置 SQLite，不能仅因该模块在 22.5 出现就把 22.5 当成开箱可用的最低版本。
 
 ```bash
 git clone https://github.com/PengheLiu/ContextFlow.git
@@ -34,9 +36,19 @@ npm run build:ext
 
 商店 ZIP 根目录必须是 manifest.json 及扩展文件，不能混入 Node 服务、开发者配置或个人数据。使用已有商店条目更新，保持 ID `aemncphfnlpbhlddifhohpgegejjejfm`。
 
-文案、隐私页、审核记录在 [store](../store/REVIEW.md)。v0.3.1 已提交审核并设置通过后自动公开发布。当前源码中的新手体验改进应随后续版本发布；不要为了同步文档就取消正在进行的审核。
+文案、隐私页、审核记录在 [store](../store/REVIEW.md)。v0.3.1 已于 2026-10-19 在公开商店确认上架。当前源码中的 v0.3.2 安装、配对和配置改进仍需随新版本提交，不覆盖已发行的 0.3.1。
 
 更新支持站点时只发布静态页面；确认公开隐私 URL 和发行下载链接可用。不要把静态 ZIP、本地构建或商店草稿状态当成已经上架。
+
+新版本发布顺序：先完成所有测试，发布同版本 companion 服务包，运行 `npm run check:release-links` 验证公开下载及隐私 URL；通过后再提交 Chrome 扩展。扩展连接页按自身版本生成服务包链接，不允许商店已更新而配套包仍是 404。支持站点与旧版兼容指南可独立更新，不冒充扩展运行时更新。
+
+完整首次使用验收（需 Playwright 与 Chromium）：
+
+```bash
+CONTEXTFLOW_PLAYWRIGHT_DIR=/path/to/runtime node test/onboarding-browser.test.mjs
+```
+
+测试会解压真实 companion ZIP，执行连接页实际复制的安装 / 配对 / 启动命令，并核对笔记文件与服务重启。模型使用隔离模拟服务，不调用用户的真实模型或笔记目录。不能用这个测试代替 Windows / Linux 实机或真实上游服务的验证。
 
 ## 配置与服务
 

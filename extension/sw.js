@@ -48,6 +48,14 @@ function senderKind(sender) {
   return null;
 }
 
+async function notifyConnectionChanged() {
+  try {
+    const tabs = await chrome.tabs.query?.({}) || [];
+    await Promise.allSettled(tabs.filter((tab) => tab.id != null).map((tab) =>
+      chrome.tabs.sendMessage(tab.id, { type: 'cf-connection-changed' })));
+  } catch { /* Tab refresh is best-effort; successful pairing must still succeed. */ }
+}
+
 async function handleMessage(message, sender, kind) {
   await storageReady;
   if (message.type === 'cf-offline') {
@@ -76,6 +84,7 @@ async function handleMessage(message, sender, kind) {
     return true;
   }
   if (kind !== 'settings') throw new Error('只能在扩展自己的设置页进行配对');
+  if (message.type === 'cf-configuration-changed') { await notifyConnectionChanged(); return true; }
   if (message.type === 'cf-status') return { paired: !!(await connectionToken()), extensionId: chrome.runtime.id };
   if (message.type === 'cf-check') {
     const token = await connectionToken();
@@ -90,6 +99,7 @@ async function handleMessage(message, sender, kind) {
   }
   if (message.type === 'cf-disconnect') {
     await chrome.storage.local.set({ connection: { disconnected: true } });
+    await notifyConnectionChanged();
     return true;
   }
   if (message.type === 'cf-connect') {
@@ -98,9 +108,12 @@ async function handleMessage(message, sender, kind) {
     if (message.consent !== true) throw new Error('请先阅读并确认数据使用说明');
     const result = await fetchService('/health', {}, token);
     if (result.status !== 200 || !result.body.ok || result.body.extensionPaired !== true) {
-      throw new Error(result.body.error || '连接失败，请确认本地服务已启动，并使用当前扩展 ID 生成配对码');
+      if (result.status === 0) throw new Error('本地服务没有响应。保持运行服务的终端打开，看到 127.0.0.1:7317 后再点「验证并连接」；已填写的配对码可以重试。');
+      if (result.status === 401 || result.status === 403) throw new Error('配对码不属于当前扩展、已失效或被撤销。请用本页命令重新生成，只复制 43 位配对码。');
+      throw new Error('本地服务响应不兼容。请下载本页提供的配套服务包，启动后重新验证；不要把模型 API key 当作配对码。');
     }
     await chrome.storage.local.set({ connection: { token, consentVersion: 1, pairedAt: Date.now() } });
+    await notifyConnectionChanged();
     return { paired: true };
   }
   throw new Error('未知扩展消息');

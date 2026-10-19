@@ -394,7 +394,8 @@ export class Panel {
     this.sh.querySelector('.tabs').style.display = on ? 'none' : 'flex';
     if (on) {
       // onBlock 交给 main.js 的 blockHere 做就地停用（撤 UI、落名单、弹恢复卡）
-      if (!this.settings) this.settings = new Settings(this.sh, this.$('p-set'), this.h.api, this.h.onBlock);
+      if (!this.settings) this.settings = new Settings(this.sh, this.$('p-set'), this.h.api, this.h.onBlock,
+        { onSaved: () => this.h.onConfigurationSaved?.() });
       this.settings.load();
     }
   }
@@ -631,7 +632,7 @@ export class Panel {
     // 运行态给一个脉动点：否则进度文字读起来像最终结果，看不出还在跑
     const dot = o.state === 'run' ? '<span class="dot2"></span>' : '';
     el.innerHTML = `<div class="hd2"><span class="brief-label">${icon('sparkle')}<span>AI 速览</span></span>`
-      + `${o.retry ? `<button class="with-icon" data-act="rebrief">${icon('retry')}<span>重新生成</span></button>` : ''}</div>`
+      + `${o.configure ? '<button data-act="configure-ai">配置 AI</button>' : o.retry ? `<button class="with-icon" data-act="rebrief">${icon('retry')}<span>${o.initial ? '生成速览' : '重新生成'}</span></button>` : ''}</div>`
       + `<div class="txt">${dot}</div>`
       + `${o.meta ? `<div class="ft">${esc(o.meta)}</div>` : ''}`;
     const body = el.querySelector('.txt');
@@ -639,6 +640,8 @@ export class Panel {
     else body.append(document.createTextNode(o.text || ''));
     const b = el.querySelector('[data-act=rebrief]');
     if (b) b.onclick = this.guard(() => this.h.onSummarize?.(true));
+    const configure = el.querySelector('[data-act=configure-ai]');
+    if (configure) configure.onclick = this.guard(() => this.toggleSettings());
   }
 
   renderStatus() {

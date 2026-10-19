@@ -1,6 +1,13 @@
 # 审核与发布准备
 
-## 最新状态：2026-10-17
+## 最新状态：2026-10-19
+
+- 已通过公开 Chrome 应用商店页面核对：ContextFlow 版本 **0.3.1** 已上架，更新日期为 2026-10-19。正式入口：https://chromewebstore.google.com/detail/contextflow/aemncphfnlpbhlddifhohpgegejjejfm 。
+- 源码 0.3.2 包含首次安装、目录校验、单终端配对启动、同页配置、连接恢复和笔记同步衔接修复，尚未提交商店。不得把本地构建称为已上架。
+- 0.3.2 提交前须先公开同版本 companion 下载包，再上传扩展并更新支持站点；连接页生成与自身版本一致的服务包链接。旧 0.3.1 安装包不可覆盖。
+- 以下是历史记录，审核待办与草稿状态只代表当时状态。
+
+## 历史提交记录：2026-10-17
 
 - 已整合 GitHub main 的 Markdown 表格预览、顶部重新解释与 agent 错误处理修复，发布版本为 **0.3.1**。
 - 源码已推送到 main，发行包：https://github.com/PengheLiu/ContextFlow/releases/tag/v0.3.1 。扩展、配套服务和静态站点 ZIP 均附 SHA-256。

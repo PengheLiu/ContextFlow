@@ -119,8 +119,8 @@ const FORM = `
     <div class="folio-kicker">Settings</div>
     <div class="chapter-deck">
         <section class="chapter" id="s-chapter-translate">
-          <header class="chapter-head"><span class="chapter-eyebrow">Reading Voice</span><h3>翻译</h3><span class="chapter-summary" id="s-summary-translate"></span></header>
-          <p class="chapter-intro">决定译文如何说，也决定它需要读到多少原文。</p>
+          <header class="chapter-head"><span class="chapter-eyebrow">AI Connection</span><h3>AI 模型与翻译</h3><span class="chapter-summary" id="s-summary-translate"></span></header>
+          <p class="chapter-intro">模型连接供翻译、LLM 解释与速览共用。只同步笔记可以跳过本节，无需购买模型服务。</p>
           <label class="field"><span class="field-label">接口类型</span>
             <select id="s-provider"><option value="openai">OpenAI 兼容（/v1/chat/completions）</option><option value="anthropic">Anthropic（官方 SDK / 兼容网关）</option></select></label>
           <div class="field-row"><label class="field"><span class="field-label">模型</span><input id="s-model" spellcheck="false" placeholder="点右侧获取可选模型"></label>
@@ -133,6 +133,9 @@ const FORM = `
             <label class="field check-row"><input type="checkbox" id="s-thinking"><span class="check-copy">开启 think 模式<span class="hint">翻译通常不需要推理；开启后会增加延迟与费用，不支持时自动退回。</span></span></label>
             <label class="field"><span class="field-label">原文段上下文长度</span><input id="s-chunkChars" type="number" min="0" step="500" placeholder="5000"><span class="hint">按字符数分段，只喂到覆盖当前选区为止；填 <code>0</code> 则不带正文。</span></label>
           </div></details>
+          <button class="quiet-action" id="s-testModel" type="button">保存并测试模型连接</button>
+          <p id="s-modelStatus" class="hint" role="status" aria-live="polite"></p>
+          <span class="hint">测试会向所选模型发送一条固定的短消息，可能产生少量费用；不会发送文章或笔记。获取模型失败时也可手填模型名称。</span>
         </section>
 
         <section class="chapter" id="s-chapter-explain">
@@ -162,13 +165,14 @@ const FORM = `
           <div class="destination" id="s-destination" role="status" aria-live="polite"><strong>本地 Markdown</strong><span>读取配置中…</span></div>
           <div data-be="obsidian">
             <div class="field-row"><label class="field"><span class="field-label">Vault</span><select id="s-vault"></select></label><button id="s-reloadVault" type="button" title="重新探测本机 Vault">探测</button></div>
+            <label class="field"><span class="field-label">或手填 Vault 根目录（填了以此为准）</span><input id="s-vaultPath" spellcheck="false" placeholder="完整路径，例如 ~/Documents/MyVault"><span class="hint">未探测到、使用便携版或自定义目录时可手填。请选 Vault 本身，不是它的阅读记录子目录。</span></label>
             <div class="field-row"><label class="field"><span class="field-label">Vault 内目录</span><select id="s-obsFolder"></select></label><button id="s-reloadObsDir" type="button" title="探测 Vault 内已有目录">探测</button></div>
             <label class="field"><span class="field-label">或新建目录（填了以此为准）</span><input id="s-obsFolderCustom" placeholder="/阅读记录" spellcheck="false"><span class="hint">直接写入 Vault，不需要额外安装 Obsidian 插件。</span></label>
           </div>
           <div data-be="markdown">
             <label class="field"><span class="field-label">导出根目录</span><input id="s-mdDir" placeholder="~/ContextFlow" spellcheck="false"></label>
             <div class="field-row"><label class="field"><span class="field-label">子目录</span><select id="s-mdFolder"></select></label><button id="s-reloadMdDir" type="button" title="探测已有子目录">探测</button></div>
-            <label class="field"><span class="field-label">或新建目录（填了以此为准）</span><input id="s-mdFolderCustom" placeholder="/阅读记录" spellcheck="false"><span class="hint">按天生成标准 Markdown 文件，不依赖任何笔记软件。</span></label>
+            <label class="field"><span class="field-label">或新建目录（填了以此为准）</span><input id="s-mdFolderCustom" placeholder="/阅读记录" spellcheck="false"><span class="hint">每篇文章持续更新同一份 Markdown，不依赖笔记软件。保存配置后，在文章侧栏点击「同步」才会写入。</span></label>
           </div>
           <div data-be="siyuan">
             <label class="field"><span class="field-label">Kernel 地址</span><input id="s-origin" placeholder="http://127.0.0.1:6806" spellcheck="false"></label>
@@ -203,10 +207,12 @@ export class Settings {
    * @param {ShadowRoot} sh  @param {HTMLElement} mount  @param {object} api
    * @param {(scope:'page'|'site')=>void} [onBlock] 停用当前页面/站点（就地撤下，见 main.js）
    */
-  constructor(sh, mount, api, onBlock = null) {
+  constructor(sh, mount, api, onBlock = null, options = {}) {
     this.sh = sh; this.api = api; this.onBlock = onBlock;
+    this.onSaved = options.onSaved;
     mount.innerHTML = FORM;
     this.$ = (id) => sh.getElementById(id);
+    if (options.standalone) this.$('s-chapter-scope').hidden = true;
 
     // 所有交互都过 guard：handler 里抛异常时，界面上必须看得见。
     // 起因是「点检测没反应」——我把 this.api 写成了 this.h.api，onclick 抛
@@ -215,6 +221,21 @@ export class Settings {
 
 
     on('s-fetchModels', 'onclick', () => this.busy('s-fetchModels', '获取中…', () => this.fetchModels()));
+    on('s-testModel', 'onclick', () => this.busy('s-testModel', '测试中…', async () => {
+      const feedback = this.$('s-modelStatus');
+      feedback.textContent = '正在验证模型，请稍候…';
+      feedback.setAttribute('role', 'status');
+      try {
+        await this.persist({ silent: true });
+        const result = await this.api.testModel();
+        feedback.textContent = `模型连接成功：${result.model}。可以返回文章使用解释、翻译和速览。`;
+        this.msg(feedback.textContent);
+      } catch (error) {
+        feedback.textContent = `测试失败：${describeError(error)}`;
+        feedback.setAttribute('role', 'alert');
+        throw error;
+      }
+    }));
     on('s-detectAgent', 'onclick', () => this.busy('s-detectAgent', '检测中…', () => this.detectAgents(true)));
     on('s-exBackend', 'onchange', () => {
       this.toggleAgentBox();
@@ -229,7 +250,7 @@ export class Settings {
       this.syncProfileUi();
       this.refreshSummaries();
     });
-    on('s-reloadNb', 'onclick', () => this.busy('s-reloadNb', '刷新中…', () => this.loadSiyuan(true)));
+    on('s-reloadNb', 'onclick', () => this.busy('s-reloadNb', '刷新中…', async () => { await this.persist({ silent: true }); await this.loadSiyuan(true); }));
     on('s-blockPage', 'onclick', () => this.onBlock?.('page'));
     on('s-blockSite', 'onclick', () => this.onBlock?.('site'));
     on('s-save', 'onclick', () => this.save());
@@ -239,11 +260,11 @@ export class Settings {
     on('s-model', 'oninput', () => this.refreshSummaries());
     on('s-backend', 'onchange', () => { this.showBackend(); this.refreshSummaries(); });
     on('s-reloadVault', 'onclick', () => this.busy('s-reloadVault', '探测中…', () => this.loadVaults(true)));
-    on('s-reloadObsDir', 'onclick', () => this.busy('s-reloadObsDir', '探测中…', () => this.loadFolders('obsidian', true)));
-    on('s-reloadMdDir', 'onclick', () => this.busy('s-reloadMdDir', '探测中…', () => this.loadFolders('markdown', true)));
-    on('s-vault', 'onchange', () => { this.loadFolders('obsidian', false, true); this.refreshSummaries(); });
+    on('s-reloadObsDir', 'onclick', () => this.busy('s-reloadObsDir', '探测中…', () => this.loadFolders('obsidian', true, true)));
+    on('s-reloadMdDir', 'onclick', () => this.busy('s-reloadMdDir', '探测中…', () => this.loadFolders('markdown', true, true)));
+    on('s-vault', 'onchange', async () => { this.$('s-vaultPath').value = ''; await this.loadFolders('obsidian', false, true); this.refreshSummaries(); });
     for (const id of ['s-mdDir', 's-mdFolder', 's-mdFolderCustom', 's-obsFolder',
-      's-obsFolderCustom', 's-notebook', 's-path', 's-pathCustom']) {
+      's-obsFolderCustom', 's-vaultPath', 's-notebook', 's-path', 's-pathCustom']) {
       const el = this.$(id);
       el.addEventListener(el.tagName === 'SELECT' ? 'change' : 'input', () => this.refreshSummaries());
     }
@@ -268,7 +289,7 @@ export class Settings {
     const destination = backend === 'markdown'
       ? [this.$('s-mdDir').value, this.$('s-mdFolderCustom').value || this.$('s-mdFolder').value].filter(Boolean).join(' · ')
       : backend === 'obsidian'
-        ? [this.$('s-vault').selectedOptions?.[0]?.textContent || this.$('s-vault').value,
+        ? [this.$('s-vaultPath').value || this.$('s-vault').selectedOptions?.[0]?.textContent || this.$('s-vault').value,
           this.$('s-obsFolderCustom').value || this.$('s-obsFolder').value].filter(Boolean).join(' · ')
         : [this.$('s-notebook').selectedOptions?.[0]?.textContent || this.$('s-notebook').value,
           this.$('s-pathCustom').value || this.$('s-path').value].filter(Boolean).join(' · ');
@@ -342,7 +363,11 @@ export class Settings {
     el.textContent = text;
     el.className = `msg ${bad ? 'bad' : 'ok'}`;
     el.setAttribute('role', bad ? 'alert' : 'status');
-    if (text) setTimeout(() => { if (el.textContent === text) el.textContent = ''; }, 4000);
+    // Setup failures must remain visible while the user fixes the input.
+    if (text && !bad) {
+      const timer = setTimeout(() => { if (el.textContent === text) el.textContent = ''; }, 12000);
+      timer.unref?.();
+    }
   }
 
   /** 切换接口类型时把 Base URL 的占位改成对应默认值（不覆盖用户已填的） */
@@ -364,13 +389,11 @@ export class Settings {
     for (const el of this.sh.querySelectorAll('[data-be]')) {
       el.classList.toggle('on', el.dataset.be === b);
     }
-    if (b === 'obsidian' && !this._vaultsLoaded) {
-      this.loadVaults().then(() => this.loadFolders('obsidian'));
-    }
+    if (b === 'obsidian' && !this._vaultsLoaded) this.loadVaults().then(() => this.loadFolders('obsidian'));
     if (b === 'markdown' && !this._mdLoaded) {
       this._mdLoaded = true; this.loadFolders('markdown');
     }
-    if (b === 'siyuan' && !this._nbLoaded) this.loadSiyuan();
+    if (b === 'siyuan' && !this._nbLoaded && this.cfg?.siyuan?.tokenSet) this.loadSiyuan();
   }
 
   async loadVaults(verbose = false) {
@@ -379,7 +402,8 @@ export class Settings {
       const { vaults } = await this.api.listVaults();
       this._vaultsLoaded = true;
       if (!vaults.length) {
-        sel.innerHTML = '<option value="">（未探测到 vault，请手填路径）</option>';
+        const saved = this.cfg?.obsidian?.vaultPath || '';
+        sel.innerHTML = `<option value="${esc(saved)}">${saved ? esc(saved) : '（未探测到，请在下方手填根目录）'}</option>`;
         if (verbose) this.msg('本机未找到 Obsidian vault', true);
         return;
       }
@@ -448,10 +472,12 @@ export class Settings {
         : '未配置';
       this.$('s-keyHint').textContent = c.translate.apiKeySet
         ? '只写不读：服务端不会回传明文'
-        : '未配置时 /translate 返回 503';
+        : '填写你选择的模型服务所提供的 API key；不是上一步的本机配对码。';
+      this.$('s-translateAdvanced').open = !c.translate.apiKeySet || !c.translate.model || (c.translate.provider === 'openai' && !c.translate.baseUrl);
 
       this.$('s-backend').value = c.sync?.backend || 'markdown';
       this.$('s-mdDir').value = c.markdown?.dir || '';
+      this.$('s-vaultPath').value = c.obsidian?.vaultPath || '';
       this.$('s-obsFolderCustom').value = '';
       this.$('s-mdFolderCustom').value = '';
       this.$('s-origin').value = c.siyuan.origin || '';
@@ -637,7 +663,7 @@ export class Settings {
         target: this.$('s-target').value.trim() || '简体中文',
         thinking: this.$('s-thinking').checked,
         // 空着按默认 5000，而不是当成 0 —— 后者会静默关掉正文上下文
-        chunkChars: Math.max(0, Number(this.$('s-chunkChars').value) || 5000),
+        chunkChars: this.$('s-chunkChars').value === '' ? 5000 : Math.max(0, Number(this.$('s-chunkChars').value) || 0),
       },
       explain: { backend: this.$('s-exBackend').value },
       agent: {
@@ -649,7 +675,7 @@ export class Settings {
       },
       sync: { backend: this.$('s-backend').value },
       obsidian: {
-        vaultPath: this.$('s-vault').value.trim(),
+        vaultPath: this.$('s-vaultPath').value.trim() || this.$('s-vault').value.trim(),
         folder: normPath(this.$('s-obsFolderCustom').value.trim()
           || this.$('s-obsFolder').value || '/阅读记录'),
       },
@@ -679,12 +705,13 @@ export class Settings {
       this.$(id).placeholder = set ? '已配置（留空不改）' : '未配置';
     }
     this.refreshSummaries();
+    this.onSaved?.(this.cfg);
     if (!silent) this.msg('已保存');
     return this.cfg;
   }
 
   async save() {
-    try { await this.persist(); await this.loadPaths(); }
+    try { await this.persist(); if (this.$('s-backend').value === 'siyuan') await this.loadPaths(); }
     catch (e) { this.msg(`保存失败：${e.message}`, true); }
   }
 }

@@ -82,6 +82,7 @@ async function buildExtension() {
     entryPoints: ['src/ext/options.js'],
     outfile: join(EXT_DIR, 'options.js'),
     format: 'iife',
+    define: { __CONTEXTFLOW_TOKEN__: '""' },
   });
 
   const storeBuild = STORE;

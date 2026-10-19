@@ -9,7 +9,7 @@
 <p>在原文旁思考，用 AI 深入理解，让阅读回到自己的知识系统。</p>
 
 <p>
-  <a href="https://github.com/PengheLiu/ContextFlow/releases/latest"><strong>下载 Chrome 扩展</strong></a>
+  <a href="https://chromewebstore.google.com/detail/contextflow/aemncphfnlpbhlddifhohpgegejjejfm"><strong>从 Chrome 商店安装</strong></a>
   · <a href="./docs/GETTING_STARTED.md">开始使用</a>
   · <a href="./README.en.md">English</a>
 </p>
@@ -18,7 +18,7 @@
 
 </div>
 
-> **发布状态：** Chrome 商店版 v0.3.1 正在审核，当前请[下载扩展包并手动安装](./docs/GETTING_STARTED.md#安装扩展)。商店上架后会在这里更新安装入口。
+> **已在 Chrome 应用商店上架。** 当前商店版本为 v0.3.1。v0.3.2 的完整连接引导与同页配置仍待发布；当前版本也可按[安装与连接指南](./docs/GETTING_STARTED.md)完成配置。
 
 ContextFlow 是为深度阅读打造的浏览器阅读工作台。读论文、技术文章或研究报告时，把**原文、疑问和自己的判断**留在一起，再将它们整理进自己的笔记，而不是散落在收藏夹、聊天窗口和临时文档里。
 
@@ -62,7 +62,7 @@ ContextFlow 是为深度阅读打造的浏览器阅读工作台。读论文、�
 
 **先完成一次有价值的阅读，不必先配置 AI。** 高亮、批注、粘贴图片和 Markdown 导出，只需扩展，不需要账号、API key 或本地服务。
 
-1. **安装扩展。** 下载 [Chrome 扩展包 v0.3.1](https://github.com/PengheLiu/ContextFlow/releases/download/v0.3.1/contextflow-chrome-0.3.1.zip)，解压后在 `chrome://extensions` 开启开发者模式，点击「加载已解压的扩展程序」，选择含 `manifest.json` 的文件夹。
+1. **安装扩展。** 在 [Chrome 应用商店](https://chromewebstore.google.com/detail/contextflow/aemncphfnlpbhlddifhohpgegejjejfm)点击「添加至 Chrome」，无需下载 ZIP 或开启开发者模式。
 2. **留下想法。** 刷新一篇文章，选中一句正文，点击「批注」。可以从[阅读练习页](https://pengheliu.github.io/ContextFlow/demo.html)开始。
 3. **把记录带走。** 打开右侧阅读记录，在底部点击「下载」，得到带原文、批注与来源的 Markdown。
 
@@ -79,7 +79,7 @@ ContextFlow 是为深度阅读打造的浏览器阅读工作台。读论文、�
 | AI 速览、解释、追问、翻译 | 本地服务 + 自己的模型或 agent 配置 |
 | 参考个人笔记回答问题 | 本地 agent + 明确授权的笔记目录 |
 
-配套服务需要 Node.js 22.5+；目前通过终端安装和启动。模型费用由你使用的服务决定，ContextFlow 不提供内置模型额度。[配置 AI 与笔记同步 →](./docs/GETTING_STARTED.md#开启-ai-和笔记同步)
+配套服务需要 Node.js 22.13+；目前通过终端安装和启动。模型费用由你使用的服务决定，ContextFlow 不提供内置模型额度。[配置 AI 与笔记同步 →](./docs/GETTING_STARTED.md#开启-ai-和笔记同步)
 
 ## 数据在你的工具里，权限由你决定
 

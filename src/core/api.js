@@ -192,6 +192,7 @@ export function outboxSize(urlKey) {
 export const getConfig = () => call('/config');
 export const putConfig = (patch) => call('/config', { method: 'POST', body: JSON.stringify(patch) });
 export const listModels = () => call('/llm/models');
+export const testModel = () => call('/llm/test', { method: 'POST', body: '{}' });
 export const listNotebooks = () => call('/siyuan/notebooks');
 export const listVaults = () => call('/obsidian/vaults');
 export const listFolders = (backend) => call(`/fs/folders?backend=${encodeURIComponent(backend)}`);

@@ -6,10 +6,10 @@
 //   2. 强制要求自定义头 X-ContextFlow   → 任何跨源请求都必须预检，预检失败则请求根本不发出。
 //      少了这条，Content-Type: text/plain 的「简单请求」POST 能绕过 CORS 往库里写垃圾。
 import { createServer } from 'node:http';
-import { loadConfig, saveConfig, publicView, CONFIG_PATH } from './config.mjs';
+import { loadConfig, saveConfig, publicView, setupStatus, CONFIG_PATH } from './config.mjs';
 import * as db from './db.mjs';
 import * as lookup from './lookup.mjs';
-import { listModels } from './llm.mjs';
+import { listModels, testConnection } from './llm.mjs';
 import { listNotebooks, listPaths } from './siyuan.mjs';
 import { syncAll, describe, BACKENDS } from './sync.mjs';
 import * as jobs from './jobs.mjs';
@@ -101,7 +101,7 @@ const server = createServer(async (req, res) => {
     if (path === '/health') {
       return json(res, 200, { ok: true, stats: db.stats(cfg.sync.backend),
         extensionPaired: extensionAuth === true,
-        hasApiKey: !!cfg.translate.apiKey, backend: cfg.sync.backend, backends: BACKENDS });
+        hasApiKey: !!cfg.translate.apiKey, backend: cfg.sync.backend, backends: BACKENDS, ...setupStatus(cfg) });
     }
 
     if (path === '/events' && req.method === 'GET') {
@@ -213,6 +213,9 @@ const server = createServer(async (req, res) => {
     if (path === '/llm/models' && req.method === 'GET') {
       return json(res, 200, { models: await listModels(cfg) });
     }
+    if (path === '/llm/test' && req.method === 'POST') {
+      return json(res, 200, await testConnection(cfg));
+    }
     if (path === '/obsidian/vaults' && req.method === 'GET') {
       return json(res, 200, { vaults: detectVaults() });
     }
@@ -260,6 +263,12 @@ const server = createServer(async (req, res) => {
 });
 
 db.open();
+server.on('error', (error) => {
+  console.error(error.code === 'EADDRINUSE'
+    ? `端口 ${cfg.port} 已被占用。若 ContextFlow 已在运行，直接回扩展验证连接，不要重复启动；否则检查占用该端口的应用。`
+    : `ContextFlow 服务启动失败：${error.message}`);
+  process.exitCode = 1;
+});
 server.listen(cfg.port, '127.0.0.1', () => {
   const s = db.stats(cfg.sync.backend);
   console.log(`ContextFlow 服务 → http://127.0.0.1:${cfg.port}`);

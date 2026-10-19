@@ -20,6 +20,7 @@ try {
   assert.deepEqual(manifest.host_permissions, ['http://127.0.0.1:7317/*']);
   assert.equal(manifest.options_ui.page, 'options.html');
   for (const file of ['options.html', 'options.js', 'options.css', 'privacy.html']) assert.ok(files.includes(file));
+  assert.ok(!readFileSync(join(output, 'options.js'), 'utf8').includes('__CONTEXTFLOW_TOKEN__'));
   const icon = readFileSync(join(output, manifest.icons[128]));
   assert.equal(icon.readUInt32BE(16), 128);
   assert.equal(icon.readUInt32BE(20), 128);

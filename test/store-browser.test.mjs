@@ -7,6 +7,7 @@ import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync } from 'nod
 import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
+import { companionCommands } from '../src/ext/setup-commands.js';
 
 const runtime = process.env.CONTEXTFLOW_PLAYWRIGHT_DIR;
 if (!runtime) throw new Error('请用 CONTEXTFLOW_PLAYWRIGHT_DIR 指定安装了 playwright 的测试运行目录');
@@ -76,9 +77,29 @@ try {
   await options.screenshot({ path: join(screenshots, 'welcome-390x844.png'), fullPage: true });
   await options.setViewportSize({ width: 1280, height: 800 });
   await options.getByRole('link', { name: '我想开启 AI 或笔记同步 ↓' }).click();
+  const commands = companionCommands(extensionId);
+  assert.equal(await options.locator('#directory-command').textContent(), commands.check);
+  assert.equal(await options.locator('#install-command').textContent(), commands.setup);
+  assert.equal(await options.locator('#pair-command').textContent(), commands.pair);
+  await options.evaluate(() => {
+    const write = navigator.clipboard.writeText.bind(navigator.clipboard);
+    navigator.clipboard.writeText = async (text) => { window.copiedSetupCommand = text; await write(text); };
+  });
+  await options.getByRole('button', { name: '复制启动服务命令', exact: true }).click();
+  await options.locator('#copy-status').filter({ hasText: '不执行 npm' }).waitFor();
+  assert.equal(await options.evaluate(() => window.copiedSetupCommand), commands.setup);
+  await options.getByRole('heading', { name: /先进入服务文件夹，确认目录/ }).scrollIntoViewIfNeeded();
+  await options.screenshot({ path: join(screenshots, 'setup-directory-1280x800.png') });
+  await options.setViewportSize({ width: 390, height: 844 });
+  assert.equal(await options.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, '展开后的长命令也不能横向溢出');
+  await options.getByRole('heading', { name: /先进入服务文件夹，确认目录/ }).scrollIntoViewIfNeeded();
+  await options.screenshot({ path: join(screenshots, 'setup-directory-390x844.png') });
+  await options.setViewportSize({ width: 1280, height: 800 });
+  await options.locator('#repair-pairing summary').click();
   await options.getByRole('button', { name: '复制配对命令', exact: true }).click();
   await options.locator('#copy-status').filter({ hasText: '已复制' }).waitFor();
-  console.log('ok 首次欢迎页默认先批注，按需展开连接，窄屏无横向溢出，命令可复制');
+  assert.equal(await options.evaluate(() => window.copiedSetupCommand), commands.pair);
+  console.log('ok 欢迎页先批注；下载、进入目录、目录校验及启动明确分步；实际复制命令含保护，窄屏无溢出');
   const pairingOutput = execFileSync(process.execPath, ['tools/pair-extension.mjs', extensionId], { cwd: root, env: environment, encoding: 'utf8' });
   const token = pairingOutput.split('\n').find((line) => /^[A-Za-z0-9_-]{43}$/.test(line));
 
@@ -89,7 +110,7 @@ try {
   await new Promise((resolve) => fixture.listen(0, '127.0.0.1', resolve));
   const landing = await context.newPage();
   await landing.goto(`http://127.0.0.1:${fixture.address().port}/welcome-site`);
-  await landing.getByRole('link', { name: '下载 Chrome 试用版', exact: true }).waitFor();
+  await landing.getByRole('link', { name: '从 Chrome 商店安装', exact: true }).waitFor();
   await landing.screenshot({ path: join(screenshots, 'getting-started-site-1280x800.png'), fullPage: true });
   await landing.setViewportSize({ width: 390, height: 844 });
   assert.equal(await landing.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
@@ -140,13 +161,14 @@ try {
   await options.locator('#pair-token').fill(token);
   await options.locator('#consent').check();
   await options.getByRole('button', { name: '验证并连接' }).click();
-  await options.locator('#status').filter({ hasText: '连接成功' }).waitFor();
+  await options.locator('#status').filter({ hasText: '连接成功' }).waitFor({ state: 'attached' });
+  await article.waitForFunction(() => document.querySelector('[data-contextflow="panel"]')?.shadowRoot.getElementById('connectionNote').hidden === true);
   assert.equal(await options.locator('#pair-token').inputValue(), '');
   await options.getByRole('button', { name: '检查本地服务连接', exact: true }).click();
   await options.locator('#connection-state').filter({ hasText: '本地服务已连接' }).waitFor();
   await options.reload();
-  await options.locator('#connection-state').filter({ hasText: '已保存配对信息' }).waitFor();
-  assert.equal(await options.locator('#next-step').isVisible(), false, '保存的凭证不等于当前服务连通');
+  await options.locator('#connection-state').filter({ hasText: '本地服务已连接' }).waitFor();
+  assert.equal(await options.locator('#next-step').isVisible(), true, '重新打开时应真实检查服务后恢复配置入口');
   const connectedReady = article.waitForEvent('console', { predicate: (message) => message.text().includes('[ContextFlow] 就绪') });
   await article.reload();
   await connectedReady;
@@ -164,6 +186,8 @@ try {
   await devtools.detach();
   console.log('ok 浏览器拒绝 content script 直接读取配对凭证');
   execFileSync(process.execPath, ['tools/pair-extension.mjs', '--revoke', extensionId], { cwd: root, env: environment, stdio: 'pipe' });
+  await options.getByRole('button', { name: '检查本地服务连接', exact: true }).click();
+  await options.locator('#connection-state').filter({ hasText: '配对码已失效' }).waitFor();
   await options.locator('#pair-token').fill(token);
   await options.locator('#consent').check();
   await options.getByRole('button', { name: '验证并连接' }).click();

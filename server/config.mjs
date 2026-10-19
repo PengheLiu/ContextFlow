@@ -7,6 +7,7 @@ import { mkdirSync, readFileSync, writeFileSync, existsSync, renameSync, readdir
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { randomBytes, createHash } from 'node:crypto';
+import { normalizeRoot } from './paths.mjs';
 
 // CONTEXTFLOW_DIR 供测试指向临时目录 —— 同步层的测试要真实读写库和文件，
 // 绝不能碰用户 ~/.contextflow 里的阅读记录和密钥。生产环境不设这个变量。
@@ -101,7 +102,7 @@ const DEFAULTS = {
   siyuan: {
     origin: 'http://127.0.0.1:6806',
     token: '',
-    notebookId: '20260729105349-c2pp9ae',     // 「每周阅读」
+    notebookId: '',                            // 由用户选择，不携带维护者的笔记本 ID
     docPathPrefix: '/阅读记录',
   },
 };
@@ -195,6 +196,9 @@ export function saveConfig(patch) {
   if (patch?.translate && patch.translate.apiKey === '') delete patch.translate.apiKey;
   if (patch?.siyuan && patch.siyuan.token === '') delete patch.siyuan.token;
   const next = merge(current, patch);
+  next.markdown.dir = normalizeRoot(next.markdown.dir);
+  next.obsidian.vaultPath = normalizeRoot(next.obsidian.vaultPath);
+  next.agent.notesDir = normalizeRoot(next.agent.notesDir);
   next.schemaVersion = 2;
   next.agent.profile = ['safe', 'full'].includes(next.agent.profile) ? next.agent.profile : 'safe';
   // profileSource 是服务端所有的迁移状态，不能信任页面传来的 legacy-migrated。
@@ -265,3 +269,11 @@ export function publicView(cfg) {
 }
 
 export const CONFIG_PATH = FILE;
+
+/** Only configuration completeness; this does not assert model connectivity or billing. */
+export function setupStatus(cfg) {
+  const t = cfg.translate || {};
+  const llmConfigured = !!(t.apiKey && t.model && (t.provider === 'anthropic' || t.baseUrl));
+  const explainConfigured = cfg.explain?.backend === 'agent' ? !!cfg.agent?.id : llmConfigured;
+  return { llmConfigured, explainConfigured };
+}

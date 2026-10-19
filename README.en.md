@@ -9,7 +9,7 @@
 <p>Think beside the source. Go deeper with AI. Keep the knowledge in your own tools.</p>
 
 <p>
-  <a href="https://github.com/PengheLiu/ContextFlow/releases/latest"><strong>Download for Chrome</strong></a>
+  <a href="https://chromewebstore.google.com/detail/contextflow/aemncphfnlpbhlddifhohpgegejjejfm"><strong>Install from Chrome Web Store</strong></a>
   · <a href="#get-started">Get started</a>
   · <a href="./README.md">中文</a>
 </p>
@@ -18,7 +18,7 @@
 
 </div>
 
-> **Availability:** v0.3.1 is awaiting Chrome Web Store review. For now, [download and load the unpacked extension](#get-started). The extension UI is currently primarily in Chinese.
+> **Available on Chrome Web Store:** the current store version is v0.3.1. The v0.3.2 guided connection and in-page settings improvements are not yet released. Follow the [setup guide](./docs/GETTING_STARTED.md) for the current version. The extension UI is primarily in Chinese.
 
 ContextFlow is a browser reading workspace for people who read to understand. Keep **passages, questions, and your own judgments** together as you work through papers, technical articles, and research reports—then bring them back to your notes.
 
@@ -60,7 +60,7 @@ ContextFlow connects the web, AI, and your existing knowledge rather than creati
 
 **Start with useful reading, not AI configuration.** Highlights, inline annotations, pasted images, and Markdown export need no account, API key, Node.js, or running service.
 
-1. **Install.** Download the [Chrome extension v0.3.1](https://github.com/PengheLiu/ContextFlow/releases/download/v0.3.1/contextflow-chrome-0.3.1.zip) and extract it. Open `chrome://extensions`, enable Developer mode, choose **Load unpacked**, and select the folder containing `manifest.json`.
+1. **Install.** Choose **Add to Chrome** on the [Chrome Web Store](https://chromewebstore.google.com/detail/contextflow/aemncphfnlpbhlddifhohpgegejjejfm). No ZIP download or Developer mode is needed.
 2. **Capture a thought.** Refresh an article, select a sentence, and click **批注** (Annotate). The [practice article](https://pengheliu.github.io/ContextFlow/demo.html) provides a guided first use.
 3. **Keep the result.** Open the right-hand reading panel and click **下载** (Download) for Markdown containing your source and annotations.
 
@@ -77,7 +77,7 @@ Works on ordinary web pages in desktop Chrome / Chromium 111+. Chrome internal p
 | AI overviews, explanations, follow-up questions, translation | Local companion and your own model or agent configuration |
 | Answers informed by personal notes | Local agent and explicit permission to read a notes directory |
 
-The companion requires Node.js 22.5+ and currently uses terminal-based installation and startup. Model charges are set by your provider; ContextFlow includes no model credits. [Companion setup (Chinese) →](./docs/GETTING_STARTED.md#开启-ai-和笔记同步)
+The companion requires Node.js 22.13+ and currently uses terminal-based installation and startup. Model charges are set by your provider; ContextFlow includes no model credits. [Companion setup (Chinese) →](./docs/GETTING_STARTED.md#开启-ai-和笔记同步)
 
 ## Your tools. Your data. Explicit permissions.
 

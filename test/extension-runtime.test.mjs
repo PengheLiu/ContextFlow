@@ -52,6 +52,8 @@ assert.equal(settingsTab.url, `chrome-extension://${id}/options.html#connect`);
 assert.equal((await send({ type: 'cf-status' }, { ...settingsSender, url: settingsSender.url + '#connect' })).ok, true);
 assert.equal((await send({ type: 'cf-status' }, { ...settingsSender, id: 'b'.repeat(32) })).ok, false);
 assert.equal((await send({ type: 'cf-status' })).ok, false);
+assert.equal((await send({ type: 'cf-configuration-changed' })).ok, false, '网页不能广播配置更改');
+assert.equal((await send({ type: 'cf-configuration-changed' }, settingsSender)).ok, true);
 const token = 'a'.repeat(43);
 assert.equal((await send({ type: 'cf-connect', token, consent: true })).ok, false);
 assert.equal((await send({ type: 'cf-connect', token, consent: false }, settingsSender)).ok, false);

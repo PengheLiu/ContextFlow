@@ -138,6 +138,7 @@ export class App {
       canConnectService: () => typeof this.openConnectionSettings === 'function',
       getConnectionIssue: () => this.connectionIssue,
       onOpenConnection: () => this.openConnectionSettings?.(),
+      onConfigurationSaved: () => this.refreshConnection(),
       outbox: () => this.pendingCount,
       positionOf: (id) => this.pos.get(id) ?? Number.MAX_SAFE_INTEGER,
       isOrphan: (id) => !this.hl.has(id),
@@ -169,6 +170,7 @@ export class App {
       onDownloadMarkdown: () => this.downloadMarkdown(),
       onSync: async () => {
         await api.flushAssets();
+        await api.flushOutbox();
         const r = await api.sync(this.key);
         await this.sync();          // 同步后回读，刷新「待同步」计数
         return r;
@@ -225,9 +227,23 @@ export class App {
   }
 
   // ---------- 服务对账 ----------
+  async refreshConnection() {
+    if (this.stopped) return;
+    await this.sync();
+    if (this.stopped || this.briefBusy) return;
+    const hasBrief = this.items.some((event) => event.action === 'summary' && event.value && !event.deletedAt);
+    if (!hasBrief && this.online) this.panel.renderBrief({
+      state: 'idle', text: this.serviceInfo?.explainConfigured === false
+        ? '服务已连接。可先同步笔记，需要 AI 时再配置模型。'
+        : '连接与配置已更新。需要时点击生成速览，不会因重新连接自动调用模型。',
+      configure: this.serviceInfo?.explainConfigured === false,
+      retry: this.serviceInfo?.explainConfigured !== false, initial: true,
+    });
+  }
+
   async sync() {
     try {
-      await api.health();
+      this.serviceInfo = await api.health();
       this.online = true;
       this.connectionIssue = null;
       await api.flushAssets();
@@ -992,6 +1008,15 @@ export class App {
     if (this.openConnectionSettings && !this.online) {
       this.panel.renderBrief({ state: 'idle', text: 'AI 速览需连接本地服务。你可以先写批注和自己的总结，随时复制或下载。' });
       return;
+    }
+    if (this.serviceInfo?.explainConfigured === false) {
+      if (fresh) {
+        try { this.serviceInfo = await api.health(); } catch { /* normal request reports connectivity */ }
+      }
+      if (this.serviceInfo?.explainConfigured === false) {
+        this.panel.renderBrief({ state: 'idle', text: '本地服务已连接。配置模型或本地 Agent 后可以生成 AI 速览；现在可直接批注和同步笔记。', configure: true });
+        return;
+      }
     }
     const deferred = this.items.find((e) => e.action === 'summary' && !e.deletedAt
       && e.extra?.status === 'deferred');

@@ -214,4 +214,32 @@ await t('Agent 下拉只展示名称版本，不暴露内部验证标签', () =>
   assert.match(s.$('s-profileHint').textContent, /安全权限边界未验证/);
 });
 
+await t('手填 Vault 路径优先于探测值，未探测到时仍保留已保存路径', async () => {
+  const s = make();
+  s.cfg.obsidian = { vaultPath: '/saved/vault' };
+  s.api.listVaults = async () => ({ vaults: [] });
+  await s.loadVaults();
+  assert.equal(s.$('s-vault').value, '/saved/vault');
+  s.$('s-vaultPath').value = '~/My Notes';
+  assert.equal(s.patch().obsidian.vaultPath, '~/My Notes');
+});
+
+await t('上下文长度 0 表示不带正文，保存不能悄悄改回 5000', () => {
+  const s = make();
+  s.$('s-chunkChars').value = '0';
+  assert.equal(s.patch().translate.chunkChars, 0);
+  s.$('s-chunkChars').value = '';
+  assert.equal(s.patch().translate.chunkChars, 5000);
+});
+
+await t('独立连接页隐藏网页停用设置，不调用思源来保存 Markdown 配置', async () => {
+  const s = make();
+  s.$('s-backend').value = 'markdown';
+  let paths = 0;
+  s.persist = async () => {};
+  s.loadPaths = async () => { paths++; };
+  await s.save();
+  assert.equal(paths, 0);
+});
+
 console.log(`\n${pass} 项通过`);

@@ -17,11 +17,12 @@
     "resync": "node tools/resync.mjs",
     "build:ext": "node tools/build.mjs --ext",
     "build:store": "node tools/package-extension.mjs",
-    "test:store": "node test/store-build.test.mjs && node test/extension-runtime.test.mjs && node test/extension-pairing.test.mjs",
+    "test:store": "node test/store-build.test.mjs && node test/setup-commands.test.mjs && node test/onboarding.test.mjs && node test/extension-runtime.test.mjs && node test/extension-pairing.test.mjs",
     "posttest": "npm run test:store",
     "pair": "node tools/pair-extension.mjs",
     "build:store-support": "node tools/package-store-support.mjs",
-    "test:store-support": "node test/store-support.test.mjs"
+    "test:store-support": "node test/store-support.test.mjs",
+    "check:release-links": "node tools/check-release-links.mjs"
   },
   "devDependencies": {
     "esbuild": "^0.25.0",
@@ -32,7 +33,7 @@
     "@anthropic-ai/sdk": "^0.117.1"
   },
   "engines": {
-    "node": ">=22.5"
+    "node": ">=22.13"
   },
   "license": "MIT",
   "repository": {
