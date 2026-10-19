@@ -4,6 +4,7 @@ import { copyFileSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, 
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { stageWebsite, websiteFiles } from './build-website.mjs';
 
 const root = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const runtimeFiles = [
@@ -47,9 +48,8 @@ export function packageStoreSupport(output = join(root, 'release')) {
     archive('contextflow-companion', companion, [...runtimeFiles, 'README.md', 'privacy.html', 'package.json']);
 
     const site = join(temporary, 'site');
-    const pages = ['index.html', 'privacy.html', 'demo.html'];
-    for (const file of pages) copy(`store/${file}`, join(site, file));
-    archive('contextflow-store-site', site, pages);
+    stageWebsite(site);
+    archive('contextflow-store-site', site, websiteFiles.map(([, target]) => target));
     return artifacts;
   } finally {
     rmSync(temporary, { recursive: true, force: true });

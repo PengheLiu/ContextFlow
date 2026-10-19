@@ -40,6 +40,8 @@ npm run build:ext
 
 更新支持站点时只发布静态页面；确认公开隐私 URL 和发行下载链接可用。不要把静态 ZIP、本地构建或商店草稿状态当成已经上架。
 
+官网为 https://pengheliu.github.io/ContextFlow/ 。`npm run build:website` 只构建白名单静态文件；`npm run deploy:website` 默认预览发布范围，显式追加 `-- --publish` 才写入现有 Pages 分支。完整预览、检查与发布步骤见 [官网部署说明](../store/DEPLOY.md)。官网独立发布，不必重新送审扩展或覆盖 Release 附件。
+
 新版本发布顺序：先完成所有测试，发布同版本 companion 服务包，运行 `npm run check:release-links` 验证公开下载及隐私 URL；通过后再提交 Chrome 扩展。扩展连接页按自身版本生成服务包链接，不允许商店已更新而配套包仍是 404。支持站点与旧版兼容指南可独立更新，不冒充扩展运行时更新。
 
 完整首次使用验收（需 Playwright 与 Chromium）：

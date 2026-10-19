@@ -10,6 +10,7 @@
 
 <p>
   <a href="https://chromewebstore.google.com/detail/contextflow/aemncphfnlpbhlddifhohpgegejjejfm"><strong>从 Chrome 商店安装</strong></a>
+  · <a href="https://pengheliu.github.io/ContextFlow/">产品官网</a>
   · <a href="./docs/GETTING_STARTED.md">开始使用</a>
   · <a href="./README.en.md">English</a>
 </p>

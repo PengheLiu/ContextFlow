@@ -10,6 +10,7 @@
 
 <p>
   <a href="https://chromewebstore.google.com/detail/contextflow/aemncphfnlpbhlddifhohpgegejjejfm"><strong>Install from Chrome Web Store</strong></a>
+  · <a href="https://pengheliu.github.io/ContextFlow/">Website</a>
   · <a href="#get-started">Get started</a>
   · <a href="./README.md">中文</a>
 </p>

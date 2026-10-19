@@ -8,6 +8,7 @@ import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { companionCommands } from '../src/ext/setup-commands.js';
+import { websiteFiles } from '../tools/build-website.mjs';
 
 const runtime = process.env.CONTEXTFLOW_PLAYWRIGHT_DIR;
 if (!runtime) throw new Error('请用 CONTEXTFLOW_PLAYWRIGHT_DIR 指定安装了 playwright 的测试运行目录');
@@ -104,8 +105,12 @@ try {
   const token = pairingOutput.split('\n').find((line) => /^[A-Za-z0-9_-]{43}$/.test(line));
 
   fixture = createServer((request, response) => {
-    response.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-    response.end(readFileSync(join(root, request.url === '/welcome-site' ? 'store/index.html' : 'store/demo.html')));
+    const name = request.url.split('?')[0];
+    const source = name === '/welcome-site' ? 'store/index.html' : name === '/reading' ? 'store/demo.html' : websiteFiles.find(([, target]) => `/${target}` === name)?.[0];
+    if (!source) { response.writeHead(404); response.end(); return; }
+    const type = source.endsWith('.css') ? 'text/css' : source.endsWith('.svg') ? 'image/svg+xml' : source.endsWith('.png') ? 'image/png' : 'text/html';
+    response.writeHead(200, { 'Content-Type': `${type}; charset=utf-8` });
+    response.end(readFileSync(join(root, source)));
   });
   await new Promise((resolve) => fixture.listen(0, '127.0.0.1', resolve));
   const landing = await context.newPage();

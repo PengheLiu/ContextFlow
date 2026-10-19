@@ -8,6 +8,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { JSDOM } from 'jsdom';
 import { packageStoreSupport } from '../tools/package-store-support.mjs';
+import { websiteFiles } from '../tools/build-website.mjs';
 
 const directory = mkdtempSync(join(tmpdir(), 'contextflow-support-test-'));
 let server;
@@ -25,8 +26,8 @@ try {
 
   const site = join(directory, 'site');
   execFileSync('unzip', ['-q', artifacts[1].path, '-d', site]);
-  assert.deepEqual(readdirSync(site).sort(), ['demo.html', 'index.html', 'privacy.html']);
-  for (const filename of readdirSync(site)) {
+  assert.deepEqual(execFileSync('unzip', ['-Z1', artifacts[1].path], { encoding: 'utf8' }).trim().split('\n').sort(), websiteFiles.map(([, target]) => target).sort());
+  for (const filename of readdirSync(site).filter(name => name.endsWith('.html'))) {
     const html = readFileSync(join(site, filename), 'utf8');
     assert.doesNotMatch(html, /\/Users\/|cf-test-token-|__CONTEXTFLOW_TOKEN__/);
     const document = new JSDOM(html).window.document;
@@ -35,7 +36,9 @@ try {
     assert.equal(document.querySelectorAll('script,iframe,form').length, 0);
     for (const link of document.querySelectorAll('a[href]')) {
       const href = link.getAttribute('href');
-      if (!href.startsWith('https://')) assert.ok(existsSync(join(site, href)), `站内链接不可用：${href}`);
+      if (href.startsWith('#')) assert.ok(document.getElementById(href.slice(1)), `锚点不可用：${href}`);
+      else if (href === './') assert.ok(existsSync(join(site, 'index.html')));
+      else if (!href.startsWith('https://')) assert.ok(existsSync(join(site, href)), `站内链接不可用：${href}`);
     }
   }
 

@@ -10,6 +10,14 @@ ContextFlow
 
 网页高亮批注与 Markdown 导出；连接自己的本地服务后使用 AI 解释、总结和笔记同步。
 
+## 网站入口
+
+- 产品官网（首页网址）：https://pengheliu.github.io/ContextFlow/ 。
+- 支持网址：https://github.com/PengheLiu/ContextFlow/issues 。
+- 隐私政策：https://pengheliu.github.io/ContextFlow/privacy.html 。
+
+2026-10-19 核对：0.3.2 正在审核，后台首页网址输入框被禁用，目前仍指向 GitHub 仓库。未取消审核；官网已独立发布，仓库 About 和 README 已补链接。待商店允许编辑后，将首页网址换为上述官网，不改动支持和隐私地址。
+
 ## 详细说明
 
 读到有启发的地方，就地记下你的想法。

@@ -1,6 +1,6 @@
 # 从第一条批注开始
 
-[返回首页](../README.md) · [Chrome 商店安装](https://chromewebstore.google.com/detail/contextflow/aemncphfnlpbhlddifhohpgegejjejfm) · [练习文章](https://pengheliu.github.io/ContextFlow/demo.html)
+[产品官网](https://pengheliu.github.io/ContextFlow/) · [GitHub 首页](../README.md) · [Chrome 商店安装](https://chromewebstore.google.com/detail/contextflow/aemncphfnlpbhlddifhohpgegejjejfm) · [练习文章](https://pengheliu.github.io/ContextFlow/demo.html)
 
 先完成「选中原文 → 写批注 → 下载 Markdown」，需要 AI 或笔记同步时再连接本地服务。
 
