@@ -2,6 +2,17 @@
 
 ## 最新状态：2026-10-19
 
+- **0.3.2 已提交 Chrome Web Store 审核**，后台确认“已将您的扩展程序提交送审”及“待审核”；刷新状态页复核。保留审核通过后自动发布。这不是已获批或已上架。
+- 继续使用正式条目 `aemncphfnlpbhlddifhohpgegejjejfm`，不新建条目、不撤回旧版；免费、公开、所有地区设置保持不变。公开安装入口：https://chromewebstore.google.com/detail/contextflow/aemncphfnlpbhlddifhohpgegejjejfm 。
+- 先公开 [GitHub v0.3.2](https://github.com/PengheLiu/ContextFlow/releases/tag/v0.3.2) 的三个 ZIP 及各自 SHA-256，再上传扩展。标签对应源码 `f4356a2e1b758a31e6ef7dbd111ddff47c78607a`。`npm run check:release-links` 已通过，并实际下载公开 companion 核验内容校验和。
+- 已上传并在后台文件包页核对：草稿 0.3.2、已发布 0.3.1；扩展 ZIP SHA-256：`739159e51deb7c4745d4c934abf49603b36d22198cbf44443438518d1875441c`；companion ZIP：`a6060339e1d82f34bf8fcf14d03871772df1c7899a4c0508907fe003e47463cb`。
+- 商店说明已改为先离线批注、按需连接 AI/同步，并更正 Node.js 最低版本为 22.13+；保存后刷新核对。测试说明已换成 499 字的实际 0.3.2 步骤，含公开下载地址、同页配置、离线验证和撤销命令；清除了原先误放在用户名字段的说明及旧占位文字，用户名和密码均留空，因为产品无需账号。保存后刷新复核。
+- 隐私政策 URL、身份验证信息/网络记录/网站内容申报、三项用途承诺及无远程代码声明均核对，不增加权限或遥测。未提交生产密钥、配对码或私人笔记。
+- 提交前完整自动化测试、独立服务包安装/配对测试和正式商店 ID 的隔离 Chromium 端到端测试通过。模型使用隔离测试端点，未调用真实计费服务；Windows/Linux 尚未完成全新真实机器验收。
+- README、安装指南与支持首页按“0.3.1 已上架 / 0.3.2 待审核”更新；GitHub 发行包是提交前固定快照，公开支持站点随后独立部署状态更新，不覆盖发行附件。
+
+## 首次上架核对：2026-10-19
+
 - 已通过公开 Chrome 应用商店页面核对：ContextFlow 版本 **0.3.1** 已上架，更新日期为 2026-10-19。正式入口：https://chromewebstore.google.com/detail/contextflow/aemncphfnlpbhlddifhohpgegejjejfm 。
 - 源码 0.3.2 包含首次安装、目录校验、单终端配对启动、同页配置、连接恢复和笔记同步衔接修复，尚未提交商店。不得把本地构建称为已上架。
 - 0.3.2 提交前须先公开同版本 companion 下载包，再上传扩展并更新支持站点；连接页生成与自身版本一致的服务包链接。旧 0.3.1 安装包不可覆盖。

@@ -4,7 +4,7 @@
 
 先完成「选中原文 → 写批注 → 下载 Markdown」，需要 AI 或笔记同步时再连接本地服务。
 
-> 当前商店版本是 v0.3.1，已上架。源码中的 v0.3.2 新连接引导与同页配置尚待发布。下面保留当前版本可立即执行的兼容步骤；不要把源码页面的变化当成商店更新已经生效。
+> 截至 2026-10-19，商店版本是 v0.3.1。v0.3.2 新连接引导与同页配置已提交 Google 审核，通过后自动发布；[配套服务 v0.3.2](https://github.com/PengheLiu/ContextFlow/releases/tag/v0.3.2)已公开。下面保留 v0.3.1 可立即执行的兼容步骤；以扩展详情中显示的实际版本为准，GitHub 发行不代表商店已经更新。
 
 ## 安装扩展
 
@@ -33,7 +33,7 @@
 
 Chrome 扩展不会自动在电脑上安装配套服务。先安装 [Node.js 22.13 或更高版本](https://nodejs.org/en/download)，安装后重新打开终端。
 
-当前 v0.3.1 用户可[下载 companion 服务包 v0.3.1](https://github.com/PengheLiu/ContextFlow/releases/download/v0.3.1/contextflow-companion-0.3.1.zip)。新版发布后，连接页会提供与扩展版本匹配的服务包。将服务包解压到固定位置，里面应有 `package.json`、`server` 和 `tools`。
+当前 v0.3.1 用户可[下载 companion 服务包 v0.3.1](https://github.com/PengheLiu/ContextFlow/releases/download/v0.3.1/contextflow-companion-0.3.1.zip)。已安装 v0.3.2 的用户可在连接页下载，或[直接下载 companion v0.3.2](https://github.com/PengheLiu/ContextFlow/releases/download/v0.3.2/contextflow-companion-0.3.2.zip)。按扩展实际版本选择，将服务包解压到固定位置，里面应有 `package.json`、`server` 和 `tools`。
 
 | 文件 | 用途 |
 | --- | --- |

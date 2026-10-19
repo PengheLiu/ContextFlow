@@ -18,7 +18,7 @@
 
 </div>
 
-> **Available on Chrome Web Store:** the current store version is v0.3.1. The v0.3.2 guided connection and in-page settings improvements are not yet released. Follow the [setup guide](./docs/GETTING_STARTED.md) for the current version. The extension UI is primarily in Chinese.
+> **Available on Chrome Web Store:** as of October 19, 2026, the store version is v0.3.1. The v0.3.2 guided connection and in-page settings update has been submitted to Google and will publish automatically after approval. The [v0.3.2 companion service](https://github.com/PengheLiu/ContextFlow/releases/tag/v0.3.2) is available now. Follow the [setup guide](./docs/GETTING_STARTED.md) for the current store version. The extension UI is primarily in Chinese.
 
 ContextFlow is a browser reading workspace for people who read to understand. Keep **passages, questions, and your own judgments** together as you work through papers, technical articles, and research reports—then bring them back to your notes.
 
