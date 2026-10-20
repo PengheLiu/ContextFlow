@@ -36,6 +36,7 @@
           <p class="lead">在网页原文旁写批注、贴截图、继续追问。<br class="desktop-break">把原文、思考和来源，一起带回自己的笔记。</p>
           <div class="actions"><a class="button" href="https://chromewebstore.google.com/detail/contextflow/aemncphfnlpbhlddifhohpgegejjejfm">从 Chrome 商店安装 <span aria-hidden="true">↗</span></a><a class="text-link" href="#experience">看看它如何工作 <span aria-hidden="true">↓</span></a></div>
           <p class="micro">免费开源 · 无需注册 · 批注与导出无需配置 AI</p>
+          <p class="micro release-notice">商店当前 v0.3.2 · 下方展示 1.0 实际界面，商店 1.0 更新尚未提交。<a href="https://github.com/PengheLiu/ContextFlow/releases/tag/v1.0.0">查看 1.0 发行说明 →</a></p>
         </div>
       </div>
       <figure class="product-figure">
@@ -43,7 +44,7 @@
           <div class="browser-bar" aria-hidden="true"><span class="browser-dots"><i></i><i></i><i></i></span><span>网页原文 + 你的阅读工作台</span><span class="browser-label">CONTEXTFLOW</span></div>
           <img class="product-shot" src="assets/inline-annotation.png" alt="真实操作界面：选中网页原文后就地写批注，同一条批注同时出现在右侧阅读记录中" width="1440" height="920" fetchpriority="high">
         </div>
-        <figcaption><span><span class="status-dot" aria-hidden="true"></span>原文旁直接写，侧栏同步收录。</span><span>实际界面 · v0.3.2 截图 / 原创阅读样文</span></figcaption>
+        <figcaption><span><span class="status-dot" aria-hidden="true"></span>原文旁直接写，侧栏同步收录。</span><span>实际界面 · v1.0.0 截图 / 原创阅读样文</span></figcaption>
       </figure>
       <div class="destinations"><p>让阅读回到你已经在用的工具里</p><div><span>Markdown</span><span>Obsidian</span><span>思源笔记</span></div></div>
     </section>
@@ -63,12 +64,18 @@
 
 <span class="md-muted">原文链接：文章的来源地址</span>
 
+<span class="md-heading">## 速览</span>
+- 文章要点（主动生成后收录）
+
 <span class="md-heading">## 批注</span>
-- 原文：值得保存的不只是原文……
-  - 我的想法：它改变了我对什么的判断？
+- &gt; 值得保存的不只是原文……
+- 💬 它改变了我对什么的判断？
 
 <span class="md-heading">## 解释</span>
 - 问题、回答，以及我自己的补充。
+
+<span class="md-heading">## 翻译</span>
+- 原文与翻译结果。
 
 <span class="md-heading">## 总结</span>
 - 下次阅读，可以从这里继续。</code></pre><span class="example-caption">内容示意 · 按实际记录生成</span></div>
@@ -82,7 +89,7 @@
     </section>
     <section class="setup-section container section-space" aria-labelledby="setup-title">
       <div class="setup-intro"><p class="eyebrow">跟随你的工作方式</p><h2 id="setup-title">从基础到进阶，<br>只开启你需要的。</h2><p>扩展免费开源，不捆绑模型订阅。<br>配置留在你自己的工具里。</p><a class="text-link" href="https://github.com/PengheLiu/ContextFlow/blob/main/docs/GETTING_STARTED.md">完整安装与使用指南 <span aria-hidden="true">↗</span></a></div>
-      <div class="capabilities" role="list" aria-label="功能与配置要求"><div class="capability" role="listitem"><span class="capability-dot" aria-hidden="true">✓</span><div><h3>高亮、批注与 Markdown 导出</h3><p>安装即用，无需本地服务或 AI 配置。</p></div><span class="capability-tag">基础能力</span></div><div class="capability" role="listitem"><span class="capability-dot" aria-hidden="true">↗</span><div><h3>同步到自己的笔记</h3><p>本地服务 + 保存位置；只同步笔记无需配置 AI。</p></div><span class="capability-tag">可选</span></div><div class="capability" role="listitem"><span class="capability-dot" aria-hidden="true">↗</span><div><h3>AI 解释、翻译与速览</h3><p>本地服务 + 自己的模型或 agent；模型费用另计。</p></div><span class="capability-tag">可选</span></div><div class="setup-footnote">本地服务需要 Node.js 22.13+，目前通过终端安装和启动。无需下载扩展 ZIP；需要服务时，按扩展连接页和指南操作。</div></div>
+      <div class="capabilities" role="list" aria-label="功能与配置要求"><div class="capability" role="listitem"><span class="capability-dot" aria-hidden="true">✓</span><div><h3>高亮、批注与 Markdown 导出</h3><p>安装即用，无需本地服务或 AI 配置。</p></div><span class="capability-tag">基础能力</span></div><div class="capability" role="listitem"><span class="capability-dot" aria-hidden="true">✓</span><div><h3>阅读库、备份与诊断</h3><p>1.0 新增。跨文章找回与预览，完整 JSON 备份限 32 MB，可确认补充恢复。</p></div><span class="capability-tag">基础能力</span></div><div class="capability" role="listitem"><span class="capability-dot" aria-hidden="true">↗</span><div><h3>同步到自己的笔记</h3><p>本地服务 + 保存位置；只同步笔记无需配置 AI。</p></div><span class="capability-tag">可选</span></div><div class="capability" role="listitem"><span class="capability-dot" aria-hidden="true">↗</span><div><h3>AI 解释、翻译与速览</h3><p>本地服务 + 自己的 LLM 或 Agent；翻译需配置 LLM。模型费用另计。</p></div><span class="capability-tag">可选</span></div><div class="setup-footnote">本地服务需要 Node.js 22.13+，目前通过终端安装和启动。无需下载扩展 ZIP；需要服务时，按扩展连接页和指南操作。</div></div>
     </section>
     <section class="ownership-section container" aria-labelledby="ownership-title"><div class="ownership-mark" aria-hidden="true">↗</div><div><p class="eyebrow">你的数据，你的边界</p><h2 id="ownership-title">一份能带走的记录，<br>一套由你决定的工具。</h2></div><div class="ownership-copy"><p>阅读记录保存在扩展私有空间，不需要创建阅读云账号。笔记同步到你选择的位置，不另建一个封闭收藏库。</p><p>本地优先不代表 AI 全部离线。使用 AI 时，文章、问题和授权笔记可能发送给你配置的服务。建议定期导出或同步备份。</p><a class="text-link" href="privacy.html">了解数据处理与隐私 <span aria-hidden="true">↗</span></a></div></section>
     <section class="faq-section container section-space" id="faq" aria-labelledby="faq-title">
@@ -90,10 +97,10 @@
       <div class="faq-list">
         <details><summary>需要付费、注册账号，或先配置 AI 吗？<span aria-hidden="true">+</span></summary><div class="faq-answer"><p>扩展免费开源，无需注册。高亮、原位批注、粘贴图片和 Markdown 导出不要求 Node.js、API key 或本地服务。AI 使用你自己的模型或 agent，相关费用与数据处理由所选服务决定，ContextFlow 不提供内置模型额度。</p></div></details>
         <details><summary>安装后没有出现工具条，怎么办？<span aria-hidden="true">+</span></summary><div class="faq-answer"><p>先刷新安装前已打开的文章，确认 ContextFlow 已启用，并允许在当前网站运行。然后拖选一句正文。可以用<a href="demo.html">练习文章</a>完成第一条批注；练习页需要安装扩展，并非免安装演示。只想使用批注时，可暂时关闭连接服务的选项页。</p></div></details>
-        <details><summary>哪些页面可以使用？支持 PDF 和手机吗？<span aria-hidden="true">+</span></summary><div class="faq-answer"><p>目前支持桌面 Chrome / Chromium 111+ 中的普通 HTTP/HTTPS 网页。Chrome 内部页面、Chrome 商店、内置 PDF 阅读器和未经授权的文件页面暂不支持；论文可优先使用 HTML 正文。手机可浏览本官网与指南，但不作为当前扩展的支持环境。</p></div></details>
+        <details><summary>哪些页面可以使用？支持 PDF 和手机吗？<span aria-hidden="true">+</span></summary><div class="faq-answer"><p>目前支持桌面 Chrome / Chromium 111+ 中的普通 HTTP/HTTPS 网页。Chrome 内部页面、Chrome 商店、内置 PDF 阅读器和本地文件页面暂不支持；论文可优先使用 HTML 正文。手机可浏览本官网与指南，但不作为当前扩展的支持环境。</p></div></details>
         <details><summary>为什么 AI 和笔记同步需要本地服务？<span aria-hidden="true">+</span></summary><div class="faq-answer"><p>本地服务负责连接你选择的模型、运行本地 agent，以及写入自己的笔记目录。需要 Node.js 22.13+。下载 companion 服务包，解压后先进入包含 <code>package.json</code> 的目录，再执行连接页提供的完整命令。不要在主目录直接运行 <code>npm ci</code>。macOS 提供常驻服务脚本，其他系统的自动安装尚未完成实机验收。</p><p><a href="https://github.com/PengheLiu/ContextFlow/blob/main/docs/GETTING_STARTED.md#开启-ai-和笔记同步">按完整指南配置本地服务 →</a></p></div></details>
         <details><summary>记录会自动保存吗？卸载后还在吗？<span aria-hidden="true">+</span></summary><div class="faq-answer"><p>浏览器内输入自动保存，写入笔记软件则需要点击「同步」。卸载扩展会清除扩展内记录，不会删除已导出的 Markdown 或已同步笔记。网页改版可能影响高亮定位，但已有记录仍可导出。请定期导出或同步备份。</p></div></details>
-        <details><summary>官网截图和实际安装界面为什么有差别？<span aria-hidden="true">+</span></summary><div class="faq-answer"><p>这里使用 v0.3.2 的真实截图，图文为原创样文与示例批注。高亮、原位批注、侧栏同步与 Markdown 导出已在 v0.3.1 提供。v0.3.2 的首次连接和同页配置改进已提交审核，是否已上架请以 Chrome 商店版本为准。GitHub 发行包可能先于商店更新公开。</p><p><a href="https://github.com/PengheLiu/ContextFlow/releases">查看版本与发行记录 →</a></p></div></details>
+        <details><summary>官网截图和实际安装界面为什么有差别？<span aria-hidden="true">+</span></summary><div class="faq-answer"><p>这里使用 v1.0.0 的真实截图，图文为原创样文与示例批注。1.0 包含阅读工作台、跨文章阅读库、备份恢复与脱敏诊断；商店 1.0 更新尚未提交，现有商店版本仍可安装。请以扩展详情中的实际版本选择匹配的服务包，不要为了更新卸载扩展。</p><p><a href="https://github.com/PengheLiu/ContextFlow/releases">查看版本与发行记录 →</a></p></div></details>
       </div>
     </section>
     <section class="closing container" aria-labelledby="closing-title"><p class="eyebrow">让下一次理解，不必从零开始</p><h2 id="closing-title">从下一句让你停下来的话开始。</h2><div class="actions"><a class="button" href="https://chromewebstore.google.com/detail/contextflow/aemncphfnlpbhlddifhohpgegejjejfm">开始使用 ContextFlow <span aria-hidden="true">↗</span></a><a class="text-link" href="demo.html">打开练习文章 <span aria-hidden="true">→</span></a></div></section>
