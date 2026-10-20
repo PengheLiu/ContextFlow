@@ -115,18 +115,30 @@ await t('原位与侧栏输入共享同一份批注草稿并双向镜像', () =>
   assert.equal(a.handlers().commentOf(h.id), '侧栏输入');
 });
 
-await t('批注草稿提交后仍沿用原有 comment 子记录协议', () => {
+await t('批注草稿提交后仍沿用原有 comment 子记录协议', async () => {
   const h = ev('h-save', 'highlight');
   const a = bare([h]);
   const persisted = [];
   a.persist = (events) => persisted.push(...events);
-  a.commitCommentDraft(h.id, '  一条批注  ', 'popover');
+  await a.commitCommentDraft(h.id, '  一条批注  ', 'popover');
   const comment = a.commentFor(h.id);
   assert.ok(comment);
   assert.equal(comment.action, 'comment');
   assert.equal(comment.parentId, h.id);
   assert.equal(comment.value, '一条批注');
   assert.deepEqual(persisted, [comment]);
+  assert.equal(a.commentDrafts.has(h.id), false);
+});
+
+await t('批注落盘失败保留共享草稿，重试相同文字仍重新落盘', async () => {
+  const h = ev('h-retry-save', 'highlight');
+  const a = bare([h]);
+  let calls = 0;
+  a.persist = async () => { if (++calls === 1) throw new Error('配额不足'); };
+  await assert.rejects(() => a.commitCommentDraft(h.id, '不能丢失', 'popover'), /配额不足/);
+  assert.equal(a.commentDrafts.get(h.id), '不能丢失');
+  await a.commitCommentDraft(h.id, '不能丢失', 'popover');
+  assert.equal(calls, 2);
   assert.equal(a.commentDrafts.has(h.id), false);
 });
 

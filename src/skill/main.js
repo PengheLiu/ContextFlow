@@ -87,7 +87,7 @@ export class App {
     // 也防止已经晚到的结果把已删除记录用稳定 id "复活"。
     this.lookupRuns = new Map();
     // 覆盖上传正文到轮询完成的整个提交窗口，避免连点重复排队。
-    this.explainSubmissions = new Set();
+    this.explainSubmissions = new Map();
   }
 
   async start() {
@@ -110,7 +110,7 @@ export class App {
     this.wire();
     await this.sync();
     this.resumePending();          // 接上刷新前没跑完的解释
-    if (this.panel.open) this.autoSummarize();   // 面板记忆为展开：这也算"打开插件"
+    if (this.panel.open) this.autoSummarize();   // 只恢复已有结果或生成入口，不发起 AI。
     console.log('[ContextFlow] 就绪', { key: this.key, n: this.items.length, online: this.online });
   }
 
@@ -138,6 +138,8 @@ export class App {
       canConnectService: () => typeof this.openConnectionSettings === 'function',
       getConnectionIssue: () => this.connectionIssue,
       onOpenConnection: () => this.openConnectionSettings?.(),
+      canOpenLibrary: () => typeof this.openReadingLibrary==='function',
+      onOpenLibrary: () => this.openReadingLibrary?.(),
       onConfigurationSaved: () => this.refreshConnection(),
       outbox: () => this.pendingCount,
       positionOf: (id) => this.pos.get(id) ?? Number.MAX_SAFE_INTEGER,
@@ -148,7 +150,7 @@ export class App {
       onCommentInput: (id, v) => this.updateCommentDraft(id, v, 'panel'),
       onCommentChange: (id, v) => this.commitCommentDraft(id, v, 'panel'),
       onNoteInput: (v) => { this.noteDraft = String(v ?? ''); },
-      onNoteChange: (v) => { this.saveNote(v); this.noteDraft = null; },
+      onNoteChange: async (v) => { await this.saveNote(v); if (this.noteDraft === v) this.noteDraft = null; },
       getLookupSupplement: (id) => this.items.find((e) => e.id === id)?.extra?.supplement ?? '',
       onLookupSupplementInput: (id, v) => this.updateLookupSupplement(id, v, false, 'panel'),
       onLookupSupplementChange: (id, v) => this.updateLookupSupplement(id, v, true, 'panel'),
@@ -161,6 +163,12 @@ export class App {
       // 只做筛选，排序统一交给 panel 的 byPosition（见 core/order.js）
       getLookups: (kind) => this.items.filter((e) => e.action === kind && !e.deletedAt),
       onDeleteLookup: (id) => this.deleteLookup(id),
+      onUndoDelete: () => this.undoDelete(),
+      onOpenRecord: (id) => this.openRecord(id),
+      onCopyAnswer: (text) => this.copyText(text),
+      onCancelLookup: (id) => this.cancelLookup(id),
+      onCancelSummary: () => this.cancelSummary(),
+      onFlushEdits: () => this.flushInlineEdits(),
       // Panel 构造时会恢复“上次保持展开”的状态；把速览放到微任务，
       // 等 this.panel 完成赋值后再执行，避免刷新时访问尚未挂载的 panel。
       onOpen: () => queueMicrotask(() => this.autoSummarize()),
@@ -169,8 +177,17 @@ export class App {
       onCopyMarkdown: () => this.copyMarkdown(),
       onDownloadMarkdown: () => this.downloadMarkdown(),
       onSync: async () => {
+        await this.flushInlineEdits();
         await api.flushAssets();
-        await api.flushOutbox();
+        // Another autosave may already hold a queue lease. Wait for its ack,
+        // otherwise /sync can run before the last edit reaches the companion.
+        const deadline = Date.now() + 8000;
+        do {
+          await api.flushOutbox();
+          if (!await api.outboxSize(this.key)) break;
+          if (Date.now() >= deadline) throw new Error('记录已保存在浏览器，但仍有内容待发送；请检查本地服务，稍后再次同步。');
+          await new Promise(resolve => setTimeout(resolve, 120));
+        } while (true);
         const r = await api.sync(this.key);
         await this.sync();          // 同步后回读，刷新「待同步」计数
         return r;
@@ -204,6 +221,7 @@ export class App {
     clearTimeout(this.timer);
     for (const ctl of this.lookupRuns.values()) ctl.abort();
     this.lookupRuns.clear();
+    this.briefController?.abort();
     // 停用 / 重载插件前先提交未落盘的批注，不能丢掉最后 500ms 内的输入。
     this.commentPop?.close();
     for (const pop of Object.values(this.pops || {})) pop.close();
@@ -317,10 +335,22 @@ export class App {
     });
     mSet(this.key, this.items);
     // api.pushEvents 会把事件与 queued operation 原子写入 IDB，再尝试网络发送。
-    api.pushEvents(stamped).then(async (ok) => {
+    let saved, failed;
+    const local = new Promise((resolve, reject) => { saved = resolve; failed = reject; });
+    let localSaved = false;
+    const markLocalSaved = () => { localSaved = true; saved(); };
+    api.pushEvents(stamped, { onLocalSaved: markLocalSaved }).then(async (ok) => {
+      markLocalSaved(); // 非 IndexedDB 载体的兼容兜底。
       this.pendingCount = await api.outboxSize(this.key);
       if (ok !== this.online) { this.online = ok; this.panel.renderStatus(); }
+    }).catch((error) => {
+      failed(error);
+      this.panel?.syncMsg?.(localSaved ? `记录已保存在浏览器，但服务状态暂无法确认：${error.message}`
+        : `浏览器保存失败，请保留当前页面并复制内容备份：${error.message}`, 'bad');
     });
+    // 其余即时高亮入口可能不等待；错误已在上方显示，不产生未处理的拒绝。
+    local.catch(() => {});
+    return local;
   }
 
   // ---------- 锚定 ----------
@@ -403,13 +433,15 @@ export class App {
     else this.panel?.updateCommentDraft(id, value);
   }
 
-  commitCommentDraft(id, raw, source) {
+  async commitCommentDraft(id, raw, source) {
     this.updateCommentDraft(id, raw, source);
-    this.saveComment(id, raw);
+    await this.saveComment(id, raw);
     // 共享草稿只覆盖防抖窗口；落盘后继续以事件记录为唯一事实源，
     // 后续同步进来的更新就不会被一份永久驻留的本地草稿遮住。
-    if (this.commentDrafts.get(id) === String(raw ?? '')) this.commentDrafts.delete(id);
-    this.commentPop?.markSaved(id);
+    if (this.commentDrafts.get(id) === String(raw ?? '')) {
+      this.commentDrafts.delete(id);
+      this.commentPop?.markSaved(id, raw);
+    }
     this.panel?.renderStatus();
   }
 
@@ -445,7 +477,7 @@ export class App {
     mSet(this.key, this.items);
     if (source === 'panel') this.pops?.explain?.setSupplementValue(id, supplement);
     else this.panel?.updateLookupSupplement(id, supplement);
-    if (commit) this.persist([ev]);
+    if (commit) return this.persist([ev]);
   }
 
   locate(id) {
@@ -603,6 +635,7 @@ export class App {
   saveComment(highlightId, raw) {
     const body = (raw ?? '').trim();
     const parent = this.items.find((e) => e.id === highlightId);
+    if (!parent || parent.deletedAt) return; // delayed blur/paste after deletion
     let c = this.commentFor(highlightId);
     if (!c) {
       if (!body) return;
@@ -614,12 +647,13 @@ export class App {
       };
       this.items.push(c);
     } else {
-      if (c.value === body) return;                    // 无变化，不打扰服务端
+      // 显式重试时，即使内存中的文字相同，也要重做落盘；上次可能因配额失败。
       c.value = body;
       if (!body) c.deletedAt = Date.now();
     }
-    this.persist([c]);
+    const saved = this.persist([c]);
     if (c.deletedAt) this.items = this.items.filter((e) => e.id !== c.id);
+    return saved;
   }
 
   /** 原文上的 × 统一分派到已有删除路径，不复制状态/API 逻辑 */
@@ -633,38 +667,113 @@ export class App {
   async deleteHighlight(id) {
     this.markDelete?.hide();
     if (this.editingCommentId === id) this.commentPop?.close(false);
+    const draft = this.commentDrafts.get(id);
     this.commentDrafts.delete(id);
     const h = this.items.find((e) => e.id === id);
     const c = this.commentFor(id);
     const dead = [h, c].filter(Boolean);
+    if (!h) return;
+    const restore = structuredClone(dead);
+    if (draft !== undefined) {
+      const comment = restore.find(e => e.action === 'comment');
+      if (comment) comment.value = draft;
+      else if (draft.trim()) restore.push({ ...h, id: crypto.randomUUID(), action: 'comment', parentId: id, value: draft, color: null });
+    }
     this.items = this.items.filter((e) => e.id !== id && e.id !== c?.id);
     mSet(this.key, this.items);
-    if (offlineAvailable()) {
-      await tombstoneOfflineEvents(dead);
-      api.flushOutbox();
-    } else {
-      if (h) api.deleteEvent(h);
-      if (c) api.deleteEvent(c);
-    }
+    await this.recordDeletion(dead, restore);
     this.reanchor();
   }
 
   async deleteLookup(id) {
     this.markDelete?.hide();
     const ev = this.items.find((e) => e.id === id);
+    if (!ev) return;
     const jobId = ev?.extra?.jobId;
     // 中止浏览器侧的轮询；服务端作业也 best-effort 取消，别让已删除的问题继续耗额度
     this.lookupRuns.get(id)?.abort();
     this.lookupRuns.delete(id);
+    if (ev) this.explainSubmissions.delete(lookupKey(ev));
     if (jobId) api.cancelJob(jobId);
     this.items = this.items.filter((e) => e.id !== id);
     mSet(this.key, this.items);
-    if (ev && offlineAvailable()) {
-      await tombstoneOfflineEvents([ev]);
-      api.flushOutbox();
-    } else if (ev) api.deleteEvent(ev);
+    await this.recordDeletion([ev]);
     if (this.watching === id) this.tipFor('explain').close();
     this.reanchor();          // 顺带抹掉原文上的标记
+  }
+
+  async recordDeletion(events, restore = structuredClone(events)) {
+    const entry = { events: restore, at: Date.now() };
+    // A stack allows multiple deletions to be recovered in reverse order.
+    this.deletedRecords ??= [];
+    this.deletedRecords.push(entry);
+    if (this.deletedRecords.length > 20) this.deletedRecords.shift();
+    try {
+      if (offlineAvailable()) {
+        const dead = await tombstoneOfflineEvents(events);
+        entry.at = Math.max(entry.at, ...dead.map(e => e.updatedAt || 0));
+        api.flushOutbox().catch(() => {});
+      } else await Promise.all(events.map(e => api.deleteEvent(e)));
+      entry.ready = true;
+      this.panel?.showUndo?.(`已删除${events.some(e => e.action === 'highlight') ? '批注' : '记录'} · 可撤销`);
+    } catch (error) {
+      this.deletedRecords = this.deletedRecords.filter(e => e !== entry);
+      this.items.push(...restore); this.reanchor();
+      throw error;
+    }
+  }
+
+  async undoDelete() {
+    const entry = this.deletedRecords?.at(-1);
+    if (!entry?.ready) return;
+    const restored = entry.events.map(e => ({ ...structuredClone(e), deletedAt: null,
+      updatedAt: Math.max(Date.now(), entry.at + 1, (e.updatedAt || 0) + 1),
+      ...(e.extra?.status === 'running' ? { extra: { ...e.extra, status: 'canceled', jobId: null, progress: '', error: '' } } : {}),
+    }));
+    const before = this.items;
+    this.items = [...this.items.filter(e => !restored.some(r => r.id === e.id)), ...restored];
+    try { await this.persist(restored); }
+    catch (error) { this.items = before; this.reanchor(); throw error; }
+    this.deletedRecords.pop(); this.reanchor();
+    if (this.deletedRecords.length) queueMicrotask(() => this.panel?.showUndo?.('记录已恢复 · 还可撤销上一次删除'));
+    this.panel?.syncMsg?.('记录已恢复，原文定位与笔记同步会一并更新。', 'ok');
+    return this.deletedRecords.length;
+  }
+
+  openRecord(id) {
+    const event = this.items.find(e => e.id === id && !e.deletedAt);
+    if (!event) return;
+    const range = this.hl.items.get(id)?.range;
+    if (!range) {
+      this.panel?.syncMsg?.('原文暂未定位，仍可在阅读记录中编辑、重试和复制。', 'bad'); return;
+    }
+    this.locate(id);
+    if (event.action === 'highlight') return this.openCommentEditor(event, range.getBoundingClientRect());
+    if (event.action === 'translate') {
+      this.tipFor('translate').open(range.getBoundingClientRect()).answer(event.value || '尚无翻译结果'); return;
+    }
+    this.doExplain(range);
+    const pop = this.tipFor('explain');
+    if (event.value) pop.answer(event.value);
+    pop.focus(event.extra?.question || '').supplement?.(id, event.extra?.supplement || '');
+    this.syncExplainSubmit(pop);
+  }
+
+  async cancelLookup(id) {
+    const event = this.items.find(e => e.id === id);
+    if (!event || event.extra?.status !== 'running') return;
+    this.lookupRuns.get(id)?.abort();
+    this.lookupRuns.delete(id);
+    this.explainSubmissions.delete(lookupKey(event));
+    const jobId = event.extra?.jobId;
+    this.patchLookup(id, { status: 'canceled', progress: '', error: '', jobId: null });
+    if (jobId) api.cancelJob(jobId);
+    if (this.watching === id && this.pops?.explain?.open$) {
+      const pop = this.pops.explain;
+      if (event.value) pop.answer(event.value).foot('已取消重新生成，保留原答案');
+      else pop.body('已取消，可重新提问。').foot('');
+    }
+    this.syncExplainSubmit();
   }
 
   saveNote(body) {
@@ -678,11 +787,21 @@ export class App {
       };
       this.items.push(n);
     } else {
-      if (n.value === body) return;
+      // Retrying an unchanged draft must retry durability after a failed save.
       n.value = body;
     }
-    this.persist([n]);
+    const saved = this.persist([n]);
     this.panel.renderStatus();
+    return saved;
+  }
+
+  async flushInlineEdits() {
+    const supplement = this.pops?.explain?.supplementComposer;
+    if ([this.commentPop?.composer, supplement].some(editor => editor?.blocks?.some(block => block.pending || block.error))) {
+      throw new Error('原位面板中有图片尚未保存完成，请等待完成或移除失败图片后重试。');
+    }
+    if (await this.commentPop?.commit() === false) throw new Error('原位批注尚未保存成功，请先重试保存或复制备份。');
+    await supplement?.commit();
   }
 
   // ---------- 划词查询：翻译 / 解释 ----------
@@ -820,14 +939,16 @@ export class App {
     if (this.explainSubmissions.has(key) || this.lookupRuns.has(prev?.id)) return;
     // 重开只读缓存；主动提交已有问题则明确请求新答案，包括失败后的重试。
     fresh ||= !!prev?.value || ['error', 'deferred'].includes(prev?.extra?.status);
-    this.explainSubmissions.add(key);
+    const submission = Symbol('explain-request');
+    this.explainSubmissions.set(key, submission);
     this.syncExplainSubmit(pop);
     pop.foot('').showRefresh(false);
     const tk = ticker(pop, '正在准备上下文');
     try {
-      await this.uploadArticle();
       const draft = { text: ctx.text, question, anchor: ctx.anchor, offset: ctx.offset };
       const { id, jobId } = this.beginLookup(draft);
+      await this.uploadArticle();
+      if (!this.items.some(e => e.id === id && e.extra?.status === 'running')) return;
       if (tk.current && pop.open$) {
         pop.supplement?.(id, this.items.find((e) => e.id === id)?.extra?.supplement || '');
       }
@@ -843,7 +964,7 @@ export class App {
       if (tk.current && pop.open$) pop.body(`解释失败：${e.message}`, 'bad').foot(this.hintFor(e));
     } finally {
       tk.stop();
-      this.explainSubmissions.delete(key);
+      if (this.explainSubmissions.get(key) === submission) this.explainSubmissions.delete(key);
       this.syncExplainSubmit(pop);
     }
   }
@@ -860,14 +981,14 @@ export class App {
     const id = prev?.id ?? lookupId(this.key, seed);
     const ev = {
       id, urlKey: this.key, url: location.href, title: document.title,
-      action: 'explain', text, value: null, color: null,
+      action: 'explain', text, value: prev?.value || null, color: null,
       anchor: anchor ?? prev?.anchor ?? null, parentId: null,
-      extra: { question: question || '', status: 'running', offset,
+      extra: { ...prev?.extra, question: question || '', status: 'running', offset, error: '', progress: '正在准备上下文…',
         ...(prev?.extra?.supplement ? { supplement: prev.extra.supplement } : {}) },
       createdAt: prev?.createdAt ?? Date.now(),
     };
     this.items = [...this.items.filter((e) => e.id !== id), ev];
-    mSet(this.key, this.items);          // 只存本地：没结果的半成品不值得推给服务端
+    this.persist([ev]);
     this.reanchor();
     // 同一段同一问题若已有作业在跑，调用方应当**附着**上去而不是再提交一次
     const busy = prev && !prev.value && prev.extra?.status === 'running' && prev.extra?.jobId;
@@ -878,7 +999,10 @@ export class App {
   patchLookup(id, patch) {
     const ev = this.items.find((e) => e.id === id);
     if (!ev) return null;
+    const durable = (patch.status && patch.status !== ev.extra?.status)
+      || (patch.jobId && patch.jobId !== ev.extra?.jobId);
     ev.extra = { ...ev.extra, ...patch };
+    if (durable) this.persist([ev]);
     mSet(this.key, this.items);
     this.panel.render();
     return ev;
@@ -920,8 +1044,8 @@ export class App {
       }
     } catch (e) {
       tk?.stop();
-      if (ctl.signal.aborted || e.code === 'ABORTED' || !this.items.some((x) => x.id === id)) return;
-      const status = this.online && e.status ? 'error' : 'deferred';
+      if (ctl.signal.aborted || !this.items.some((x) => x.id === id)) return;
+      const status = e.code === 'ABORTED' ? 'canceled' : this.online && e.status ? 'error' : 'deferred';
       this.patchLookup(id, {
         status, error: e.message, progress: status === 'deferred'
           ? '离线，已保存；联网后手动重试' : '',
@@ -963,7 +1087,7 @@ export class App {
           return;
         }
         if (job.status === 'error' || job.status === 'canceled') {
-          throw Object.assign(new Error(job.error?.message || '作业已取消'), { code: job.error?.code, status: 502 });
+          throw Object.assign(new Error(job.error?.message || '作业已取消'), { code: job.status === 'canceled' ? 'ABORTED' : job.error?.code, status: 502 });
         }
         const note = job.queuedAhead ? `排队中（前面 ${job.queuedAhead} 个）`
           : (job.progress || '本地 agent 思考中');
@@ -974,7 +1098,7 @@ export class App {
     } catch (e) {
       tk?.stop();
       if (ctl.signal.aborted || !this.items.some((x) => x.id === id)) return;
-      const status = this.online && e.status ? 'error' : 'deferred';
+      const status = e.code === 'ABORTED' ? 'canceled' : this.online && e.status ? 'error' : 'deferred';
       this.patchLookup(id, { status, error: e.message,
         progress: status === 'deferred' ? '离线，已保存；联网后手动重试' : '' });
       if (live()) pop.body(`解释失败：${e.message}`, 'bad').foot(this.hintFor(e));
@@ -989,7 +1113,7 @@ export class App {
   }
 
   /**
-   * 速览：打开面板时给一段全文概述，让人先知道这篇在讲什么。
+   * 速览：打开只回看已有结果；明确点击生成才发送正文并调用 AI。
    *
    * **每篇只做一次。** 结果落库（action='summary'，id 由 urlKey 派生），
    * 再打开同一篇直接读缓存。走 agent 时一次要几十秒且花钱，所以绝不能每次
@@ -1003,6 +1127,14 @@ export class App {
     const has = this.items.find((e) => e.action === 'summary' && !e.deletedAt && e.value);
     if (has && !fresh) {
       this.panel.renderBrief({ state: 'ok', text: has.value, retry: true });
+      return;
+    }
+    // 展开侧栏只是查看记录，不代表同意上传正文或调用付费模型。
+    // 只有明确点击「生成速览 / 重新生成」才继续下面的网络路径。
+    if (!fresh) {
+      this.panel.renderBrief(this.serviceInfo?.explainConfigured === false
+        ? { state: 'idle', text: 'AI 尚未配置，可先写批注与自己的笔记。需要时再配置模型或 Agent。', configure: true }
+        : { state: 'idle', text: '按需生成文章要点。生成时会发送正文给你配置的模型或 Agent，可能产生费用。', retry: true, initial: true });
       return;
     }
     if (this.openConnectionSettings && !this.online) {
@@ -1026,21 +1158,25 @@ export class App {
     }
     // 正文太短的页面不值得总结（搜索结果页、仓库首页、列表页）
     const text = this.index?.text || '';
-    if (text.length < 1200) { this.panel.renderBrief(null); return; }
+    if (text.length < 200) { this.panel.renderBrief({ state: 'idle', text: '页面正文太短或尚未加载，请等待内容加载后再生成。', retry: true, initial: true }); return; }
 
     this.briefBusy = true;
+    const controller = new AbortController();
+    this.briefController = controller;
     const t0 = performance.now();
-    this.panel.renderBrief({ state: 'run', text: '正在生成速览…' });
+    this.panel.renderBrief({ state: 'run', text: '正在生成速览…', previous: has?.value });
     try {
       await this.uploadArticle();
+      if (controller.signal.aborted) return;
       const r = await api.summarize({
-        urlKey: this.key, fresh,
-        onProgress: (job) => this.panel.renderBrief({
+        urlKey: this.key, fresh, signal: controller.signal,
+        onProgress: (job) => { if (!controller.signal.aborted) { this.briefJobId = job.id; this.panel.renderBrief({
           state: 'run',
           text: job.queuedAhead ? `排队中（前面 ${job.queuedAhead} 个）`
             : (job.progress || '正在生成速览…'),
-        }),
+        }); } },
       });
+      if (controller.signal.aborted || this.stopped) return;
       const ms = (performance.now() - t0).toFixed(0);
       // 落库：速览要作为这条对话的第一轮，后面的解释才接得上
       this.saveLookup('summary', { text: '', value: r.summary, anchor: null, extra: {} });
@@ -1049,36 +1185,57 @@ export class App {
         meta: [this.meta({ ...r, ms }), r.degraded].filter(Boolean).join(' · '),
       });
     } catch (e) {
-      if (!this.online || !e.status) {
+      if (controller.signal.aborted || this.stopped) return;
+      if (!has && (!this.online || !e.status)) {
         this.saveLookup('summary', { text: '', value: null, anchor: null,
           extra: { status: 'deferred', error: e.message } });
       }
       this.panel.renderBrief({
-        state: 'err', retry: true,
-        text: `速览失败：${e.message}`,
-        meta: this.hintFor(e),
+        state: has ? 'ok' : 'err', retry: true,
+        text: has?.value || `速览失败：${e.message}`,
+        meta: has ? `重新生成失败，保留原速览：${e.message}` : this.hintFor(e),
       });
     } finally {
-      this.briefBusy = false;
+      if (this.briefController === controller) {
+        this.briefBusy = false;
+        this.briefController = null; this.briefJobId = null;
+      }
     }
+  }
+
+  cancelSummary() {
+    if (!this.briefBusy) return;
+    this.briefController?.abort();
+    if (this.briefJobId) api.cancelJob(this.briefJobId);
+    this.briefBusy = false; this.briefController = null; this.briefJobId = null;
+    const previous = this.items.find(e => e.action === 'summary' && e.value && !e.deletedAt);
+    this.panel.renderBrief(previous
+      ? { state: 'ok', text: previous.value, retry: true, meta: '已取消重新生成，保留原速览' }
+      : { state: 'idle', text: '已取消。需要时可重新生成。', retry: true, initial: true });
   }
 
   /** 面板上点「重试」；deferred 永远由用户手动触发，不在重连时自动消费。 */
   async retryLookup(id) {
     const ev = this.items.find((e) => e.id === id);
-    if (!ev) return;
+    if (!ev || this.lookupRuns.has(id)) return;
     if (ev.action === 'translate') {
+      const controller = new AbortController();
+      this.lookupRuns.set(id, controller);
+      const alive = () => !controller.signal.aborted && this.items.some(e => e.id === id);
       this.patchLookup(id, { status: 'running', progress: '重新提交…', error: '' });
       try {
         await this.uploadArticle();
+        if (!alive()) return;
         const r = await api.translate(ev.text, ev.extra?.target, this.key, ev.extra?.offset);
+        if (!alive()) return;
         this.saveLookup('translate', { text: ev.text, value: r.translation, anchor: ev.anchor,
           extra: { target: r.target || ev.extra?.target || '' } });
       } catch (e) {
+        if (!alive()) return;
         const status = this.online && e.status ? 'error' : 'deferred';
         this.patchLookup(id, { status, error: e.message,
           progress: status === 'deferred' ? '离线，已保存；联网后手动重试' : '' });
-      }
+      } finally { if (this.lookupRuns.get(id) === controller) this.lookupRuns.delete(id); }
       return;
     }
     this.patchLookup(id, { status: 'running', progress: '重新提交…', error: '' });
@@ -1105,6 +1262,11 @@ export class App {
 
   async copyMarkdown() {
     const text = await this.portableMarkdown();
+    await this.copyText(text);
+    return 'Markdown 已复制';
+  }
+
+  async copyText(text) {
     if (navigator.clipboard?.writeText) await navigator.clipboard.writeText(text);
     else {
       const ta = document.createElement('textarea');
@@ -1113,7 +1275,6 @@ export class App {
       if (!document.execCommand?.('copy')) throw new Error('浏览器不允许复制，请使用下载');
       ta.remove();
     }
-    return 'Markdown 已复制';
   }
 
   async downloadMarkdown() {
@@ -1133,8 +1294,8 @@ export class App {
    * 中断并给重试 —— 三种下场都比"永远转圈"好。
    */
   async resumePending() {
-    const pend = this.items.filter((e) => e.action === 'explain' && !e.value && !e.deletedAt
-      && e.extra?.status !== 'deferred');
+    const pend = this.items.filter((e) => e.action === 'explain' && !e.deletedAt
+      && e.extra?.status === 'running');
     for (const ev of pend) {
       const jobId = ev.extra?.jobId;
       if (!jobId) {
@@ -1148,8 +1309,8 @@ export class App {
             text: ev.text, value: job.result.answer, anchor: ev.anchor,
             extra: { question: ev.extra?.question || '' },
           });
-        } else if (job.status === 'error') {
-          this.patchLookup(ev.id, { status: 'error', error: job.error?.message || '作业失败' });
+        } else if (job.status === 'error' || job.status === 'canceled') {
+          this.patchLookup(ev.id, { status: job.status === 'canceled' ? 'canceled' : 'error', error: job.error?.message || '作业已结束' });
         } else {
           // 还在跑 —— 接上去继续跟，别重新提交
           this.followJob(ev.id, jobId, {
@@ -1210,6 +1371,9 @@ export class App {
     const prev = this.items.find((e) => e.action === action && !e.deletedAt
       && lookupKey(e) === key);
     if (prev?.extra?.supplement) extra = { ...(extra || {}), supplement: prev.extra.supplement };
+    const history = [...(prev?.extra?.history || [])];
+    if (prev?.value && value && prev.value !== value) history.push({ value: prev.value, at: prev.updatedAt || prev.createdAt });
+    if (history.length) extra = { ...extra, history: history.slice(-5) };
 
     const ev = {
       id: prev?.id ?? lookupId(this.key, draft),

@@ -1,0 +1,16 @@
+# 1.0 审核人员说明（待填写）
+
+使用原条目更新；不提供开发者私人模型、配对码或 Agent 账号。账号 / 密码字段留空：基础功能不需要账号。审核不是免安装的官网模拟。
+
+## 可粘贴说明
+
+基础功能无需账号、API key 或本地服务。安装后打开 https://pengheliu.github.io/ContextFlow/demo.html 并刷新，选一句正文点「批注」，写下内容，打开右侧阅读记录，刷新确认恢复，底部「下载」导出 Markdown。顶部文件夹打开「我的阅读库」，可搜索、预览、导出单篇 Markdown 或完整 JSON 备份；选备份后须预览并确认，恢复仅补缺失记录，不重启 AI。选项页「帮助与诊断」不调用 AI。可选 AI / 笔记同步需要 Node.js 22.13+ 和 companion 服务，按选项页下载匹配 1.0.0 包、进入其目录并执行完整命令，生成本扩展配对码后连接；不需开发者账号。LLM / Agent 使用用户自己的服务与额度，翻译需 LLM。测试不保存配置，须点「保存更改」。不支持 Chrome 内部、商店、内置 PDF 与文件页面。完整步骤：https://github.com/PengheLiu/ContextFlow/blob/main/docs/GETTING_STARTED.md
+
+## 上传前逐项核对
+
+- 原条目 ID、package 版本 1.0.0、冻结 ZIP 与 SHA 一致；不能上传开发构建。
+- 使用 `release/store-assets/1.0-inline-annotation.png` 和 `1.0-reading-library.png`，均真实 1280×800。
+- 简介 / 详细说明来自 `LISTING.zh-CN.md` 对应段落，不粘贴维护状态或历史说明。
+- 首页指向正式官网，支持指向 Issues，隐私保持 Pages 的 privacy.html；不改动账户主体或原分发地区。
+- 核对认证信息、页面 URL / 标题对应类别及网站内容的既有披露，与真实隐私政策一致；无遥测 / 出售 / 广告或信用用途，不勾选「不处理任何用户数据」。
+- 核对未新增权限、无远程代码，保存后刷新检查，再提交；只有看到明确已提交 / 待审核，才修改公开状态为「已提交」。

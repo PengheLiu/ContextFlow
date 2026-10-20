@@ -71,6 +71,53 @@ await t('响应体缺失时不抛 TypeError', async () => {
   assert.deepEqual(await api.health(), {});
 });
 
+await t('旧服务缺少草稿能力时提前停止，不提交模型请求也不保存配置', async () => {
+  const paths = [];
+  api.setTransport(async (path) => { paths.push(path); return { status: 200, body: { ok: true, capabilities: ['llm.test'] } }; });
+  await assert.rejects(() => api.testModel({ model: 'draft' }), e => e.code === 'COMPANION_UPDATE_REQUIRED');
+  await assert.rejects(() => api.listModels({ model: 'draft' }), e => e.code === 'COMPANION_UPDATE_REQUIRED');
+  assert.deepEqual(paths, ['/health', '/health']);
+});
+
+await t('新服务使用 POST 临时草稿获取模型和测试，不向 /config 写入', async () => {
+  const paths = [], draft = { provider: 'openai', baseUrl: 'https://example.test', model: 'draft' };
+  api.setTransport(async (path, init) => {
+    paths.push(path);
+    if (path === '/health') return { status: 200, body: { capabilities: ['llm.draft'] } };
+    assert.equal(init.method, 'POST');
+    assert.deepEqual(JSON.parse(init.body), { translate: draft });
+    return { status: 200, body: path === '/llm/models' ? { models: ['draft'] } : { ok: true, model: 'draft' } };
+  });
+  assert.deepEqual(await api.listModels(draft), { models: ['draft'] });
+  assert.deepEqual(await api.testModel(draft), { ok: true, model: 'draft' });
+  assert.deepEqual(paths, ['/health', '/llm/models', '/health', '/llm/test']);
+});
+
+await t('旧服务缺少模型测试路由时提示更新和重启，不误报密钥错误', async () => {
+  for (const body of [{ error: '无此路由 POST /llm/test' }, { error: 'route missing', code: 'ROUTE_NOT_FOUND' }]) {
+    api.setTransport(async (path, init) => {
+      assert.equal(path, '/llm/test');
+      assert.equal(init.method, 'POST');
+      return { status: 404, body };
+    });
+    await assert.rejects(api.testModel, (e) => {
+      assert.equal(e.code, 'COMPANION_UPDATE_REQUIRED');
+      assert.match(e.message, /旧进程/);
+      assert.match(e.message, /无需重新配对/);
+      return true;
+    });
+  }
+});
+
+await t('上游模型的 404 与认证失败不被误判为本地服务过旧', async () => {
+  for (const status of [401, 404, 502]) {
+    api.setTransport(async () => ({ status, body: { error: 'model not found', code: 'UPSTREAM' } }));
+    await assert.rejects(api.testModel, (e) => e.message === 'model not found' && e.code === 'UPSTREAM');
+  }
+  api.setTransport(async () => ({ status: 200, body: { ok: true, model: 'only-mock' } }));
+  assert.deepEqual(await api.testModel(), { ok: true, model: 'only-mock' });
+});
+
 await t('推送失败时入 outbox（与传输层实现无关）', async () => {
   store.clear();
   api.setTransport(async () => ({ status: 0, body: { error: 'down' } }));
@@ -94,6 +141,34 @@ await t('恢复后补发并清空 outbox', async () => {
 await t('删除失败不抛（离线时删除只影响本地）', async () => {
   api.setTransport(async () => ({ status: 0, body: {} }));
   assert.equal(await api.deleteEvent('x'), false);
+});
+
+await t('Agent 连接测试按能力预检，只提交所选 ID，不保存配置或自定义 prompt', async () => {
+  const seen=[];
+  api.setTransport(async(path,init={})=>{seen.push({path,init});
+    if(path==='/health')return {status:200,body:{capabilities:['agent.test']}};
+    if(path==='/agents/test')return {status:202,body:{mode:'job',job:{id:'test-agent',status:'running'}}};
+    return {status:200,body:{job:{status:'done',result:{ok:true,agent:'claude',scope:'connection-only'}}}};
+  });
+  const result=await api.testAgent('claude');assert.equal(result.ok,true);
+  assert.deepEqual(JSON.parse(seen.find(e=>e.path==='/agents/test').init.body),{id:'claude'});
+  assert.equal(seen.some(e=>e.path==='/config'),false);
+  api.setTransport(async(path)=>{assert.equal(path,'/health');return {status:200,body:{capabilities:['llm.draft']}};});
+  await assert.rejects(()=>api.testAgent('claude'),e=>e.code==='COMPANION_UPDATE_REQUIRED');
+});
+
+await t('初始提交期间取消 Agent 测试，晚到 job 会取消且不被当成成功', async () => {
+  const controller=new AbortController();let finish,cancels=0;
+  api.setTransport(async(path,init={})=>{
+    if(path==='/health')return {status:200,body:{capabilities:['agent.test']}};
+    if(path==='/agents/test')return new Promise(resolve=>{finish=resolve;});
+    if(init.method==='DELETE'){cancels++;return {status:200,body:{canceled:true}};}
+    throw new Error('不应读取已取消测试的结果');
+  });
+  const running=api.testAgent('claude',{signal:controller.signal});
+  await new Promise(resolve=>setTimeout(resolve,0));controller.abort();
+  finish({status:202,body:{mode:'job',job:{id:'cancel-agent'}}});
+  await assert.rejects(running,e=>e.code==='ABORTED');assert.ok(cancels>=1);
 });
 
 console.log(`\n${pass} 项通过`);

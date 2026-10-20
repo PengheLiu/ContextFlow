@@ -1,4 +1,4 @@
-// 右侧停靠面板：翻译 / 解释 / 批注 / 总结 四个 tab（顺序见 TABS）。
+// 阅读工作台：阅读记录 / 文章速览 / 我的笔记。
 //
 // 注：浏览器自带的侧栏属于 browser chrome，页面 JS 无法注入。
 // 这里做的是页面内右侧停靠层，视觉上紧贴其左侧。
@@ -8,29 +8,26 @@
 //   float —— 浮在正文之上。用于 push 会破坏布局的站点（见 setMode 注释）。
 // 宽度可拖左缘调整，写入 localStorage。
 //
-// 四个 tab 的条目一律按「文档中的位置」排序，而不是创建时间 —— 读者的心理模型是
+// 阅读记录一律按「文档中的位置」排序，而不是创建时间 —— 读者的心理模型是
 // 「从上往下读」，按时间排会让同一段的记录散落在列表各处，回看时对不上原文。
 
 import { T, shadowHost } from './theme.js';
 import { guarded, describeError } from './guard.js';
 import { MARKS } from '../core/highlight.js';
-import { byPosition } from '../core/order.js';
 import { Settings, SETTINGS_CSS } from './settings.js';
 import { brandMark, icon } from './icons.js';
 import { MARKDOWN_CSS, renderMarkdownInto } from './markdown-view.js';
 import { RichComposer, RICH_COMPOSER_CSS } from './rich-composer.js';
+import { RecordList, RECORD_CSS } from './record-list.js';
 
 // tab 的顺序、内部键、显示名集中在这里 —— 此前散落在 HTML、select()、
 // toggleSettings() 和四个 onclick 里，改一次顺序要同步改四处。
 //
-// key 是**内部键，不能改**：'note' 同时是事件的 action 名和 id 前缀
-// （note:<urlKey>），server/mdfile.mjs、siyuan.mjs 都按它匹配。
-// 显示名改成「总结」只动 label。
+// UI navigation is independent of persisted event actions. No data migration.
 const TABS = [
-  { key: 'translate', label: '翻译', icon: 'translate' },
-  { key: 'explain', label: '解释', icon: 'explain' },
-  { key: 'comments', label: '批注', icon: 'comment' },
-  { key: 'note', label: '总结', icon: 'note' },
+  { key: 'records', label: '阅读记录', icon: 'comment' },
+  { key: 'brief', label: '文章速览', icon: 'sparkle' },
+  { key: 'note', label: '我的笔记', icon: 'note' },
 ];
 const TAB_KEYS = TABS.map((t) => t.key);
 
@@ -193,6 +190,8 @@ ${Object.entries(MARKS).map(([k, m]) => `  .item.k-${k} .src.lk{text-decoration-
   .note .rc-text{line-height:30px;background-image:none}.note .rc-media img{max-height:360px}
 
   footer{flex:0 0 auto;padding:10px 16px 12px;border-top:1px solid ${T.line};background:${T.paper};font-variant-numeric:tabular-nums}
+  .storage-note{margin-top:7px;color:${T.quote};font-size:11px;line-height:1.45}
+  .item-head.loc:focus-visible,.src[role=button]:focus-visible{outline:2px solid ${T.focusLine};outline-offset:3px;border-radius:3px}
   .wrap.settings-mode > footer{display:none}
   footer .r{justify-content:space-between;gap:8px}
   #sync{display:inline-flex;align-items:center;gap:6px;white-space:nowrap;font-size:12.5px;color:${T.inkSoft}}
@@ -218,7 +217,7 @@ ${Object.entries(MARKS).map(([k, m]) => `  .item.k-${k} .src.lk{text-decoration-
      收起后新出现的展开按钮接到同一次手势，造成面板闪一下又展开。 */
   .panel-toggle{position:fixed;z-index:5;top:calc(46% - 25px);right:0;width:31px;height:50px;padding:0;display:grid;place-items:center;
         color:${T.inkSoft};border:1px solid ${T.line};border-right:none;border-radius:6px 0 0 6px;
-        background:${T.paper};box-shadow:${T.shadowControl};transition:right .26s cubic-bezier(.22,.8,.3,1)}
+        background:${T.paper};box-shadow:${T.shadowControl};transition:left .26s cubic-bezier(.22,.8,.3,1)}
   .panel-toggle::before{content:'';position:absolute;left:0;top:12px;bottom:12px;width:2px;background:${T.accent}}
   .panel-toggle .ico{width:15px;height:15px}.panel-toggle:hover{color:${T.accent};background:${T.paperRaised}}
   .panel-toggle:active{transform:none}.panel-toggle:focus-visible{outline:2px solid ${T.focusLine};outline-offset:2px}
@@ -239,14 +238,19 @@ ${Object.entries(MARKS).map(([k, m]) => `  .item.k-${k} .src.lk{text-decoration-
   @container (max-width:320px){
     header{padding-left:13px;padding-right:13px}.tabs{margin-left:-13px;margin-right:-13px}
     .brand-sub{display:none}.brand-seal{width:29px;height:29px}.brand-seal .mk{width:17px;height:17px}
+    .title .r{gap:0}.brand{gap:6px}.brand-seal{width:24px;height:24px}.brand-name{font-size:13px}
     .title .icon-action{width:28px;height:28px}.body{padding-left:14px;padding-right:14px}
     footer{padding-left:13px;padding-right:13px}.tab{gap:4px;padding-left:3px;padding-right:3px;font-size:12px}
     .foot-actions .label{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}.foot-actions button{width:28px;height:28px;justify-content:center;padding:0}
   }
   @media (hover:none){.tools{opacity:1}}
+  .grab:focus-visible{outline:2px solid ${T.accent};outline-offset:-2px;background:${T.accentWash}}
+  @media(prefers-reduced-motion:reduce){.wrap,.panel-toggle,.grab::after{transition:none!important;animation:none!important}}
+  @media(forced-colors:active){.wrap,.panel-toggle{border:1px solid CanvasText}.grab:focus-visible{outline:2px solid Highlight}.grab::after{background:CanvasText}}
 ${SETTINGS_CSS}
 ${MARKDOWN_CSS}
 ${RICH_COMPOSER_CSS}
+${RECORD_CSS}
 `;
 
 /**
@@ -269,9 +273,8 @@ export class Panel {
   constructor(h) {
     this.h = h;
     this.ui = loadUI();
-    // 默认停在「批注」而不是最左的「翻译」：那里放的是你自己写的东西。
-    // tab 顺序按使用频率排（翻译最勤），落点按内容价值排 —— 两者不必一致。
-    this.tab = 'comments';
+    // 打开工作台只回看，不自动调用 AI。
+    this.tab = 'records';
     this.open = false;
     this.rootMarginBefore = null;
     this.rootTransitionBefore = null;
@@ -283,7 +286,7 @@ export class Panel {
         <span class="toggle-close" aria-hidden="true">${icon('chevron-right')}</span><span id="gn"></span>
       </button>
       <div class="wrap" id="wrap">
-        <div class="grab" id="grab" title="拖动调整宽度"></div>
+        <div class="grab" id="grab" role="separator" aria-orientation="vertical" tabindex="0" aria-label="调整侧栏宽度" title="拖动或按左右方向键调整宽度；Home 最窄，End 最宽，Enter 复位"></div>
         <header>
           <div class="title">
             <span class="brand">
@@ -291,26 +294,25 @@ export class Panel {
               <span class="brand-copy"><span class="brand-name">Context<em>Flow</em></span><span class="brand-sub" id="brandSub">READING MARGIN</span></span>
             </span>
             <span class="r">
+              <button class="icon-action" id="library" type="button" title="跨文章搜索、回顾与备份" aria-label="我的阅读库" hidden>${icon('folder')}<span>我的阅读库</span></button>
               <button class="icon-action" id="cfg" title="配置翻译、解释与笔记同步" aria-label="配置">${icon('settings')}<span>配置</span></button>
               <button class="icon-action" id="mode" title="切换面板布局" aria-label="切换面板布局"></button>
             </span>
           </div>
           <div class="tabs" role="tablist">
-            ${TABS.map((t) => `<button class="tab" id="t-${t.key}" role="tab">${icon(t.icon)}`
+            ${TABS.map((t) => `<button class="tab" id="t-${t.key}" role="tab" aria-controls="p-${t.key}">${icon(t.icon)}`
               + `<span>${t.label}</span><span class="badge" id="b-${t.key}"></span></button>`).join('')}
           </div>
         </header>
         <aside class="connection-note" id="connectionNote" hidden><strong>批注与导出可直接使用</strong><p id="connectionHint"></p><button id="connectService" type="button">开启 AI / 同步</button></aside>
         <div class="body">
-          ${TABS.map((t) => `<div class="pane" id="p-${t.key}">${t.key === 'note'
-            // 速览（机器生成）摆在你自己写的总结**上面**：打开面板先看它，
-            // 想补充再往下写。两者刻意分开，免得分不清谁的想法。
-            ? '<div class="brief" id="brief"></div>'
-              + '<div class="note-head"><strong>你的笔记</strong><span>自动保存</span></div>'
+          ${TABS.map((t) => `<div class="pane" id="p-${t.key}" role="tabpanel" aria-labelledby="t-${t.key}">${t.key === 'note'
+            ? '<div class="note-head"><strong>你的理解，而非 AI 的回答</strong><span>自动保存</span></div>'
               + '<div class="note" id="note"></div>'
-            : ''}</div>`).join('')}
+            : t.key === 'brief' ? '<div class="brief" id="brief"></div>' : ''}</div>`).join('')}
           <div class="set" id="p-set"></div>
         </div>
+        <div class="undo-notice" id="undoNotice" hidden><span role="status" aria-live="polite">记录已删除</span><button type="button" id="undoDelete">撤销删除</button></div>
         <footer>
           <div class="r">
             <button class="anchor-stat" id="stat" type="button" aria-describedby="stat-tip"></button>
@@ -320,7 +322,8 @@ export class Panel {
               <button id="sync" class="has-tip" type="button" aria-label="同步到笔记" aria-describedby="sync-tip">${icon('sync')}<span class="label" id="syncLabel">同步</span><span class="tip" id="sync-tip" role="tooltip">同步到当前配置的 Obsidian 或 Markdown 文件夹。</span></button>
             </span>
           </div>
-          <div class="syncmsg" id="syncmsg"></div>
+          <div class="storage-note">编辑自动保存在浏览器；写入笔记软件请点击「同步」。</div>
+          <div class="syncmsg" id="syncmsg" role="status" aria-live="polite" aria-atomic="true"></div>
         </footer>
       </div>`;
     this.sh = sh;
@@ -351,16 +354,34 @@ export class Panel {
     this.$('stat').style.cursor = 'pointer';
     this.$('stat').onclick = () => this.h.onReanchor();
     this.$('sync').onclick = this.guard(() => this.doSync());
-    this.$('copyMd').onclick = this.guard(async () => this.syncMsg(await this.h.onCopyMarkdown(), 'ok'));
-    this.$('downloadMd').onclick = this.guard(async () => this.syncMsg(await this.h.onDownloadMarkdown(), 'ok'));
+    this.$('copyMd').onclick = this.guard(async () => { await this.flushEdits(); this.syncMsg(await this.h.onCopyMarkdown(), 'ok'); });
+    this.$('downloadMd').onclick = this.guard(async () => { await this.flushEdits(); this.syncMsg(await this.h.onDownloadMarkdown(), 'ok'); });
     this.$('cfg').onclick = this.guard(() => this.h.canConnectService?.() && !this.h.isOnline()
       ? this.h.onOpenConnection?.() : this.toggleSettings());
     this.$('connectService').onclick = this.guard(() => this.h.onOpenConnection?.());
+    this.$('library').onclick=this.guard(async()=>{await this.flushEdits();await this.h.onOpenLibrary?.();});
     this.$('mode').onclick = () => this.setMode(this.ui.mode === 'push' ? 'float' : 'push');
-    for (const k of TAB_KEYS) this.$(`t-${k}`).onclick = () => this.select(k);
+    for (const k of TAB_KEYS) {
+      const button = this.$(`t-${k}`);
+      button.onclick = () => this.select(k);
+      button.onkeydown = (e) => {
+        const index = TAB_KEYS.indexOf(k);
+        const next = e.key === 'ArrowRight' ? (index + 1) % TAB_KEYS.length
+          : e.key === 'ArrowLeft' ? (index + TAB_KEYS.length - 1) % TAB_KEYS.length
+          : e.key === 'Home' ? 0 : e.key === 'End' ? TAB_KEYS.length - 1 : null;
+        if (next === null) return;
+        e.preventDefault(); this.select(TAB_KEYS[next]); this.$(`t-${TAB_KEYS[next]}`).focus();
+      };
+    }
 
     this.composers = new Map();
     this.lookupComposers = new Map();
+    this.records = new RecordList(this, this.$('p-records'));
+    this.$('undoDelete').onclick = this.guard(async () => {
+      const button = this.$('undoDelete'); button.disabled = true;
+      try { const remaining = await this.h.onUndoDelete?.(); this.$('undoNotice').hidden = !remaining; }
+      finally { button.disabled = false; }
+    });
     this.noteComposer = new RichComposer(this.$('note'), {
       value: this.h.getNote?.() || '',
       placeholder: '记下整体理解、与其他工作的关系，以及仍待验证的问题…',
@@ -371,13 +392,17 @@ export class Panel {
     });
 
     this.wireResize();
+    this.$('wrap').addEventListener('keydown', e => {
+      if (e.key !== 'Escape' || e.defaultPrevented) return;
+      e.preventDefault(); e.stopPropagation(); this.toggle(false);
+    });
     addEventListener('resize', () => this.applyLayout());
-    this.select('comments');
+    this.select('records');
     this.applyLayout();
     if (this.ui.open) this.toggle(true, false);
   }
 
-  /** 配置界面与四个 tab 互斥显示 */
+  /** 配置界面与阅读工作台互斥显示 */
   toggleSettings() {
     const on = !this.settingsOpen;
     this.settingsOpen = on;
@@ -402,11 +427,16 @@ export class Panel {
 
   async doSync() {
     if (this.h.canConnectService?.() && !this.h.isOnline()) return this.h.onOpenConnection?.();
+    if (this.syncing) return;
+    this.syncing = true;
+    const button = this.$('sync');
+    button.disabled = true;
+    button.setAttribute('aria-busy', 'true');
     const label = this.$('syncLabel');
-    const old = label.textContent;
     label.textContent = '同步中…';
     this.syncMsg('');
     try {
+      await this.flushEdits();
       const r = await this.h.onSync();
       // 新增与改写要分开报：只报总数的话，"改了总结再同步"看起来像什么都没发生
       const bits = [r.inserted ? `新增 ${r.inserted}` : null,
@@ -414,15 +444,31 @@ export class Panel {
         r.sourceUpdated ? `更新原文链接 ${r.sourceUpdated}` : null].filter(Boolean);
       label.textContent = bits.length ? '已同步' : '已是最新';
       const where = (r.files || r.docs || []).join('、');
-      if (bits.length && where) this.syncMsg(`${r.articles} 篇 → ${where}`, 'ok');
+      const backend = { obsidian: 'Obsidian', markdown: 'Markdown', siyuan: '思源笔记' }[r.backend] || '笔记';
+      this.syncMsg(where ? `已同步到 ${backend} · ${r.articles} 篇 → ${where}`
+        : `${backend} 已是最新，没有需要新增或改写的内容。`, 'ok');
     } catch (e) {
       label.textContent = '同步失败';
       // 原因必须出现在界面上。只 console.error 的话，用户看到的是一个
       // 没有下文的"同步失败"，连"服务没重启"这种一句话就能解决的问题都看不出来。
       this.syncMsg(e.message, 'bad', hintFor(e.message));
       console.error('[ContextFlow] 同步到笔记失败：', e.message);
+    } finally {
+      this.syncing = false;
+      button.disabled = false;
+      button.removeAttribute('aria-busy');
     }
-    setTimeout(() => { label.textContent = old; }, 2600);
+    clearTimeout(this.syncLabelTimer);
+    this.syncLabelTimer = setTimeout(() => { label.textContent = '同步'; }, 2600);
+  }
+
+  async flushEdits() {
+    const composers = [this.noteComposer, ...this.composers.values(), ...this.lookupComposers.values()];
+    if (composers.some(editor => editor?.blocks?.some(block => block.pending || block.error))) {
+      throw new Error('图片尚未保存完成或保存失败，请等待完成或移除失败图片后再导出、同步。');
+    }
+    await Promise.all(composers.map(editor => editor?.commit()));
+    await this.h.onFlushEdits?.();
   }
 
   /** @param {string} text 空字符串则隐藏 */
@@ -434,12 +480,18 @@ export class Panel {
       ? esc(text) + (hint ? `<span class="hint">${esc(hint)}</span>` : '')
       : '';
     el.title = text || '';
+    el.setAttribute('role', kind === 'bad' ? 'alert' : 'status');
   }
 
   // ---------- 布局 ----------
   clampWidth(w) {
-    return Math.round(Math.max(MIN_W, Math.min(w, innerWidth * MAX_FRAC)));
+    const viewport = this.viewportWidth();
+    return Math.round(viewport < 700
+      ? Math.max(Math.min(MIN_W, viewport - 32), Math.min(w, viewport - 40))
+      : Math.max(MIN_W, Math.min(w, viewport * MAX_FRAC)));
   }
+
+  viewportWidth() { return globalThis.visualViewport?.width || document.documentElement.clientWidth || innerWidth; }
 
   /**
    * push 模式给 <html> 加 margin-right，使正文与面板完全不重叠。
@@ -450,24 +502,35 @@ export class Panel {
    */
   applyLayout() {
     const w = this.clampWidth(this.ui.width);
-    this.ui.width = w;
+    const viewport = this.viewportWidth();
+    const narrow = viewport < 700;
+    const float = narrow || this.ui.mode === 'float';
     const wrap = this.$('wrap');
+    wrap.inert = !this.open;
+    wrap.setAttribute('aria-hidden', String(!this.open));
     wrap.style.width = `${w}px`;
-    wrap.classList.toggle('float', this.ui.mode === 'float');
+    wrap.style.left = `${Math.max(0, viewport - w)}px`;
+    wrap.classList.toggle('float', float);
+    const grab = this.$('grab');
+    grab.setAttribute('aria-valuemin', String(this.clampWidth(0)));
+    grab.setAttribute('aria-valuemax', String(this.clampWidth(Infinity)));
+    grab.setAttribute('aria-valuenow', String(w));
+    grab.setAttribute('aria-valuetext', `${w} 像素`);
     // 同一按钮始终存在：收起时贴视口右缘，展开时贴面板左缘。
     // 它是 wrap 的兄弟，既不会被 overflow 裁切，也不会在手势中换成另一个元素。
     this.$('panelToggle').style.right = this.open ? `${w}px` : '0px';
+    this.$('panelToggle').style.left = `${Math.max(0, viewport - (this.open ? w : 0) - 31)}px`;
 
     const root = document.documentElement;
-    if (this.open && this.ui.mode === 'push') {
+    if (this.open && !float) {
       if (this.rootMarginBefore === null) {
         this.rootMarginBefore = root.style.marginRight;
         this.rootTransitionBefore = root.style.transition;
       }
-      root.style.transition = appendTransition(this.rootTransitionBefore, 'margin-right .26s cubic-bezier(.22,.8,.3,1)');
+      root.style.transition = globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches ? this.rootTransitionBefore || '' : appendTransition(this.rootTransitionBefore, 'margin-right .26s cubic-bezier(.22,.8,.3,1)');
       root.style.marginRight = `${w}px`;
     } else if (this.rootMarginBefore !== null) {
-      root.style.transition = appendTransition(this.rootTransitionBefore, 'margin-right .26s cubic-bezier(.22,.8,.3,1)');
+      root.style.transition = globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches ? this.rootTransitionBefore || '' : appendTransition(this.rootTransitionBefore, 'margin-right .26s cubic-bezier(.22,.8,.3,1)');
       root.style.marginRight = this.rootMarginBefore;
       const restore = this.rootTransitionBefore;
       clearTimeout(this._marginTimer);
@@ -477,7 +540,7 @@ export class Panel {
     }
     const modeLabel = this.ui.mode === 'push' ? '挤开正文' : '浮在正文上';
     setButtonContent(this.$('mode'), this.ui.mode === 'push' ? 'dock' : 'float', modeLabel);
-    const modeHint = this.ui.mode === 'push'
+    const modeHint = narrow ? '窄窗口自动使用浮层，不改变桌面布局偏好' : this.ui.mode === 'push'
       ? '当前挤开正文，点击切换为浮层' : '当前浮在正文上，点击切换为挤开正文';
     this.$('mode').setAttribute('aria-label', modeHint);
     this.$('mode').title = modeHint;
@@ -498,7 +561,15 @@ export class Panel {
 
   wireResize() {
     const grab = this.$('grab');
+    grab.addEventListener('keydown', e => {
+      const step=e.shiftKey ? 50 : 20;
+      const width=e.key==='ArrowLeft' ? this.ui.width+step : e.key==='ArrowRight' ? this.ui.width-step
+        : e.key==='Home' ? 0 : e.key==='End' ? Infinity : e.key==='Enter' ? 360 : null;
+      if(width===null)return;
+      e.preventDefault();this.ui.width=this.clampWidth(width);this.applyLayout();saveUI(this.ui);
+    });
     let startX = 0, startW = 0;
+    let previousSelection='';
     const onMove = (e) => {
       // 往左拖变宽：面板贴右缘，所以用 startX - clientX
       this.ui.width = this.clampWidth(startW + (startX - e.clientX));
@@ -508,15 +579,17 @@ export class Panel {
       grab.classList.remove('on');
       grab.releasePointerCapture?.(e.pointerId);
       grab.removeEventListener('pointermove', onMove);
-      document.documentElement.style.userSelect = '';
+      document.documentElement.style.userSelect = previousSelection;
       saveUI(this.ui);
     };
     grab.addEventListener('pointerdown', (e) => {
+      if(e.button!==undefined && e.button!==0)return;
       e.preventDefault();
       startX = e.clientX; startW = this.ui.width;
       grab.classList.add('on');
       grab.setPointerCapture?.(e.pointerId);
       // 拖动时禁选，否则会在正文里拉出选区并弹出工具条
+      previousSelection=document.documentElement.style.userSelect;
       document.documentElement.style.userSelect = 'none';
       grab.addEventListener('pointermove', onMove);
       grab.addEventListener('pointerup', onUp, { once: true });
@@ -531,6 +604,7 @@ export class Panel {
     const was = this.open;
     this.open = open;
     this.ui.open = open;
+    if (!open && this.$('wrap').contains(this.sh.activeElement)) this.$('panelToggle').focus({preventScroll:true});
     this.$('wrap').classList.toggle('open', open);
     const panelToggle = this.$('panelToggle');
     panelToggle.classList.toggle('open', open);
@@ -545,10 +619,16 @@ export class Panel {
   }
 
   select(tab) {
+    // Compatibility for original-source marks and integrations using old keys.
+    if (['comments', 'explain', 'translate'].includes(tab)) {
+      this.records.select(tab); tab = 'records';
+    }
+    if (!TAB_KEYS.includes(tab)) return;
     this.tab = tab;
     if (this.settingsOpen) this.toggleSettings();     // 切 tab 即退出配置界面
     for (const k of TAB_KEYS) {
       this.$(`t-${k}`).setAttribute('aria-selected', String(k === tab));
+      this.$(`t-${k}`).tabIndex = k === tab ? 0 : -1;
       this.$(`p-${k}`).classList.toggle('on', k === tab);
     }
     if (tab === 'note') this.noteComposer?.setValue(this.h.getNote() ?? '');
@@ -558,8 +638,8 @@ export class Panel {
   /** 定位到某条批注并聚焦其评论框 */
   focusItem(id) {
     this.toggle(true);
-    this.select('comments');
-    const el = this.sh.querySelector(`[data-id="${id}"]`);
+    this.select('records');
+    const el = this.records.reveal(id);
     if (!el) return;
     el.scrollIntoView({ block: 'center', behavior: 'smooth' });
     this.composers.get(id)?.focus();
@@ -599,8 +679,8 @@ export class Panel {
    */
   focusLookup(kind, id) {
     this.toggle(true);
-    this.select(kind);
-    const el = this.sh.querySelector(`[data-id="${id}"]`);
+    this.select('records');
+    const el = this.records.reveal(id);
     if (!el) return;
     el.scrollIntoView({ block: 'center', behavior: 'smooth' });
     el.classList.add('hit');
@@ -627,17 +707,26 @@ export class Panel {
   renderBrief(o) {
     const el = this.$('brief');
     if (!el) return;
-    if (!o) { el.className = 'brief'; el.innerHTML = ''; return; }
+    if (!o) { this.briefState = null; el.className = 'brief'; el.innerHTML = ''; return; }
     el.className = `brief ${o.state === 'ok' ? '' : o.state}`;
+    // Polling only updates text, never replaces the cancel button mid-click.
+    if (o.state === 'run' && this.briefState === 'run') {
+      el.querySelector('.brief-progress').textContent = o.text || '';
+      return;
+    }
+    this.briefState = o.state;
     // 运行态给一个脉动点：否则进度文字读起来像最终结果，看不出还在跑
     const dot = o.state === 'run' ? '<span class="dot2"></span>' : '';
     el.innerHTML = `<div class="hd2"><span class="brief-label">${icon('sparkle')}<span>AI 速览</span></span>`
-      + `${o.configure ? '<button data-act="configure-ai">配置 AI</button>' : o.retry ? `<button class="with-icon" data-act="rebrief">${icon('retry')}<span>${o.initial ? '生成速览' : '重新生成'}</span></button>` : ''}</div>`
-      + `<div class="txt">${dot}</div>`
+      + `${o.state === 'run' ? '<button data-act="cancel-brief">取消生成</button>' : o.configure ? '<button data-act="configure-ai">配置 AI</button>' : o.retry ? `<button class="with-icon" data-act="rebrief">${icon('retry')}<span>${o.initial ? '生成速览' : '重新生成'}</span></button>` : ''}</div>`
+      + `<div class="txt">${dot}</div>${o.previous ? '<div class="previous-brief" style="margin-top:14px"></div>' : ''}`
       + `${o.meta ? `<div class="ft">${esc(o.meta)}</div>` : ''}`;
     const body = el.querySelector('.txt');
+    if (o.previous) renderMarkdownInto(el.querySelector('.previous-brief'), o.previous);
     if (o.state === 'ok') renderMarkdownInto(body, o.text || '');
-    else body.append(document.createTextNode(o.text || ''));
+    else { const text = document.createElement('span'); text.className = 'brief-progress'; text.textContent = o.text || ''; body.append(text); }
+    const cancel = el.querySelector('[data-act=cancel-brief]');
+    if (cancel) cancel.onclick = this.guard(() => this.h.onCancelSummary?.());
     const b = el.querySelector('[data-act=rebrief]');
     if (b) b.onclick = this.guard(() => this.h.onSummarize?.(true));
     const configure = el.querySelector('[data-act=configure-ai]');
@@ -645,6 +734,7 @@ export class Panel {
   }
 
   renderStatus() {
+    this.$('library').hidden=!this.h.canOpenLibrary?.();
     const s = this.h.getStats(), n = this.h.getItems().length;
     const ok = s.position + s.quote + s.fuzzy;
     const online = this.h.isOnline();
@@ -668,176 +758,36 @@ export class Panel {
       + `<span class="stat-tip" id="stat-tip" role="tooltip">${details}<br>`
       + `${canConnect ? online ? '本地服务已连接' : '记录保存在本机；AI 与笔记同步需连接服务' : online ? 'AI 通道可用' : '当前离线'} · 点击重新解析</span>`;
     this.$('gn').textContent = n ? String(n) : '';
-    this.$('b-comments').textContent = n ? String(n) : '';
     // 总结没有"条数"，用一个克制的琥珀点表示已有内容，不再混用字符"·"。
     const hasBrief = this.h.getLookups('summary').some((e) => e.value);
-    const hasNote = !!((this.h.getNote() || '').trim() || hasBrief);
+    const hasNote = !!((this.h.getNote() || '').trim());
+    this.$('b-brief').classList.toggle('has-content', hasBrief);
     this.$('b-note').textContent = '';
     this.$('b-note').classList.toggle('has-content', hasNote);
     const ex = this.h.getLookups('explain');
-    const running = ex.filter((e) => !e.value && e.extra?.status !== 'error').length;
+    const running = ex.filter((e) => e.extra?.status === 'running').length;
     // 浮层关掉后，角标仍要诚实地告诉用户有任务在跑；用脉动点而不是“⋯”字符。
-    this.$('b-explain').textContent = ex.length ? String(ex.length) : '';
-    this.$('b-explain').classList.toggle('busy', running > 0);
-    this.$('b-explain').title = running ? `${running} 条正在生成` : '';
     const tr = this.h.getLookups('translate').length;
-    this.$('b-translate').textContent = tr ? String(tr) : '';
+    this.$('b-records').textContent = n + ex.length + tr || '';
+    this.$('b-records').classList.toggle('busy', running > 0);
+    this.$('b-records').title = running ? `${running} 条正在生成` : '';
   }
 
-  /**
-   * 「解释 / 翻译」tab：查询记录列表。
-   * 排序与批注一致，按文档位置（见 getLookups）—— 既然点条目能跳原文、
-   * 点原文能跳条目，两侧顺序就必须对得上，否则双向定位反而让人迷失。
-   */
-  renderLookups(kind) {
-    const items = byPosition(this.h.getLookups(kind), this.h.positionOf);
-    const pane = this.$(`p-${kind}`);
-    this.lookupComposers.clear();
-    if (!items.length) {
-      const label = kind === 'explain' ? '解释' : '翻译';
-      pane.innerHTML = emptyView(kind, `还没有${label}记录`, `划选一段文字，再从工具条选择「${label}」。`);
-      return;
-    }
-    pane.innerHTML = items.map((it, index) => {
-      const q = kind === 'explain' ? (it.extra?.question || '').trim() : '';
-      const orphan = this.h.isOrphan(it.id);
-      const st = it.extra?.status;
-      const pending = !it.value;
-      // 提交即落记录，所以列表里会有还没答案的条目。状态行让人看出它在跑到哪，
-      // 失败了也留着并给「重试」—— 悄悄消失比留个失败条目更糟。
-      const status = !pending ? ''
-        : st === 'deferred'
-          ? `<div class="st err">${icon('error')}<span>当前离线，记录已保留</span>`
-            + `<button class="with-icon" data-act="retry">${icon('retry')}<span>重试</span></button></div>`
-          : st === 'error'
-          ? `<div class="st err">${icon('error')}<span>${esc(it.extra?.error || '失败')}</span>`
-            + `<button class="with-icon" data-act="retry">${icon('retry')}<span>重试</span></button></div>`
-          : `<div class="st run"><span class="dot2"></span>`
-            + `<span>${esc(it.extra?.progress || '进行中…')}</span></div>`;
-      return `<div class="item k-${kind}${pending ? ' pend' : ''}" data-id="${it.id}">
-        <div class="item-head${orphan ? '' : ' loc'}" title="${orphan ? '' : '点击跳到原文'}"><span class="kind">${kind === 'explain' ? '解释' : '翻译'} / ${seq(index)}</span>`
-        + `<span class="seq">${orphan ? '<span class="orphan">未定位</span>' : '原文位置'}</span></div>
-        <span class="src lk${orphan ? ' off' : ''}" title="${orphan
-          ? '原文已找不到，可能页面改版或内容尚未加载' : '点击跳到原文'}"
-          >${esc((it.text || '').slice(0, 200))}</span>
-        ${q ? `<div class="q2">${icon('help')}<span>${esc(q)}</span></div>` : ''}
-        ${status}
-        ${pending ? '' : '<div class="ans"></div>'}
-        ${kind === 'explain' && !pending ? '<div class="supplement"><div class="supplement-label">我的补充</div><div class="supp-editor"></div></div>' : ''}
-        <div class="tools">
-          <span class="muted">${formatTime(it.createdAt)}</span>
-          <button class="with-icon" data-act="del">${icon('trash')}<span>删除</span></button>
-        </div>
-      </div>`;
-    }).join('');
-    this.bindSourceNavigation(pane);
-    for (const el of pane.querySelectorAll('.item')) {
-      const id = el.dataset.id;
-      const item = items.find((it) => it.id === id);
-      const answer = el.querySelector('.ans');
-      if (answer && item?.value) renderMarkdownInto(answer, item.value);
-      const supplement = el.querySelector('.supp-editor');
-      if (supplement) {
-        const composer = new RichComposer(supplement, {
-          value: this.h.getLookupSupplement?.(id) || '',
-          placeholder: '补充文字，或把原文图片粘贴到这里…',
-          onInput: (value) => this.h.onLookupSupplementInput?.(id, value),
-          onCommit: (value) => this.h.onLookupSupplementChange?.(id, value),
-          onAsset: (file) => this.h.onAsset?.(file),
-          resolveAsset: (assetId) => this.h.resolveAsset?.(assetId),
-        });
-        this.lookupComposers.set(id, composer);
-      }
-      el.querySelector('[data-act=del]').onclick = () => this.h.onDeleteLookup(id);
-      const retry = el.querySelector('[data-act=retry]');
-      if (retry) retry.onclick = () => this.h.onRetryLookup(id);
-    }
+  showUndo(label = '记录已删除') {
+    this.$('undoNotice').hidden = false;
+    this.$('undoNotice').querySelector('span').textContent = label;
   }
+
+  renderLookups(kind) { this.records.select(kind); }
 
   render() {
     this.renderStatus();
-    if (!this.open) return;
-    if (this.tab === 'explain' || this.tab === 'translate') return this.renderLookups(this.tab);
-    if (this.tab !== 'comments') return;
-
-    // 正在输入时不重建列表，否则会丢焦点与光标位置
-    const active = this.sh.activeElement;
-    if (active && (active.classList?.contains('rc-text') || active.classList?.contains('rc-caption'))) return;
-
-    const items = byPosition(this.h.getItems(), this.h.positionOf);
-    const pane = this.$('p-comments');
-    this.composers.clear();
-
-    if (!items.length) {
-      pane.innerHTML = emptyView('comment', '还没有批注', '划选正文，把值得保留的想法写在阅读边栏里。');
-      return;
-    }
-
-    pane.innerHTML = items.map((it, index) => {
-      const orphan = this.h.isOrphan(it.id);
-      const editing = !!this.h.isCommentEditing?.(it.id);
-      return `<div class="item comment${editing ? ' editing' : ''}" data-id="${it.id}" data-orphan="${orphan}" style="--mark:${this.h.colorOf(it.id)}">
-        <div class="item-head${orphan ? '' : ' loc'}" title="${orphan ? '' : '点击跳到原文'}"><span class="kind">批注 / ${seq(index)}</span>`
-        + `<span class="seq${editing ? ' edit-state' : ''}">${editing ? `${icon('sync')}<span>原文旁编辑</span>`
-          : (orphan ? '<span class="orphan">未定位</span>' : '原文位置')}</span></div>
-        <span class="src${orphan ? ' off' : ''}" title="${orphan ? '原文已改动，无法定位' : '点击跳到原文'}">
-          ${esc(it.text || '')}
-        </span>
-        <div class="cmt"></div>
-        <div class="tools"><button class="with-icon" data-act="del">${icon('trash')}<span>删除</span></button></div>
-      </div>`;
-    }).join('');
-
-    for (const el of pane.querySelectorAll('.item')) {
-      const id = el.dataset.id;
-      const composer = new RichComposer(el.querySelector('.cmt'), {
-        value: this.h.commentOf(id) ?? '', placeholder: '写下你的想法…', debounce: 500,
-        onInput: (value) => this.h.onCommentInput?.(id, value),
-        onCommit: (value) => { this.h.onCommentChange?.(id, value); this.renderStatus(); },
-        onAsset: (file) => this.h.onAsset?.(file),
-        resolveAsset: (assetId) => this.h.resolveAsset?.(assetId),
-      });
-      this.composers.set(id, composer);
-      el.querySelector('[data-act=del]').onclick = () => this.h.onDelete(id);
-    }
-    this.bindSourceNavigation(pane);
-  }
-
-  /**
-   * mousedown 先于 click 定位，避免进度刷新在按下与松开之间替换列表、吞掉 click。
-   * 普通 click 仍是必要兜底；用 press 标记避免同一次鼠标手势定位两次。
-   */
-  bindSourceNavigation(pane) {
-    for (const el of pane.querySelectorAll('.item')) {
-      const id = el.dataset.id;
-      if (this.h.isOrphan(id)) continue;
-      for (const target of el.querySelectorAll('.item-head,.src')) {
-        let locatedOnPress = false;
-        target.onmousedown = (e) => {
-          if (e.button !== 0) return;
-          locatedOnPress = true;
-          this.h.onLocate(id);
-        };
-        target.onclick = (e) => {
-          if (!locatedOnPress || e.detail === 0) this.h.onLocate(id);
-          locatedOnPress = false;
-        };
-      }
-    }
+    if (this.open && this.tab === 'records') this.records.render();
   }
 }
-
-const emptyView = (iconName, title, hint) => `<div class="empty">
-  <span class="empty-icon">${icon(iconName)}</span><strong>${esc(title)}</strong><span>${esc(hint)}</span>
-</div>`;
-const seq = (index) => String(index + 1).padStart(2, '0');
-const formatTime = (value) => {
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? '' : date.toLocaleTimeString('zh-CN', { hour12: false, hour: '2-digit', minute: '2-digit' });
-};
 
 const setButtonContent = (el, iconName, label) => {
   el.innerHTML = `${icon(iconName)}<span>${label}</span>`;
 };
 
-const esc = (s) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));

@@ -139,7 +139,7 @@ function childEnv(extra = {}) {
  * 不用一个魔法 `-` 糊过去 —— dsh 就是把字面的 `-` 当成了提问内容，
  * 结果它回了一句"你的消息是空的"。
  */
-function argvFor(id, { prompt, sessionId, resume, notesDir, maxTurns, profile = 'safe' }) {
+function argvFor(id, { prompt, sessionId, resume, notesDir, maxTurns, profile = 'safe', connectionTest = false }) {
   switch (id) {
     case 'claude': {
       if (profile === 'safe') {
@@ -150,8 +150,9 @@ function argvFor(id, { prompt, sessionId, resume, notesDir, maxTurns, profile = 
           'Agent', 'Task', 'Skill', 'CronCreate', 'ScheduleWakeup', 'PushNotification'];
         const argv = ['-p', '--output-format', 'json', '--safe-mode',
           '--permission-mode', 'dontAsk',
-          '--tools', ...allow,
-          '--allowedTools', ...allow,
+          // Official CLI contract: --tools "" disables built-in tools.
+          // https://code.claude.com/docs/en/cli-reference
+          ...(connectionTest ? ['--tools', ''] : ['--tools', ...allow, '--allowedTools', ...allow]),
           '--disallowedTools', ...deny,
           '--strict-mcp-config', '--mcp-config', '{"mcpServers":{}}',
           '--disable-slash-commands', '--no-chrome', '--no-session-persistence',
@@ -280,8 +281,9 @@ function parseOut(id, stdout) {
  */
 export async function run({
   agent, prompt, sessionId, resume = false, notesDir = '', profile = 'safe',
-  maxTurns = 12, timeoutMs = 240000, env = {}, onProgress,
+  maxTurns = 12, timeoutMs = 240000, env = {}, onProgress, signal, connectionTest = false,
 }) {
+  if (signal?.aborted) throw err('已取消', 'ABORTED');
   const a = AGENTS[agent];
   if (!a) throw err(`未知 agent：${agent}`, 'BAD_AGENT');
 
@@ -290,7 +292,7 @@ export async function run({
   }
   const sid = sessionId || (agent === 'claude' ? randomUUID() : '');
   const { argv, stdin } = argvFor(agent, {
-    prompt, sessionId: sid, resume: profile === 'full' && resume, notesDir, maxTurns, profile,
+    prompt, sessionId: sid, resume: profile === 'full' && resume, notesDir, maxTurns, profile, connectionTest,
   });
   if (!stdin && prompt.length > ARGV_MAX) {
     throw err(
@@ -313,12 +315,22 @@ export async function run({
       return reject(err(`起 ${a.bin} 失败：${e.message}（装了吗？）`, 'AGENT_SPAWN'));
     }
 
-    let out = '', errBuf = '', done = false;
+    let out = '', errBuf = '', done = false, aborted = false, killTimer;
+    const terminate = () => {
+      child.kill('SIGTERM');
+      killTimer = setTimeout(() => {
+        if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
+      }, 2000);
+      killTimer.unref?.();
+    };
+    const onAbort = () => { if (!done) { aborted = true; terminate(); } };
+    signal?.addEventListener('abort', onAbort, { once: true });
+    const cleanup = () => { clearTimeout(timer); clearTimeout(killTimer); signal?.removeEventListener('abort', onAbort); };
     const timer = setTimeout(() => {
       if (done) return;
       done = true;
-      child.kill('SIGTERM');
-      setTimeout(() => child.kill('SIGKILL'), 2000);
+      terminate();
+      signal?.removeEventListener('abort', onAbort);
       // 把 stderr 一并带出来 —— 一个光秃秃的"超时"把唯一的诊断线索丢在了地上
       const tail = errBuf.trim().split('\n').slice(-4).join(' | ').slice(-400);
       reject(err(
@@ -336,13 +348,22 @@ export async function run({
     });
     child.on('error', (e) => {
       if (done) return;
-      done = true; clearTimeout(timer);
+      done = true; cleanup();
       reject(err(`${a.bin} 执行失败：${e.message}`, 'AGENT_SPAWN'));
     });
     child.on('close', (code) => {
+      cleanup();
       if (done) return;
       done = true; clearTimeout(timer);
+      if (aborted) return reject(err('已取消', 'ABORTED'));
       try {
+        if (connectionTest && code !== 0) {
+          const diagnostic = `${out}\n${errBuf}`;
+          if (/not logged in|unauthorized|authentication|invalid.{0,10}key|\b401\b|please.{0,15}login|\/login/i.test(diagnostic)) {
+            throw err(`${a.label} 登录或认证失败，请在终端完成登录并确认默认模型可用，再回来测试`, 'AGENT_AUTH');
+          }
+          throw err(`${a.label} 测试进程异常退出（${code ?? 'signal'}）。请在终端确认 CLI 能正常启动，或更新 CLI 后重新检测。`, 'AGENT_ERROR');
+        }
         const { answer, meta } = parseOut(agent, out);
         if (!answer) {
           return reject(err(

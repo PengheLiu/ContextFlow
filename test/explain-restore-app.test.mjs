@@ -70,6 +70,26 @@ const range = {
 
 console.log('App：恢复历史解释\n');
 
+await t('已配置 AI 时展开侧栏也只显示生成入口，不上传正文或调用模型', async () => {
+  const { app } = bare([]);
+  const prompts = [], requests = [];
+  app.panel.renderBrief = value => prompts.push(value);
+  app.serviceInfo = { explainConfigured: true };
+  app.index = { text: '长文'.repeat(3000) };
+  app.uploadArticle = async () => { throw new Error('不应上传正文'); };
+  api.setTransport(async path => { requests.push(path); throw new Error('不应请求模型'); });
+  await app.autoSummarize();
+  app.handlers().onOpen();
+  await Promise.resolve();
+  assert.deepEqual(requests, []);
+  assert.equal(prompts.at(-1).initial, true);
+  assert.match(prompts.at(-1).text, /按需生成/);
+  app.items = [{ action: 'summary', value: '已生成的速览' }];
+  await app.autoSummarize();
+  assert.equal(prompts.at(-1).text, '已生成的速览');
+  assert.deepEqual(requests, []);
+});
+
 await t('侧栏定位优先滚动 Range 所在正文容器并闪烁标记', () => {
   const { app } = bare([]);
   const calls = [];

@@ -24,6 +24,27 @@ function validateBase(t) {
   } catch { throw err('Base URL 请填写 http:// 或 https:// 开头的模型服务地址，不要填写控制台页面、密钥或带查询参数的链接', 'NO_BASEURL'); }
 }
 
+/** 临时连接草稿：只允许模型连接字段，不修改配置，也不回传已有密钥。 */
+export function modelDraft(cfg, body = {}) {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) throw err('模型连接草稿格式不正确', 'BAD_CONFIG');
+  const draft = body.translate;
+  if (draft === undefined) return cfg;
+  if (!draft || typeof draft !== 'object' || Array.isArray(draft)) throw err('模型连接草稿格式不正确', 'BAD_CONFIG');
+  const translate = { ...cfg.translate };
+  for (const key of ['provider', 'baseUrl', 'model', 'apiKey']) {
+    if (!(key in draft)) continue;
+    if (typeof draft[key] !== 'string') throw err('模型连接字段必须是文字', 'BAD_CONFIG');
+    translate[key] = draft[key].trim();
+  }
+  if (!['openai', 'anthropic'].includes(translate.provider)) throw err('不支持的模型接口类型', 'BAD_CONFIG');
+  validateBase(translate);
+  const endpoint = (t) => trimBase(t.baseUrl || (t.provider === 'anthropic' ? 'https://api.anthropic.com' : ''));
+  if (!draft.apiKey?.trim() && (translate.provider !== cfg.translate.provider || endpoint(translate) !== endpoint(cfg.translate))) {
+    throw err('更换模型服务地址或接口类型后，请重新填写 API key；不会把已保存的密钥发送到新地址', 'NO_API_KEY');
+  }
+  return { ...cfg, translate };
+}
+
 /** 上游是否因为「不认识这个推理参数」而拒绝 */
 const rejectedThinking = (e) =>
   (e?.status === 400 || e?.status === 422)
@@ -158,16 +179,23 @@ export async function listModels(cfg) {
   if (!t.apiKey) throw err('先填 API key 再获取模型列表', 'NO_API_KEY');
   validateBase(t);
   const base = trimBase(t.baseUrl);
-
-  if (t.provider === 'openai') {
-    const res = await fetch(`${base}/v1/models`, { headers: { Authorization: `Bearer ${t.apiKey}` } });
-    const body = await res.json().catch(() => ({}));
-    if (!res.ok) throw err(`网关返回 ${res.status}：${body?.error?.message || ''}`, 'UPSTREAM');
-    return (body.data || []).map((m) => m.id).filter(Boolean).sort();
+  const signal = AbortSignal.timeout(15000);
+  try {
+    let out;
+    if (t.provider === 'openai') {
+      const res = await fetch(`${base}/v1/models`, { signal, headers: { Authorization: `Bearer ${t.apiKey}` } });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw err(`网关返回 ${res.status}：${body?.error?.message || ''}`, 'UPSTREAM');
+      if (!Array.isArray(body.data)) throw err('模型服务未返回有效的模型列表，也可手动填写模型名称', 'UPSTREAM');
+      out = body.data.map((m) => m?.id);
+    } else {
+      const client = new Anthropic({ apiKey: t.apiKey, ...(base ? { baseURL: base } : {}) });
+      out = [];
+      for await (const m of client.models.list({ limit: 100 }, { signal })) out.push(m.id);
+    }
+    return [...new Set(out.filter((name) => typeof name === 'string').map((name) => name.trim()).filter(Boolean))].sort();
+  } catch (error) {
+    if (signal.aborted || error.name === 'TimeoutError' || error.name === 'AbortError') throw err('获取模型列表超时，请检查服务地址或网络后重试', 'UPSTREAM');
+    throw error;
   }
-
-  const client = new Anthropic({ apiKey: t.apiKey, ...(base ? { baseURL: base } : {}) });
-  const out = [];
-  for await (const m of client.models.list({ limit: 100 })) out.push(m.id);
-  return out;
 }

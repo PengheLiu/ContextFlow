@@ -1,6 +1,8 @@
 # ContextFlow · 浏览器 公开userscript
 
-**版本：0.2.0**
+**版本：由构建填写，以发行包 manifest 为准**
+
+这是独立浏览器 userscript 的说明，不是 Chrome 商店扩展安装指南。Chrome 用户请使用[主 README](https://github.com/PengheLiu/ContextFlow)与[扩展安装指南](https://github.com/PengheLiu/ContextFlow/blob/main/docs/GETTING_STARTED.md)，不要把此脚本当成 companion 服务包。
 
 把网页中的一次性阅读，变成可复用、可带走的上下文。
 

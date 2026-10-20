@@ -34,7 +34,7 @@ python3 -m http.server 7339 --bind 127.0.0.1 --directory release/website
 - `site.css`：官网桌面与窄屏样式。
 - `privacy.html`：完整隐私政策。
 - `demo.html`：不含真实个人数据的阅读示例。
-- `assets/mark.svg`、`assets/inline-annotation.png`：原有品牌标记与真实产品截图，从仓库资产目录复制，不依赖远程图床。
+- `assets/mark.svg`、`assets/inline-annotation.png`、`assets/reading-library.png`：品牌标记与 1.0 真实产品截图，从仓库资产目录复制，不依赖远程图床。
 
 有仓库写权限并已登录 GitHub CLI 的维护者，在测试与浏览器检查通过后执行：
 

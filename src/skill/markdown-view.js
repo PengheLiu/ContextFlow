@@ -127,9 +127,10 @@ function createTableRow(cells, alignments, header = false) {
 }
 
 /** @param {HTMLElement} target @param {string} source */
-export function renderMarkdownInto(target, source) {
+export function renderMarkdownInto(target, source, depth = 0) {
   target.replaceChildren();
   target.classList.add('md');
+  if(depth>=MAX_INLINE_DEPTH){target.append(text(String(source ?? '').slice(0,MAX_SOURCE)));return target;}
   const lines = String(source ?? '').replace(/\r\n?/g, '\n').slice(0, MAX_SOURCE).split('\n');
   const frag = document.createDocumentFragment();
   let i = 0;
@@ -161,13 +162,31 @@ export function renderMarkdownInto(target, source) {
       const el = document.createElement('blockquote'); appendLines(el, body); frag.append(el); continue;
     }
 
-    const list = lines[i].match(/^\s*(?:([-+*])|(\d+)\.)\s+(.+)$/);
+    const listPattern=/^( *)(?:([-+*])|(\d+)\.)\s+(.+)$/;
+    const list = lines[i].match(listPattern);
     if (list) {
-      const ordered = !!list[2], el = document.createElement(ordered ? 'ol' : 'ul');
+      const ordered = !!list[3], indent=list[1].length, el = document.createElement(ordered ? 'ol' : 'ul');
+      if(ordered && Number(list[3])!==1)el.start=Number(list[3]);
       while (i < lines.length) {
-        const m = lines[i].match(/^\s*(?:([-+*])|(\d+)\.)\s+(.+)$/);
-        if (!m || !!m[2] !== ordered) break;
-        const li = document.createElement('li'); li.append(...inline(m[3])); el.append(li); i++;
+        // Whitespace-separated siblings remain one list. Continuation blocks
+        // stay inside their item (including our exported quotes / paragraphs).
+        if(!lines[i].trim() && lines[i+1]?.match(listPattern)?.[1].length===indent){i++;continue;}
+        const m = lines[i].match(listPattern);
+        if (!m || !!m[3] !== ordered || m[1].length!==indent) break;
+        const contentIndent=m[0].length-m[4].length,body=[m[4]];i++;
+        while(i<lines.length) {
+          if(!lines[i].trim()) {
+            let next=i+1;while(next<lines.length && !lines[next].trim())next++;
+            if(next<lines.length && (lines[next].match(/^ */)?.[0].length || 0)>=contentIndent){body.push('');i++;continue;}
+            break;
+          }
+          if((lines[i].match(/^ */)?.[0].length || 0)<contentIndent)break;
+          body.push(lines[i++].slice(contentIndent));
+        }
+        const li = document.createElement('li');
+        if(body.length===1 && !BLOCK_START.test(body[0]))li.append(...inline(body[0]));
+        else {renderMarkdownInto(li,body.join('\n'),depth+1);li.classList.remove('md');}
+        el.append(li);
       }
       frag.append(el); continue;
     }

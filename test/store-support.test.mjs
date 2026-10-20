@@ -44,6 +44,11 @@ try {
 
   const companion = join(directory, 'companion');
   execFileSync('unzip', ['-q', artifacts[0].path, '-d', companion]);
+  const policy=new JSDOM(readFileSync(join(companion,'privacy.html'),'utf8')).window.document;
+  const sourcePolicy=new JSDOM(readFileSync('store/privacy.html','utf8')).window.document;
+  assert.equal(policy.body.textContent,sourcePolicy.body.textContent,'服务包隐私正文不可落后于官网');
+  for(const icon of policy.querySelectorAll('link[rel=icon]'))assert.ok(existsSync(join(companion,icon.getAttribute('href'))));
+  policy.defaultView?.close();sourcePolicy.defaultView?.close();
   const manifest = JSON.parse(readFileSync(join(companion, 'package.json'), 'utf8'));
   const lock = JSON.parse(readFileSync(join(companion, 'package-lock.json'), 'utf8'));
   assert.deepEqual(Object.keys(manifest.scripts).sort(), ['pair', 'server', 'service']);

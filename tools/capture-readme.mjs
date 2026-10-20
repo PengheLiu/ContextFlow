@@ -5,14 +5,14 @@ import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 import { createServer } from 'node:http';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 
 const runtime = process.env.CONTEXTFLOW_PLAYWRIGHT_DIR;
 if (!runtime) throw new Error('Set CONTEXTFLOW_PLAYWRIGHT_DIR to a runtime containing playwright.');
-const { chromium } = createRequire(join(resolve(runtime), 'package.json'))('playwright');
+const { chromium } = createRequire(join(resolve(runtime), 'package.json'))(process.env.CONTEXTFLOW_PLAYWRIGHT_MODULE || 'playwright');
 const root = fileURLToPath(new URL('..', import.meta.url));
 const temporary = mkdtempSync(join(tmpdir(), 'contextflow-readme-'));
 const extension = join(temporary, 'extension');
@@ -54,7 +54,7 @@ try {
   await page.getByRole('button', { name: '批注', exact: true }).click();
   const thought = '以后读研究报告，除了记结论，也要记下：\n它的证据是什么？哪些前提还需要验证？';
   await page.locator('[data-contextflow="tip-comment"] textarea').fill(thought);
-  await page.getByRole('status').filter({ hasText: '已保存并同步' }).waitFor();
+  await page.getByRole('status').filter({ hasText: '已保存在浏览器' }).waitFor();
   const mirrored = page.locator('[data-contextflow="panel"] textarea').filter({ visible: true });
   assert.ok((await mirrored.allTextContents()).length > 0);
   await page.waitForFunction((value) => [...document.querySelector('[data-contextflow="panel"]').shadowRoot.querySelectorAll('textarea')]
@@ -63,13 +63,22 @@ try {
     const rect = document.querySelector('[data-contextflow="panel"]').shadowRoot.getElementById('wrap').getBoundingClientRect();
     return Math.abs(rect.right - innerWidth) < 1;
   });
-  await page.screenshot({ path: join(root, 'assets/readme/inline-annotation.png') });
+  await page.screenshot({ path: join(root, 'assets/readme/inline-annotation.png'), animations:'disabled' });
+  mkdirSync(join(root,'release/store-assets'),{recursive:true});
+  await page.setViewportSize({width:1280,height:800});
+  await page.screenshot({path:join(root,'release/store-assets/1.0-inline-annotation.png'),animations:'disabled'});
   await page.getByRole('button', { name: '完成', exact: true }).click();
   const download = page.waitForEvent('download');
   await page.getByRole('button', { name: '下载 Markdown', exact: true }).click();
   const markdown = readFileSync(await (await download).path(), 'utf8');
   assert.ok(markdown.includes(thought.split('\n')[0]));
   assert.ok(markdown.includes('值得保存的不只是原文'));
+  const [library]=await Promise.all([context.waitForEvent('page'),page.getByRole('button',{name:'我的阅读库',exact:true}).click()]);
+  await library.waitForLoadState();
+  await library.locator('#library-stats').filter({hasText:'1 篇文章'}).waitFor();
+  await library.screenshot({path:join(root,'assets/readme/reading-library.png'),animations:'disabled'});
+  await library.setViewportSize({width:1280,height:800});
+  await library.screenshot({path:join(root,'release/store-assets/1.0-reading-library.png'),animations:'disabled'});
   console.log('Captured real inline editor + mirrored side panel; verified Markdown export.');
 } finally {
   if (context) await context.close();

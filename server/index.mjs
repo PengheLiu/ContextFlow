@@ -6,20 +6,31 @@
 //   2. 强制要求自定义头 X-ContextFlow   → 任何跨源请求都必须预检，预检失败则请求根本不发出。
 //      少了这条，Content-Type: text/plain 的「简单请求」POST 能绕过 CORS 往库里写垃圾。
 import { createServer } from 'node:http';
-import { loadConfig, saveConfig, publicView, setupStatus, CONFIG_PATH } from './config.mjs';
+import { readFileSync } from 'node:fs';
+import { loadConfig, saveConfig, publicView, setupStatus, CONFIG_PATH, DIR } from './config.mjs';
 import * as db from './db.mjs';
 import * as lookup from './lookup.mjs';
-import { listModels, testConnection } from './llm.mjs';
+import { listModels, testConnection, modelDraft } from './llm.mjs';
 import { listNotebooks, listPaths } from './siyuan.mjs';
 import { syncAll, describe, BACKENDS } from './sync.mjs';
 import * as jobs from './jobs.mjs';
 import { originAllowed, EXT_ORIGIN_RE } from './origin.mjs';
-import { detect as detectAgents } from './agent.mjs';
+import { detect as detectAgents, AGENTS } from './agent.mjs';
+import { prepareAgentTest, testAgentConnection } from './agent-test.mjs';
+import { ConnectionChecks } from './connection-checks.mjs';
 import { detectVaults, listFolders } from './obsidian.mjs';
 import { getAsset, saveAsset } from './assets.mjs';
 import { pairedOrigin, extensionAuthorized } from './extension-pairing.mjs';
 
 let cfg = loadConfig();   // POST /config 会热替换
+const connectionChecks = new ConnectionChecks(DIR, cfg.token);
+const settingsView = async () => {
+  const current = cfg, installed = current.agent?.id ? await detectAgents() : [];
+  return { ...publicView(current), connectionChecks: connectionChecks.view(current, installed) };
+};
+// 在进程启动时捕获，不能因为磁盘源码已更新就把旧进程误报成新版。
+const serviceVersion = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version;
+const startedAt = new Date().toISOString();
 const MAX_BODY = 2 * 1024 * 1024;
 const MAX_ASSET_BODY = 12 * 1024 * 1024; // 8 MB 图片经 Base64/JSON 传输后的上限
 
@@ -100,6 +111,7 @@ const server = createServer(async (req, res) => {
 
     if (path === '/health') {
       return json(res, 200, { ok: true, stats: db.stats(cfg.sync.backend),
+        serviceVersion, startedAt, capabilities: ['llm.models', 'llm.test', 'llm.draft', 'jobs.abort', 'agent.test', 'connection.checks'], jobs: jobs.stats(),
         extensionPaired: extensionAuth === true,
         hasApiKey: !!cfg.translate.apiKey, backend: cfg.sync.backend, backends: BACKENDS, ...setupStatus(cfg) });
     }
@@ -134,13 +146,14 @@ const server = createServer(async (req, res) => {
     }
 
     if (path === '/translate' && req.method === 'POST') {
+      const requestConfig = cfg;
       const { text, target, urlKey, offset, fresh } = await readBody(req);
       // 翻译始终走 LLM，但它要知道总结/解释是否走 agent，才能决定历史是
       // "只有翻译"还是"总结+解释+翻译共享"。上一版没传，默认 false，
       // 导致 agent 明明在用，LLM 翻译对话里仍混进了 agent 的总结/解释。
-      const { viaAgent } = await lookup.plan(cfg);
+      const { viaAgent } = await lookup.plan(requestConfig);
       return json(res, 200,
-        await lookup.translate({ text, target, urlKey, offset, fresh, cfg, viaAgent }));
+        await lookup.translate({ text, target, urlKey, offset, fresh, cfg: requestConfig, viaAgent }));
     }
 
     // 前端上传正文，供连续对话作首条消息。浏览器手里本来就有正文，
@@ -151,19 +164,23 @@ const server = createServer(async (req, res) => {
     }
 
     if (path === '/explain' && req.method === 'POST') {
-      const { text, question, urlKey, offset, fresh } = await readBody(req);
+      // Settings may be saved from another tab while this task is queued.
+      // Keep the endpoint, credentials, Agent and permissions chosen at submit.
+      const requestConfig = cfg;
+      const { text, question, urlKey, offset, fresh, async: asynchronous } = await readBody(req);
       // plan() 含降级：配了 agent 但本机找不到时退回 LLM，并把原因带回去
-      const { mode, degraded } = await lookup.plan(cfg);
-      if (mode === 'sync') {
-        const r = await lookup.explainViaLLM({ text, question, urlKey, offset, fresh, cfg });
+      const { mode, degraded } = await lookup.plan(requestConfig);
+      if (mode === 'sync' && !asynchronous) {
+        const r = await lookup.explainViaLLM({ text, question, urlKey, offset, fresh, cfg: requestConfig });
         return json(res, 200, { ...r, ...(degraded ? { degraded } : {}) });
       }
       // agent 路径实测 10 轮 / 32 秒，不能同步等在 HTTP 上：立刻回 jobId，前端轮询
       const job = jobs.submit({
         kind: 'explain',
         label: String(text ?? '').slice(0, 40),
-        task: (api) => lookup.explainViaAgent({
-          text, question, urlKey, offset, fresh, cfg, onProgress: api.progress,
+        task: async (api) => ({ ...await (mode === 'sync' ? lookup.explainViaLLM : lookup.explainViaAgent)({
+          text, question, urlKey, offset, fresh, cfg: requestConfig, onProgress: api.progress, signal: api.signal,
+        }), ...(degraded ? { degraded } : {})
         }),
       });
       return json(res, 202, { job, mode: 'job' });
@@ -171,16 +188,17 @@ const server = createServer(async (req, res) => {
 
     // 速览：打开面板时给一段全文概述。与解释同一条对话，所以后面提问能接上。
     if (path === '/summary' && req.method === 'POST') {
-      const { urlKey, fresh } = await readBody(req);
-      const { mode, degraded } = await lookup.plan(cfg);
-      if (mode === 'sync') {
-        const r = await lookup.summarize({ urlKey, fresh, cfg });
+      const requestConfig = cfg;
+      const { urlKey, fresh, async: asynchronous } = await readBody(req);
+      const { mode, degraded } = await lookup.plan(requestConfig);
+      if (mode === 'sync' && !asynchronous) {
+        const r = await lookup.summarize({ urlKey, fresh, cfg: requestConfig });
         return json(res, 200, { ...r, ...(degraded ? { degraded } : {}) });
       }
       const job = jobs.submit({
         kind: 'summary',
         label: '速览',
-        task: (api) => lookup.summarize({ urlKey, fresh, cfg, onProgress: api.progress }),
+        task: (api) => lookup.summarize({ urlKey, fresh, cfg: requestConfig, onProgress: api.progress, signal: api.signal }),
       });
       return json(res, 202, { job, mode: 'job' });
     }
@@ -197,24 +215,61 @@ const server = createServer(async (req, res) => {
     if (path === '/agents/detect' && req.method === 'GET') {
       // fresh=1：手动点「检测」时绕过缓存
       const fresh = new URL(req.url, 'http://x').searchParams.get('fresh') === '1';
-      return json(res, 200, { agents: await detectAgents(fresh), jobs: jobs.stats() });
+      const agents = await detectAgents(fresh);
+      return json(res, 200, { agents, jobs: jobs.stats(), connectionChecks: connectionChecks.view(cfg, agents) });
+    }
+    if (path === '/agents/test' && req.method === 'POST') {
+      const body = await readBody(req);
+      if (!body || Array.isArray(body) || Object.keys(body).some(key => key !== 'id')) {
+        throw Object.assign(new Error('Agent 连接测试只接受所选 Agent，不接受自定义任务或权限'), { code:'BAD_INPUT' });
+      }
+      if(typeof body.id!=='string' || !Object.hasOwn(AGENTS,body.id)) throw Object.assign(new Error('请先选择要测试的 Agent'),{code:'BAD_AGENT'});
+      if(AGENTS[body.id].safeSupport==='unsupported') throw Object.assign(new Error('此 Agent 暂不支持受限连接测试，不会为测试开启完整权限。请改选支持安全档的 Agent。'),{code:'AGENT_SAFE_UNSUPPORTED'});
+      const testConfig=cfg;
+      const job = jobs.submit({ kind:'agent-test', label:`测试 ${AGENTS[body.id].label}`,
+        task: async api => {
+          api.progress('正在确认 CLI 安装…');
+          const prepared=await prepareAgentTest(body.id,testConfig);
+          api.signal.throwIfAborted();api.progress('正在验证 Agent 实际回答…');
+          const ticket=connectionChecks.begin(connectionChecks.agentKey(prepared));
+          try {
+            const result=await testAgentConnection(prepared,{signal:api.signal});
+            api.signal.throwIfAborted();
+            connectionChecks.finish(ticket,true,result.checkedAt);
+            return result;
+          } catch(error) {
+            if(!api.signal.aborted) connectionChecks.finish(ticket,false);
+            else connectionChecks.discard(ticket);
+            throw error;
+          }
+        } });
+      return json(res, 202, { mode:'job', job });
     }
 
     // ---- 配置界面 ----
     if (path === '/config' && req.method === 'GET') {
-      return json(res, 200, publicView(cfg));
+      return json(res, 200, await settingsView());
     }
     if (path === '/config' && req.method === 'POST') {
       const patch = await readBody(req);
       cfg = saveConfig(patch);            // 落盘并热替换内存态
       console.log('[config] 已更新：' + Object.keys(patch).join(', '));
-      return json(res, 200, publicView(cfg));
+      return json(res, 200, await settingsView());
     }
     if (path === '/llm/models' && req.method === 'GET') {
       return json(res, 200, { models: await listModels(cfg) });
     }
+    if (path === '/llm/models' && req.method === 'POST') {
+      return json(res, 200, { models: await listModels(modelDraft(cfg, await readBody(req))) });
+    }
     if (path === '/llm/test' && req.method === 'POST') {
-      return json(res, 200, await testConnection(cfg));
+      const draft=modelDraft(cfg, await readBody(req));
+      const ticket=connectionChecks.begin(connectionChecks.modelKey(draft));
+      try {
+        const result=await testConnection(draft), checkedAt=Date.now();
+        connectionChecks.finish(ticket,true,checkedAt);
+        return json(res, 200, { ...result, checkedAt });
+      } catch(error) { connectionChecks.finish(ticket,false); throw error; }
     }
     if (path === '/obsidian/vaults' && req.method === 'GET') {
       return json(res, 200, { vaults: detectVaults() });
@@ -245,11 +300,11 @@ const server = createServer(async (req, res) => {
       return json(res, 200, out);
     }
 
-    return json(res, 404, { error: `无此路由 ${req.method} ${path}` });
+    return json(res, 404, { error: `无此路由 ${req.method} ${path}`, code: 'ROUTE_NOT_FOUND' });
   } catch (e) {
     const map = { NEED_TEXT: 409, NO_AGENT: 503, AGENT_SPAWN: 503, AGENT_TIMEOUT: 504,
-                  AGENT_EMPTY: 502, AGENT_ERROR: 502, AGENT_PARSE: 502, AGENT_AUTH: 502, BAD_AGENT: 400,
-                  NO_API_KEY: 503, TOO_LONG: 413, BAD_INPUT: 400, BAD_JSON: 400,
+                  AGENT_EMPTY: 502, AGENT_ERROR: 502, AGENT_PARSE: 502, AGENT_AUTH: 502, AGENT_TEST_RESPONSE: 502, BAD_AGENT: 400,
+                  NO_API_KEY: 503, TOO_LONG: 413, BAD_INPUT: 400, BAD_CONFIG: 400, BAD_JSON: 400,
                   TOO_LARGE: 413, SIYUAN_DOWN: 503, SIYUAN_AUTH: 503, SIYUAN: 502,
                   NO_MODEL: 503, NO_BASEURL: 503, UPSTREAM: 502,
                   NO_TARGET: 503, BAD_TARGET: 400, BAD_BACKEND: 400,

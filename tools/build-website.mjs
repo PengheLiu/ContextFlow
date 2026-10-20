@@ -12,6 +12,7 @@ export const websiteFiles = [
   ['store/demo.html', 'demo.html'],
   ['assets/mark.svg', 'assets/mark.svg'],
   ['assets/readme/inline-annotation.png', 'assets/inline-annotation.png'],
+  ['assets/readme/reading-library.png', 'assets/reading-library.png'],
 ];
 
 export function stageWebsite(destination) {

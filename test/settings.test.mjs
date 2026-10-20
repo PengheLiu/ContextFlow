@@ -137,6 +137,26 @@ await t('四个设置章节在同一页面连续展示', () => {
   assert.equal(s.sh.querySelectorAll('[role="tab"], [role="tabpanel"]').length, 0);
 });
 
+await t('配置完整后先展示章节摘要；未保存草稿不会因重新打开被覆盖', async () => {
+  const s = make();
+  const cfg = { ...s.cfg, translate: { provider: 'openai', baseUrl: 'https://model.test', model: 'saved', apiKeySet: true }, sync: { backend: 'markdown' }, markdown: { dir: '/notes', folder: '/阅读记录' }, obsidian: {}, siyuan: {} };
+  let reads = 0;
+  s.api.getConfig = async () => { reads++; return cfg; };
+  s.api.listFolders = async () => ({ root: '/notes', folders: ['/阅读记录'] });
+  s.api.health = async () => ({ serviceVersion: '0.3.3', llmConfigured: true, capabilities: ['llm.draft'] });
+  await s.load();
+  await s.checkService();
+  assert.equal(s.$('s-chapter-translate').open, false);
+  assert.equal(s.$('s-chapter-archive').open, false);
+  assert.match(s.$('s-serviceStatus').textContent, /已配置/);
+  s.$('s-model').value = 'unsaved';
+  s.$('s-model').dispatchEvent(new Event('input', { bubbles: true }));
+  await s.load();
+  assert.equal(reads, 1);
+  assert.equal(s.$('s-model').value, 'unsaved');
+  assert.match(s.$('s-msg').textContent, /未保存/);
+});
+
 await t('表单控件均有可访问标签，消息区可播报', () => {
   const s = make();
   for (const el of s.sh.querySelectorAll('.folio input,.folio select')) {
@@ -240,6 +260,252 @@ await t('独立连接页隐藏网页停用设置，不调用思源来保存 Mark
   s.loadPaths = async () => { paths++; };
   await s.save();
   assert.equal(paths, 0);
+});
+
+await t('获取模型在按钮旁和 toast 都报告去重数量，保留当前模型', async () => {
+  const s = make();
+  s.$('s-model').value = 'b';
+  let saves = 0;
+  s.persist = async () => { saves++; };
+  s.api.listModels = async () => ({ models: ['a', 'b', 'a', '', null] });
+  await s.fetchModels();
+  assert.equal(saves, 0, '读取列表不能保存任何配置');
+  assert.equal(s.$('s-model').value, 'b');
+  assert.equal(s.$('s-modelPick').options.length, 3, '含一个未选择占位项');
+  assert.match(s.$('s-modelListStatus').textContent, /已获取到 2 个模型/);
+  assert.match(s.$('s-toastText').textContent, /已获取到 2 个模型/);
+  assert.equal(s.$('s-toast').hidden, false);
+  s.$('s-dismissToast').click();
+  assert.equal(s.$('s-toast').hidden, true);
+  assert.match(s.$('s-modelListStatus').textContent, /已获取到 2 个模型/);
+});
+
+await t('原模型不在列表时报告数量但不切换、不保存', async () => {
+  const s = make();
+  s.$('s-model').value = 'old';
+  s.persist = async () => {};
+  s.api.listModels = async () => ({ models: ['new-model'] });
+  await s.fetchModels();
+  assert.equal(s.$('s-model').value, 'old');
+  assert.equal(s.$('s-modelPick').value, '');
+  assert.match(s.$('s-modelListStatus').textContent, /已获取到 1 个模型/);
+  assert.match(s.$('s-toastText').textContent, /当前模型「old」不在列表中，已保留/);
+});
+
+await t('空列表和失败会清除旧选项，保留手填模型并给出可见反馈', async () => {
+  const s = make();
+  s.persist = async () => {};
+  s.$('s-model').value = 'manual-model';
+  s.$('s-modelPick').innerHTML = '<option>stale</option>';
+  s.$('s-modelPickWrap').hidden = false;
+  s.api.listModels = async () => ({ models: [] });
+  await s.fetchModels();
+  assert.equal(s.$('s-model').value, 'manual-model');
+  assert.equal(s.$('s-modelPickWrap').hidden, true);
+  assert.equal(s.$('s-modelPick').options.length, 0);
+  assert.match(s.$('s-modelListStatus').textContent, /获取到 0 个模型/);
+  assert.equal(s.$('s-modelListStatus').getAttribute('role'), 'alert');
+  s.api.listModels = async () => { throw new Error('网关返回 401'); };
+  await s.fetchModels();
+  assert.match(s.$('s-toastText').textContent, /获取模型失败.*401/);
+  s.api.listModels = async () => ({ models: {} });
+  await s.fetchModels();
+  assert.match(s.$('s-modelListStatus').textContent, /模型列表无效/);
+});
+
+await t('模型获取与选择不校验其他章节，不产生配置写入', async () => {
+  const s = make();
+  s.$('s-profileFull').checked = true;
+  s.$('s-apiKey').value = 'draft-secret';
+  s.$('s-baseUrl').value = 'https://model.test';
+  s.persist = async () => { throw new Error('不应保存'); };
+  let got;
+  s.api.listModels = async (draft) => { got = draft; return { models: ['mock-model'] }; };
+  await s.fetchModels();
+  assert.equal(got.apiKey, 'draft-secret');
+  assert.equal('agent' in got, false);
+  await s.pickModel('mock-model');
+  assert.equal(s.$('s-model').value, 'mock-model');
+  assert.equal(s.dirty, true);
+  assert.match(s.$('s-msg').textContent, /未保存/);
+  assert.equal(s.$('s-apiKey').value, 'draft-secret');
+  assert.doesNotMatch(s.$('s-toastText').textContent, /draft-secret/);
+});
+
+await t('测试只传连接草稿，填写在响应前改变时不会把新内容误报为已验证', async () => {
+  const s = make();
+  s.persist = async () => { throw new Error('不应保存'); };
+  s.$('s-model').value = 'before';
+  s.api.testModel = async (draft) => {
+    assert.equal(draft.model, 'before');
+    s.$('s-model').value = 'after';
+    return { ok: true, model: 'before' };
+  };
+  await s.testModel();
+  assert.match(s.$('s-modelStatus').textContent, /内容已变化/);
+  assert.equal(s.$('s-msg').textContent, '', '模型结果不在底栏重复展示');
+});
+
+await t('修改目的地后探测目录不会隐式保存或探测旧目录', async () => {
+  const s = make();
+  s.cfg.markdown = { dir: '/saved' };
+  s.$('s-mdDir').value = '/draft';
+  s.persist = async () => { throw new Error('不应保存'); };
+  s.api.listFolders = async () => { throw new Error('不应探测旧目录'); };
+  await s.loadFolders('markdown', true);
+  assert.match(s.$('s-msg').textContent, /保存笔记位置后/);
+});
+
+await t('模型测试成功与失败都在原位和 toast 显示，失败可重试', async () => {
+  const s = make();
+  s.persist = async () => {};
+  s.api.testModel = async () => { throw new Error('本地服务版本过旧，请重启'); };
+  await s.testModel();
+  assert.match(s.$('s-modelStatus').textContent, /测试失败.*请重启/);
+  assert.equal(s.$('s-modelStatus').getAttribute('role'), 'alert');
+  assert.match(s.$('s-toastText').textContent, /测试失败/);
+  s.api.testModel = async () => ({ ok: true, model: 'mock-model' });
+  await s.testModel();
+  assert.match(s.$('s-modelStatus').textContent, /模型连接成功：mock-model/);
+  assert.equal(s.$('s-modelStatus').getAttribute('role'), 'status');
+  s.api.testModel = async () => ({ error: 'unexpected' });
+  await s.testModel();
+  assert.match(s.$('s-modelStatus').textContent, /测试结果无效/);
+});
+
+await t('获取与测试互斥，双击不重复请求，完成后按钮恢复', async () => {
+  const s = make();
+  let release, calls = 0;
+  const pending = new Promise(resolve => { release = resolve; });
+  const first = s.modelAction('s-fetchModels', '获取中…', async () => { calls++; await pending; });
+  assert.equal(s.$('s-fetchModels').disabled, true);
+  assert.equal(s.$('s-testModel').disabled, true);
+  await s.modelAction('s-testModel', '测试中…', async () => { calls++; });
+  assert.equal(calls, 1);
+  release();
+  await first;
+  assert.equal(s.$('s-fetchModels').disabled, false);
+  assert.equal(s.$('s-testModel').disabled, false);
+});
+
+await t('toast 使用文字而非 HTML，并可独立关闭', () => {
+  const s = make();
+  s.msg('<img src=x onerror=alert(1)>');
+  assert.equal(s.$('s-toast').querySelectorAll('img').length, 0);
+  assert.match(s.$('s-toastText').textContent, /<img/);
+  s.msg('');
+  assert.equal(s.$('s-toast').hidden, true);
+});
+
+await t('配置读取期间显示加载状态并合并重复读取，不允许初始化覆盖提前交互', async () => {
+  const s=make(); let finish, calls=0;
+  const cfg={...s.cfg,translate:{provider:'openai',baseUrl:'https://model.test',model:'saved',apiKeySet:true},sync:{backend:'markdown'},markdown:{dir:'/notes'},obsidian:{},siyuan:{}};
+  s.api.getConfig=()=>{calls++;return new Promise(resolve=>{finish=resolve;});};
+  const a=s.load(), b=s.load();
+  assert.equal(s.form.hidden,true); assert.equal(s.loadingNotice.hidden,false); assert.equal(calls,1);
+  finish(cfg); await Promise.all([a,b]);
+  assert.equal(s.form.hidden,false); assert.equal(s.loadingNotice.hidden,true);
+  assert.equal(s.$('s-chapter-translate').open,false);
+});
+
+await t('Agent 安装检测有数量与原位反馈，但不会暗示已登录或切换原选择', async () => {
+  const s=make();s.wantAgent='codex';let writes=0;
+  s.api.putConfig=async()=>writes++;
+  s.api.detectAgents=async()=>({agents:[{id:'claude',label:'Claude Code',available:true,version:'fixture',safeSupport:'best-effort'},{id:'codex',label:'Codex CLI',available:false,safeSupport:'verified'}]});
+  await s.detectAgents(true);
+  assert.equal(s.$('s-agent').value,'codex');assert.equal(s.$('s-testAgent').disabled,true);
+  assert.match(s.$('s-agentDiscoveryStatus').textContent,/检测到 1 个.*安装不代表已登录/);
+  assert.match(s.$('s-toastText').textContent,/检测到 1 个/);assert.equal(writes,0);
+  s.$('s-agent').value='claude';s.$('s-agent').dispatchEvent(new Event('change'));
+  assert.equal(s.$('s-testAgent').disabled,false);assert.match(s.$('s-agentConnection').textContent,/尚未测试/);
+});
+
+await t('Agent 测试与配置保存分离，排队/可用/认证失败明确展示并恢复按钮', async () => {
+  const s=make();let writes=0,calls=0;
+  s.api.putConfig=async()=>writes++;
+  s.api.testAgent=async(id,{onProgress})=>{calls++;onProgress({queuedAhead:2});assert.match(s.$('s-agentTestStatus').textContent,/前面 2 个/);return {ok:true,agent:id,scope:'connection-only',checkedAt:Date.now()};};
+  await s.testAgent();assert.equal(calls,1);assert.equal(writes,0);
+  assert.equal(s.$('s-agentReady').textContent,'可用');assert.match(s.$('s-agentTestStatus').textContent,/认证与模型回应正常/);
+  assert.match(s.sh.querySelector('.agent-health').textContent,/不验证笔记读取或完整权限/);
+  assert.equal(s.$('s-testAgent').disabled,false);assert.equal(s.$('s-save').disabled,false);
+  s.api.testAgent=async()=>{throw Object.assign(new Error('请在终端完成登录'),{code:'AGENT_AUTH'});};
+  await s.testAgent();assert.equal(s.$('s-agentReady').textContent,'需处理');assert.equal(s.$('s-agentTestStatus').getAttribute('role'),'alert');
+  assert.match(s.$('s-agentTestStatus').textContent,/终端完成登录/);assert.equal(writes,0);
+});
+
+await t('取消 Agent 测试后可立即重试，旧结果与清理不能覆盖新测试', async () => {
+  const s=make();const runs=[];
+  s.api.testAgent=(id,{signal})=>new Promise(resolve=>runs.push({id,signal,resolve}));
+  const first=s.testAgent();await s.testAgent();assert.equal(runs.length,1);assert.equal(s.$('s-cancelAgentTest').hidden,false);
+  s.cancelAgentTest();assert.equal(runs[0].signal.aborted,true);
+  const second=s.testAgent();assert.equal(runs.length,2);
+  runs[0].resolve({ok:true,agent:'claude',scope:'connection-only'});await first;
+  assert.equal(s.$('s-testAgent').disabled,true);assert.equal(s.agentWorking,true);
+  runs[1].resolve({ok:true,agent:'claude',scope:'connection-only'});await second;
+  assert.equal(s.$('s-agentReady').textContent,'可用');assert.equal(s.$('s-testAgent').disabled,false);
+});
+
+await t('章节用箭头、明确文案及状态；展开不会自动关闭其他章节或重建输入', () => {
+  const s=make(),first=s.$('s-chapter-translate'),second=s.$('s-chapter-explain');
+  first.open=false;first.disclosure.sync();second.open=false;second.disclosure.sync();
+  const input=s.$('s-model');input.value='保留草稿';
+  first.querySelector('summary').click();second.querySelector('summary').click();
+  assert.equal(first.open,true);assert.equal(second.open,true);assert.equal(s.$('s-model'),input);
+  assert.equal(first.querySelector('[data-disclosure-label]').textContent,'收起');
+  assert.equal(first.querySelector('summary').getAttribute('aria-expanded'),'true');
+  assert.ok(first.querySelector('.chapter-state'));assert.ok(first.querySelector('.chapter-affordance svg'));
+});
+
+await t('欢迎页保存后，新设置实例从服务恢复模型和 Agent 测试；不再次调用 AI', async () => {
+  const first=make(),checkedAt=Date.now()-60000;
+  const cfg={...first.cfg,translate:{provider:'openai',baseUrl:'https://model.test',model:'saved',apiKeySet:true},
+    explain:{backend:'agent'},sync:{backend:'markdown'},markdown:{dir:'/notes'},obsidian:{},siyuan:{},
+    connectionChecks:{model:{ok:true,checkedAt},agents:{claude:{ok:true,checkedAt}}}};
+  let modelCalls=0,agentCalls=0;
+  const api={getConfig:async()=>structuredClone(cfg),listFolders:async()=>({folders:[]}),
+    testModel:async()=>modelCalls++,testAgent:async()=>agentCalls++};
+  first.api=api;await first.load();
+  assert.equal(first.$('s-state-translate').textContent,'连接已通过');
+  assert.equal(first.$('s-agentReady').textContent,'可用');
+  assert.match(first.$('s-modelStatus').textContent,/上次模型测试通过/);
+  assert.match(first.$('s-agentConnection').textContent,/已通过 ·/);
+  const next=make();next.api=api;await next.load();
+  assert.equal(next.modelTest.checkedAt,checkedAt);
+  assert.equal(next.agentTests.get('claude').checkedAt,checkedAt);
+  assert.equal(modelCalls+agentCalls,0);
+  next.$('s-apiKey').value='changed';next.$('s-apiKey').dispatchEvent(new Event('input',{bubbles:true}));
+  assert.match(next.$('s-state-translate').textContent,/待测试/);
+  next.$('s-agent').value='codex';next.$('s-agent').dispatchEvent(new Event('change',{bubbles:true}));
+  assert.match(next.$('s-agentConnection').textContent,/尚未测试/);
+});
+
+await t('保存时以服务返回记录为准；改密钥后不保留旧成功，刷新可恢复失败状态', async () => {
+  const s=make();s.cfg.translate={apiKeySet:true};
+  s.$('s-model').value='saved';s.$('s-baseUrl').value='https://model.test';
+  s.applyConnectionChecks({model:{ok:true,checkedAt:1000},agents:{claude:{ok:true,checkedAt:1000}}});
+  s.$('s-apiKey').value='changed';
+  s.api.putConfig=async()=>({translate:{apiKeySet:true},siyuan:{tokenSet:false},connectionChecks:{model:null,agents:{}}});
+  await s.persist({silent:true});
+  assert.equal(s.modelTest,null);assert.equal(s.agentTests.size,0);
+  assert.match(s.$('s-state-translate').textContent,/待测试/);
+  s.applyConnectionChecks({model:{ok:false,checkedAt:2000},agents:{claude:{ok:false,checkedAt:2000}}});
+  assert.equal(s.$('s-state-translate').textContent,'连接失败');
+  assert.match(s.$('s-agentConnection').textContent,/未通过/);
+  assert.equal(s.$('s-agentTestStatus').getAttribute('role'),'alert');
+});
+
+await t('简洁回答方式旁的问号可点击展开，Esc 收起并返回焦点；不保存或调用模型', () => {
+  const s=make();
+  assert.deepEqual([...s.$('s-exBackend').options].map(row=>row.textContent),['LLM','本地 Agent']);
+  const trigger=s.$('s-answerHelp'),help=s.$('s-answerHelpContent');
+  assert.equal(help.hidden,true);trigger.click();
+  assert.equal(help.hidden,false);assert.equal(trigger.getAttribute('aria-expanded'),'true');
+  assert.match(help.textContent,/不能主动读取本机笔记/);assert.match(help.textContent,/授权范围/);
+  assert.match(help.textContent,/翻译始终/);assert.match(help.textContent,/不验证笔记访问或工具权限/);
+  assert.equal(s.dirty,undefined);
+  s.$('s-exBackend').dispatchEvent(new dom.window.KeyboardEvent('keydown',{key:'Escape',bubbles:true,cancelable:true}));
+  assert.equal(help.hidden,true);assert.equal(trigger.getAttribute('aria-expanded'),'false');assert.equal(s.sh.activeElement,trigger);
+  trigger.click();trigger.click();assert.equal(help.hidden,true);
 });
 
 console.log(`\n${pass} 项通过`);

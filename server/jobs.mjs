@@ -41,6 +41,7 @@ export function submit({ kind, label, task }) {
     endedAt: null,
     _task: task,
     _canceled: false,
+    _controller: new AbortController(),
   };
   jobs.set(id, job);
   queue.push(id);
@@ -59,12 +60,13 @@ function pump() {
 
     const api = {
       id: job.id,
-      progress: (text) => { job.progress = String(text ?? '').slice(0, 400); },
+      signal: job._controller.signal,
+      progress: (text) => { if (!job._canceled) job.progress = String(text ?? '').slice(0, 400); },
       get canceled() { return job._canceled; },
     };
 
     Promise.resolve()
-      .then(() => job._task(api))
+      .then(() => { api.signal.throwIfAborted(); return job._task(api); })
       .then((r) => {
         if (job._canceled) return;
         job.status = 'done'; job.result = r;
@@ -106,12 +108,16 @@ export function get(id) {
 
 export function cancel(id) {
   const j = jobs.get(id);
-  if (!j || j.status === 'done' || j.status === 'error') return false;
+  if (!j || ['done', 'error', 'canceled'].includes(j.status)) return false;
   j._canceled = true;
   j.status = 'canceled';
+  j._controller.abort();
   j.endedAt = Date.now();
   const i = queue.indexOf(id);
-  if (i >= 0) queue.splice(i, 1);
+  if (i >= 0) {
+    queue.splice(i, 1); j._task = null;
+    setTimeout(() => jobs.delete(j.id), KEEP_MS).unref?.();
+  }
   return true;
 }
 
@@ -126,6 +132,6 @@ export function stats() {
 
 /** 测试用：清空状态 */
 export function _reset() {
-  for (const j of jobs.values()) j._canceled = true;   // 在飞的任务不再回写
+  for (const j of jobs.values()) { j._canceled = true; j._controller.abort(); }
   jobs.clear(); queue.length = 0; inFlight.clear(); seq = 0;
 }

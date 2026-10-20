@@ -9,6 +9,27 @@
 <body>
   <main>
     <header><img src="toolbar-48.png" alt=""><span>ContextFlow <small>你的阅读，留下自己的理解</small></span><a href="https://pengheliu.github.io/ContextFlow/" target="_blank" rel="noreferrer">使用指南 ↗</a></header>
+    <nav class="page-nav" aria-label="ContextFlow 导航"><a href="#start" data-view="start">开始使用</a><a href="#library" data-view="library">我的阅读库</a><a href="#connect" data-view="connect">连接与设置</a><a href="#support" data-view="support">帮助与诊断</a></nav>
+    <section id="support" class="support" hidden aria-labelledby="support-title">
+      <p class="eyebrow">HELP & SUPPORT</p><h1 id="support-title">让问题有迹可循</h1>
+      <p>先检查连接与存储，再按提示处理。不运行模型或 Agent，不修改配置，也不会上传诊断信息。</p>
+      <div class="actions"><button id="support-check" type="button">运行诊断</button><button id="support-copy" class="secondary" type="button" disabled>复制脱敏报告</button></div>
+      <p id="support-status" role="status" aria-live="polite">点击后仅检查本地服务健康状态与扩展存储计数。</p>
+      <details><summary>报告里包含什么？</summary><p>扩展、Chromium 与服务版本，连接状态、支持能力及记录 / 图片 / 待发送操作的数量。不包含网址、文章、笔记、密钥、配对码、模型地址、文件路径或完整日志。下方可预览全部报告内容。</p></details>
+      <pre id="support-report" tabindex="0" aria-label="脱敏诊断报告"></pre>
+      <h2>下一步怎么做？</h2><ul><li>文章里打不开插件：先刷新原页面，或查看<a href="#reading-help">阅读帮助</a>。</li><li>模型或 Agent 不能回答：前往<a href="#connect">连接与设置</a>单独测试。测试会使用你自己的额度，诊断不会自动测试。</li><li>待发送操作一直不减少：启动本地服务、打开对应文章；保存成功不等于已同步到笔记软件。</li><li>需要帮助：在 <a href="https://github.com/PengheLiu/ContextFlow/issues/new" target="_blank" rel="noreferrer">GitHub 反馈问题 ↗</a>，附上脱敏报告、复现步骤和不含私人内容的截图。</li></ul>
+    </section>
+    <div id="reading-library" hidden></div>
+    <section id="reading-help" class="first-note" hidden aria-labelledby="reading-help-title">
+      <div class="section-head"><span class="eyebrow">回到阅读</span><h2 id="reading-help-title">当前页面还不能打开阅读侧栏</h2></div>
+      <p>这不代表模型配置或配对失败。批注和导出不需要连接 AI。</p>
+      <ol class="steps">
+        <li><span class="step-number">01</span><div><h3>先刷新原来的文章</h3><p>安装或更新扩展之前已经打开的页面，需要刷新一次才能使用。</p></div></li>
+        <li><span class="step-number">02</span><div><h3>确认是普通网页</h3><p>Chrome 内部页面、扩展商店、内置 PDF 阅读器和本地文件暂不支持。PDF 可寻找对应 HTML 版本。</p></div></li>
+        <li><span class="step-number">03</span><div><h3>检查网站访问权限</h3><p>普通文章刷新后仍无反应，可在 Chrome 的扩展管理中检查 ContextFlow 的网站访问权限。</p></div></li>
+      </ol>
+      <a class="button" href="https://pengheliu.github.io/ContextFlow/demo.html" target="_blank" rel="noreferrer">用练习文章验证 →</a>
+    </section>
     <section class="welcome" aria-labelledby="welcome-title">
       <p class="eyebrow">从第一条批注开始</p>
       <h1 id="welcome-title">读到有启发的地方，<br>就地记下你的想法。</h1>
@@ -26,11 +47,17 @@
       <p class="tip">建议把 ContextFlow 固定到工具栏：点击 Chrome 右上角的拼图图标，再点击 ContextFlow 旁的图钉。</p>
     </section>
     <details class="connection" id="connect">
-      <summary><span><span class="eyebrow">按需开启</span><strong>AI 解释 · 翻译 · 笔记同步</strong><small>需要本地配套服务，稍后配置也可以</small></span><span class="summary-mark" aria-hidden="true">＋</span></summary>
+      <summary><span><span class="eyebrow" id="connection-label">按需开启</span><strong>本地连接与设置</strong><small id="connection-summary">开启 AI、Agent 或笔记同步；基础批注无需配置</small></span><span class="summary-mark"><span data-disclosure-label>展开</span><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m9 5 7 7-7 7"/></svg></span></summary>
       <div class="connection-body">
         <p>本地服务负责连接你自己的模型和笔记软件，只需在本机配对一次。扩展不提供免费模型额度；仅同步笔记时，不需要先配置 AI。</p>
         <p class="connection-state" id="connection-state" role="status" aria-live="polite">正在读取连接状态…</p>
         <button id="check-connection" class="secondary" type="button" hidden>检查本地服务连接</button>
+        <section class="setup-step" id="update-help" hidden>
+          <h3>更新本地服务，不需要重新配对</h3>
+          <p>当前运行：<strong id="service-version"></strong>。扩展自动更新不会更新电脑上的服务。</p>
+          <p><a id="update-companion" href="https://github.com/PengheLiu/ContextFlow/releases/latest">下载匹配版本的配套服务包</a>，按<a href="https://github.com/PengheLiu/ContextFlow/blob/main/docs/GETTING_STARTED.md#日常运行与升级" target="_blank" rel="noreferrer">升级说明</a>更新服务代码并停止旧进程，再重新启动。请保留原有配置与数据，不要再次执行配对命令。</p>
+          <p class="small">macOS 常驻服务：在更新后的服务目录执行 <code>npm run service -- restart</code>；前台运行：先在原终端按 Ctrl+C，再在更新后的目录运行 <code>npm run server</code>。完成后点击上方「检查本地服务连接」。</p>
+        </section>
         <div id="first-setup">
         <section class="setup-step">
           <h3><span>1</span> 下载并解压服务包</h3>
@@ -77,7 +104,7 @@
           <p>连接本机服务不等于模型已配置。直接在下方完成配置，无需先切回文章。</p>
           <p id="setup-progress" role="status" aria-live="polite"></p>
           <p><strong>笔记：</strong>选择归档位置并保存；然后打开练习文章，在侧栏点击「同步」，核对生成的 Markdown。每篇文章更新同一份笔记。</p>
-          <p><strong>AI：</strong>填写模型服务地址、API key 和模型，主动点击「保存并测试模型连接」。测试会消耗少量模型额度，不会发送文章或笔记。</p>
+          <p><strong>AI：</strong>展开「AI 模型与翻译」，填写地址、API key 和模型，点击「测试模型连接」，成功后点击「保存更改」。测试不保存配置，会消耗少量模型额度，不会发送文章或笔记。</p>
           <div id="configuration"></div>
           <a href="https://pengheliu.github.io/ContextFlow/demo.html" target="_blank" rel="noreferrer">配置完成，去练习批注与同步 →</a>
         </section>

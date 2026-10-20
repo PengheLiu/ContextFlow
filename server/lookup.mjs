@@ -161,7 +161,7 @@ const AGENT_SYSTEM = `${EXPLAIN_SYSTEM}
 没有就不要提，别为了凑而凑。`;
 
 /** 解释走 LLM（同步）*/
-export async function explainViaLLM({ text, question, urlKey, offset, fresh = false, cfg }) {
+export async function explainViaLLM({ text, question, urlKey, offset, fresh = false, cfg, signal }) {
   const src = checkText(text);
   const q = String(question ?? '').trim().slice(0, MAX_QUESTION);
   const t = cfg.translate;
@@ -187,7 +187,7 @@ export async function explainViaLLM({ text, question, urlKey, offset, fresh = fa
   const hit = cached(key);
   if (hit) return { ...hit, cached: true };
 
-  const r = await chat({ cfg, system: EXPLAIN_SYSTEM, messages, maxTokens: t.thinking ? 4096 : 1500 });
+  const r = await chat({ cfg, system: EXPLAIN_SYSTEM, messages, maxTokens: t.thinking ? 4096 : 1500, signal });
   const out = {
     answer: r.out, question: q, cached: false, via: 'llm',
     usage: r.usage, truncated: r.truncated, thinking: r.thinking, model: r.model,
@@ -209,7 +209,7 @@ export async function explainViaLLM({ text, question, urlKey, offset, fresh = fa
  * @param {string} o.system  首轮附的系统提示（续接时不重复发）
  * @param {(s:string)=>void} [o.onProgress]
  */
-async function askAgent({ urlKey, draft, system, cfg, onProgress }) {
+async function askAgent({ urlKey, draft, system, cfg, onProgress, signal }) {
   const a = cfg.agent || {};
   const id = a.id;
   if (!agent.AGENT_IDS.includes(id)) {
@@ -261,6 +261,7 @@ async function askAgent({ urlKey, draft, system, cfg, onProgress }) {
     // Agent stderr 只进服务端日志/错误诊断，不再直接透传到用户界面。
     // 各 CLI 的 warning、工具日志和调试输出不具备稳定的用户语义。
     onProgress: null,
+    signal,
   });
 
   if (urlKey && r.sessionId) {
@@ -287,7 +288,7 @@ async function askAgent({ urlKey, draft, system, cfg, onProgress }) {
 }
 
 /** 解释走本地 agent。 */
-export async function explainViaAgent({ text, question, urlKey, offset, fresh = false, cfg, onProgress }) {
+export async function explainViaAgent({ text, question, urlKey, offset, fresh = false, cfg, onProgress, signal }) {
   const src = checkText(text);
   const q = String(question ?? '').trim().slice(0, MAX_QUESTION);
 
@@ -304,7 +305,7 @@ export async function explainViaAgent({ text, question, urlKey, offset, fresh = 
   }
 
   const r = await askAgent({
-    urlKey, cfg, onProgress, system: AGENT_SYSTEM,
+    urlKey, cfg, onProgress, signal, system: AGENT_SYSTEM,
     draft: { action: 'explain', text: src, offset, extra: { question: q } },
   });
   return { ...r, question: q, cached: false };
@@ -358,7 +359,7 @@ function clampSummary(raw) {
  * 首段刻意是「开头 5k + 结尾 1k」（见 convo.articleMessage）：只看开头往往抓不到
  * 结论，而全塞进去就回到"第一次查询要等整篇 prefill"的老问题。
  */
-export async function summarize({ urlKey, cfg, fresh = false, onProgress }) {
+export async function summarize({ urlKey, cfg, fresh = false, onProgress, signal }) {
   if (!urlKey) throw err('缺少 urlKey', 'BAD_INPUT');
 
   const prior = fresh ? null : db.findLookup(urlKey, { action: 'summary', text: '', extra: {} });
@@ -376,7 +377,7 @@ export async function summarize({ urlKey, cfg, fresh = false, onProgress }) {
   const { viaAgent } = await plan(cfg);
 
   if (viaAgent) {
-    const r = await askAgent({ urlKey, draft, cfg, onProgress, system: SUMMARY_AGENT_SYSTEM });
+    const r = await askAgent({ urlKey, draft, cfg, onProgress, signal, system: SUMMARY_AGENT_SYSTEM });
     const { text, trimmed } = clampSummary(r.answer);
     return { summary: text, cached: false, via: r.via, model: r.model,
       usage: r.usage, agentMeta: r.agentMeta, ctx: { ...r.ctx, trimmed } };
@@ -392,7 +393,7 @@ export async function summarize({ urlKey, cfg, fresh = false, onProgress }) {
   });
 
   onProgress?.('生成速览…');
-  const r = await chat({ cfg, system: SUMMARY_SYSTEM, messages, maxTokens: 800 });
+  const r = await chat({ cfg, system: SUMMARY_SYSTEM, messages, maxTokens: 800, signal });
   const { text, trimmed } = clampSummary(r.out);
   return {
     summary: text, cached: false, via: 'llm', model: r.model,

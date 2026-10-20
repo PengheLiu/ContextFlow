@@ -35,6 +35,17 @@ const rect = { left: 100, top: 200, bottom: 220, right: 300, width: 200, height:
 
 console.log('划词浮层\n');
 
+await t('面板移动和缩放有键盘替代，Esc 从任意内部控件关闭',()=>{
+  const p=new Popover({name:'keyboard-popover',title:'解释',input:true});p.open(rect,'原文');
+  p.el.getBoundingClientRect=()=>({left:100,top:100,width:460,height:260});
+  p.$('hd').dispatchEvent(new window.KeyboardEvent('keydown',{key:'ArrowRight',bubbles:true}));
+  assert.equal(p.ui.x,120);
+  p.$('rz').dispatchEvent(new window.KeyboardEvent('keydown',{key:'ArrowDown',bubbles:true}));assert.equal(p.ui.h,280);
+  p.$('rz').dispatchEvent(new window.KeyboardEvent('keydown',{key:'Enter',bubbles:true}));assert.equal(p.el.style.height,'');
+  p.$('rz').dispatchEvent(new window.KeyboardEvent('keydown',{key:'Escape',bubbles:true}));assert.equal(p.open$,false);
+  store.clear();
+});
+
 const pop = new Popover({ name: 'tip-test', title: '解释', input: true, submitLabel: '提问' });
 
 await t('初始是关闭的', () => assert.equal(pop.open$, false));
@@ -259,7 +270,7 @@ await t('批注浮层在原文旁直接编辑，并即时把输入交给共享�
   comments.input.value = '原位写下的新批注';
   comments.input.dispatchEvent(new window.Event('input', { bubbles: true }));
   assert.deepEqual(inputs, [['h-1', '原位写下的新批注']]);
-  assert.match(comments.sh.getElementById('state').textContent, /已同步到右侧栏/);
+  assert.match(comments.sh.getElementById('state').textContent, /正在保存到浏览器/);
   comments.close(false);
 });
 
@@ -272,6 +283,28 @@ await t('侧栏修改会反向更新当前原位编辑器，不串到其他批�
   assert.equal(comments.input.value, '从侧栏改成 B');
   assert.match(comments.sh.getElementById('state').textContent, /已同步侧栏修改/);
   comments.close(false);
+});
+
+await t('异步落盘前不误报成功，完成等待落盘；失败保留编辑器和可重试草稿', async () => {
+  let resolve, reject;
+  const comments = new CommentPopover({ onCommit: () => new Promise((yes, no) => { resolve = yes; reject = no; }) });
+  comments.open(rect, { id: 'durable', value: '' });
+  comments.input.value = '必须落盘';
+  comments.input.dispatchEvent(new window.Event('input', { bubbles: true }));
+  comments.sh.getElementById('done').click();
+  assert.equal(comments.open$, true);
+  assert.match(comments.sh.getElementById('state').textContent, /正在保存/);
+  reject(new Error('配额不足'));
+  await comments.pendingSave;
+  assert.equal(comments.open$, true);
+  assert.equal(comments.dirty, true);
+  assert.match(comments.sh.getElementById('state').textContent, /保存失败.*配额不足/);
+  comments.sh.getElementById('done').click();
+  const pending = comments.pendingSave;
+  resolve();
+  await pending;
+  await Promise.resolve();
+  assert.equal(comments.open$, false);
 });
 
 await t('批注完成会立即提交、关闭，并通知侧栏结束原文旁编辑态', () => {

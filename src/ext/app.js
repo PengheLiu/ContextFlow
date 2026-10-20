@@ -50,6 +50,7 @@ initializePrivateStorage().then(() => {
   app = boot();
   if (app) {
     app.openConnectionSettings = () => request({ type: 'cf-open-settings' });
+    app.openReadingLibrary = () => request({type:'cf-open-library'});
     app.panel?.renderStatus();
   }
 }).catch((error) => {
@@ -60,7 +61,11 @@ initializePrivateStorage().then(() => {
 // 扩展有图标就顺手接上。
 // 实例不存在且页面在停用名单里时，图标点击就是恢复入口 —— 扩展载体没有
 // userscript那种"重复执行"的手势，用户主动点图标是唯一明确的敲门信号。
-chrome.runtime.onMessage.addListener((msg) => {
+chrome.runtime.onMessage.addListener((msg, sender, reply) => {
+  if(msg?.type==='cf-flush-edits') {
+    Promise.resolve().then(()=>app?.panel?.flushEdits()).then(()=>reply({contextflow:true,ok:true}),()=>reply({contextflow:true,ok:false}));
+    return true;
+  }
   if (msg?.type === 'cf-connection-changed') {
     app?.refreshConnection?.();
     return;

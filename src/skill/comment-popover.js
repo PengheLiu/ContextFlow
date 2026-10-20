@@ -76,7 +76,7 @@ export class CommentPopover {
         this.dirty = true;
         try {
           this.o.onInput?.(this.id, value);
-          this.status('已同步到右侧栏', 'saved');
+          this.status('正在保存到浏览器…');
         } catch (e) {
           this.status(`同步失败：${e?.message || e}`, 'bad');
         }
@@ -87,7 +87,13 @@ export class CommentPopover {
     });
     Object.defineProperty(this, 'input', { get: () => this.composer.list.querySelector('.rc-text') });
     this.$('x').onclick = () => this.close();
-    this.$('done').onclick = () => { this.commit(); this.close(false); };
+    this.$('done').onclick = () => {
+      const id = this.id, value = this.composer.value();
+      const done = (ok) => { if (ok && this.id === id && !this.dirty && this.composer.value() === value) this.close(false); };
+      const result = this.commit();
+      if (result?.then) result.then(done);
+      else done(result);
+    };
 
     this.$('q').addEventListener('keydown', (e) => {
       if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
@@ -105,6 +111,11 @@ export class CommentPopover {
 
   /** @param {DOMRect|object} rect @param {{id:string,source?:string,value?:string}} data */
   open(rect, data) {
+    if (!this.open$) {
+      let active = document.activeElement;
+      while (active?.shadowRoot?.activeElement) active = active.shadowRoot.activeElement;
+      this.returnFocus = active;
+    }
     // 极端情况下用户没关上一条就用键盘重新划选：先提交旧草稿，不能因复用组件丢字。
     if (this.open$ && this.id && this.id !== data.id) {
       const previous = this.id;
@@ -134,8 +145,8 @@ export class CommentPopover {
     return this;
   }
 
-  markSaved(id) {
-    if (this.open$ && id === this.id) this.status('已保存并同步', 'saved');
+  markSaved(id, value) {
+    if (this.open$ && id === this.id && (value === undefined || value === this.composer.value())) this.status('已保存在浏览器', 'saved');
     return this;
   }
 
@@ -147,13 +158,28 @@ export class CommentPopover {
 
   commit() {
     clearTimeout(this.saveTimer);
-    if (!this.dirty || !this.id) return;
+    if (!this.dirty || !this.id) return this.pendingSave || true;
+    const id = this.id, value = this.composer.value();
+    this.dirty = false;
+    this.status('正在保存到浏览器…');
     try {
-      this.o.onCommit?.(this.id, this.composer.value());
-      this.dirty = false;
-      this.status('已保存并同步', 'saved');
+      const result = this.o.onCommit?.(id, value);
+      const success = () => { if (id === this.id && !this.dirty) this.markSaved(id, value); return true; };
+      const failure = (e) => {
+        if (id === this.id && value === this.composer.value()) {
+          this.dirty = true;
+          this.status(`保存失败：${e?.message || e}`, 'bad');
+        }
+        return false;
+      };
+      if (!result?.then) return success();
+      const pending = Promise.resolve(result).then(success, failure).finally(() => { if (this.pendingSave === pending) this.pendingSave = null; });
+      this.pendingSave = pending;
+      return pending;
     } catch (e) {
+      this.dirty = true;
       this.status(`保存失败：${e?.message || e}`, 'bad');
+      return false;
     }
   }
 
@@ -179,8 +205,10 @@ export class CommentPopover {
     if (commit) this.commit();
     clearTimeout(this.saveTimer);
     const id = this.id;
+    const restoreFocus = !!this.sh.activeElement;
     this.el.classList.remove('on');
     this.o.onClose?.(id);
+    if (restoreFocus && this.returnFocus?.isConnected) this.returnFocus.focus({ preventScroll: true });
   }
 
   get open$() { return !!this.el?.classList.contains('on'); }

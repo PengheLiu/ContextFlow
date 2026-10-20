@@ -1,5 +1,6 @@
 // 浏览器端离线事实库：事件与待发送操作在同一个 IndexedDB 事务里提交。
 // localStorage 只保留迁移兼容与小型 UI 偏好，不再承担并发写入正确性。
+import { referencedAssets, MAX_BACKUP_BYTES } from './reading-library.js';
 
 const DB_NAME = 'contextflow-offline';
 const DB_VERSION = 4;
@@ -142,6 +143,64 @@ export async function listOfflineEvents(urlKey, { includeDeleted = false } = {})
   const rows = await req(tx.objectStore('events').index('urlKey').getAll(urlKey));
   await done(tx);
   return includeDeleted ? rows : rows.filter((e) => !e.deletedAt);
+}
+
+// Only trusted extension pages call these directly. They are deliberately NOT
+// included in the content-script RPC allowlist: a reading page has no need to
+// request an entire cross-site library or restore an archive.
+export async function readingLibrarySnapshot({ withAssets = false } = {}) {
+  const db=await openOfflineStore();
+  if(!db)throw new Error('浏览器私有存储不可用');
+  const tx=db.transaction(['events','assets'],'readonly');
+  const events=await req(tx.objectStore('events').getAll()),assets=[];
+  if(withAssets) {
+    const live=events.filter(e=>!e.deletedAt);
+    let bytes=new Blob([JSON.stringify(live)]).size;
+    if(bytes>MAX_BACKUP_BYTES)throw new Error('完整备份超过 32 MB 安全上限，请先按文章导出 Markdown；原记录不受影响');
+    for(const id of referencedAssets(live)) {
+      const asset=await req(tx.objectStore('assets').get(id));
+      bytes+=Math.ceil((asset?.blob?.size || 0)/3)*4;
+      if(bytes>MAX_BACKUP_BYTES)throw new Error('完整备份超过 32 MB 安全上限，请先按文章导出 Markdown；原记录不受影响');
+      if(asset)assets.push(asset);
+    }
+  }
+  await done(tx);
+  return {events,assets};
+}
+
+// Trusted extension pages only. Counts never include URLs, event contents,
+// queue errors or image names; do not expose this via the web-page RPC bridge.
+export async function offlineStorageStats() {
+  const db = await openOfflineStore();
+  if (!db) throw new Error('私有存储不可用');
+  const tx = db.transaction(['events', 'operations', 'assets'], 'readonly');
+  const complete = done(tx);
+  const counts = await Promise.all(['events', 'operations', 'assets'].map(name => req(tx.objectStore(name).count())));
+  await complete;
+  return { storedRows: counts[0], pendingOperations: counts[1], images: counts[2] };
+}
+
+/** Add missing entities only; even local tombstones win. All writes are atomic.
+ * The caller must fully validate the untrusted file before opening this tx. */
+export async function restoreReadingLibrary({ events, assets }) {
+  const db=await openOfflineStore();
+  if(!db)throw new Error('浏览器私有存储不可用');
+  const tx=db.transaction(['events','assets','operations'],'readwrite');
+  const completed=done(tx),es=tx.objectStore('events'),as=tx.objectStore('assets'),os=tx.objectStore('operations');
+  let added=0,skipped=0;
+  try {
+    // Existing IDs (including a different urlKey) must never be duplicated in
+    // the service's global event id space or in the unique operation index.
+    const existing=await req(es.getAll()),ids=new Set(existing.map(e=>e.id));
+    const deleted=new Set(existing.filter(e=>e.deletedAt).map(e=>e.id));
+    for(const event of events) {
+      if(ids.has(event.id) || (event.parentId && deleted.has(event.parentId))) { skipped++;continue; }
+      const stamped=event.updatedAt && event.mutationId ? event : mutationStamp(event);
+      es.add(stamped);os.put(opFor(stamped));ids.add(event.id);added++;
+    }
+    for(const asset of assets)if(!await req(as.get(asset.id)))as.add({...asset,uploadedAt:0});
+    await completed;return {added,skipped};
+  } catch(error) { try{tx.abort();}catch{} await completed.catch(()=>{});throw error; }
 }
 
 const hex = (buffer) => [...new Uint8Array(buffer)].map((n) => n.toString(16).padStart(2, '0')).join('');

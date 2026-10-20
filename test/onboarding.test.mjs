@@ -3,7 +3,7 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { normalizeRoot, resolveWithin } from '../server/paths.mjs';
 import { setupStatus } from '../server/config.mjs';
-import { testConnection, trimBase } from '../server/llm.mjs';
+import { testConnection, trimBase, listModels, modelDraft } from '../server/llm.mjs';
 import { checkReleaseLinks } from '../tools/check-release-links.mjs';
 
 assert.equal(normalizeRoot('~/ContextFlow'), join(homedir(), 'ContextFlow'));
@@ -18,6 +18,19 @@ assert.deepEqual(setupStatus({}), { llmConfigured: false, explainConfigured: fal
 assert.deepEqual(setupStatus({ translate: { apiKey: 'key', model: 'm', provider: 'openai' } }), { llmConfigured: false, explainConfigured: false });
 assert.deepEqual(setupStatus({ explain: { backend: 'agent' }, agent: { id: 'claude' } }), { llmConfigured: false, explainConfigured: true });
 const cfg = { translate: { apiKey: 'only-test', model: 'mock-model', provider: 'openai', baseUrl: 'http://example.test' } };
+const beforeDraft = JSON.stringify(cfg);
+const preview = modelDraft(cfg, { translate: { model: 'draft-model' }, agent: { profile: 'full' } });
+assert.equal(preview.translate.model, 'draft-model');
+assert.equal(preview.translate.apiKey, 'only-test');
+assert.equal(JSON.stringify(cfg), beforeDraft, '连接草稿不得修改持久配置对象');
+assert.equal(preview.agent, undefined, '模型连接草稿不得接受权限配置');
+assert.throws(() => modelDraft(cfg, { translate: { baseUrl: 'https://other.test' } }), /重新填写 API key/);
+assert.equal(modelDraft(cfg, { translate: { baseUrl: 'http://example.test/v1/' } }).translate.apiKey, 'only-test');
+assert.equal(modelDraft(cfg, { translate: { baseUrl: 'https://other.test', apiKey: 'new-key' } }).translate.apiKey, 'new-key');
+assert.throws(() => modelDraft(cfg, { translate: { model: {} } }), /必须是文字/);
+assert.throws(() => modelDraft(cfg, { translate: null }), /格式不正确/);
+assert.throws(() => modelDraft(cfg, null), /格式不正确/);
+assert.throws(() => modelDraft(cfg, []), /格式不正确/);
 assert.deepEqual(setupStatus(cfg), { llmConfigured: true, explainConfigured: true });
 const published = await checkReleaseLinks('0.3.2', async (url, init) => {
   assert.equal(init.method, 'HEAD');
@@ -43,5 +56,17 @@ try {
   await assert.rejects(() => testConnection(cfg), /超时/);
   await assert.rejects(() => testConnection({ translate: {} }), /未配置 API key/);
   await assert.rejects(() => testConnection({ translate: { ...cfg.translate, baseUrl: 'not-a-url' } }), /http:\/\//);
+  globalThis.fetch = async (url, init) => {
+    assert.equal(url, 'http://example.test/v1/models');
+    assert.ok(init.signal);
+    return { ok: true, json: async () => ({ data: [{ id: 'b' }, { id: 'a' }, { id: 'b' }, { id: '' }, null] }) };
+  };
+  assert.deepEqual(await listModels(cfg), ['a', 'b']);
+  globalThis.fetch = async () => ({ ok: true, json: async () => ({ data: [] }) });
+  assert.deepEqual(await listModels(cfg), []);
+  globalThis.fetch = async () => ({ ok: true, json: async () => ({ data: {} }) });
+  await assert.rejects(() => listModels(cfg), /有效的模型列表/);
+  globalThis.fetch = async () => { throw Object.assign(new Error('timeout'), { name: 'TimeoutError' }); };
+  await assert.rejects(() => listModels(cfg), /获取模型列表超时/);
 } finally { globalThis.fetch = original; }
 console.log('新手配置：用户目录展开、拒绝相对路径与越界、AI 配置完整性、固定消息测试及错误反馈通过');

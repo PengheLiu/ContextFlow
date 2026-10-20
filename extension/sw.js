@@ -1,5 +1,6 @@
 import * as offline from '../src/core/offline-store.js';
 import { encodeMessage, decodeMessage } from '../src/ext/rpc.js';
+import { companionInfo } from '../src/core/companion-info.js';
 
 const BASE = 'http://127.0.0.1:7317';
 const TOKEN = typeof __CONTEXTFLOW_TOKEN__ === 'string' ? __CONTEXTFLOW_TOKEN__ : '';
@@ -83,7 +84,22 @@ async function handleMessage(message, sender, kind) {
     await chrome.tabs.create({ url: chrome.runtime.getURL('options.html#connect') });
     return true;
   }
+  if (message.type === 'cf-open-library') {
+    if(kind!=='page')throw new Error('仅阅读界面可打开阅读库');
+    await chrome.tabs.create({url:chrome.runtime.getURL('options.html#library')});return true;
+  }
   if (kind !== 'settings') throw new Error('只能在扩展自己的设置页进行配对');
+  if(message.type==='cf-flush-reading') {
+    const tabs=await chrome.tabs.query?.({}) || [];
+    const results=await Promise.allSettled(tabs.filter(tab=>tab.id!=null).map(async tab=>{
+      let timer;
+      try{return await Promise.race([chrome.tabs.sendMessage(tab.id,{type:'cf-flush-edits'}),new Promise((_,reject)=>{timer=setTimeout(()=>reject(new Error('保存确认超时')),15000);})]);}
+      finally{clearTimeout(timer);}
+    }));
+    if(results.some(row=>row.status==='fulfilled' ? row.value?.contextflow===true && row.value.ok===false
+      : !/Receiving end does not exist|Could not establish connection|No tab with id|The tab was closed/.test(row.reason?.message || '')))throw new Error('有文章的编辑尚未确认保存，请回到原页面处理后重试；未生成不完整备份或恢复记录。');
+    return true;
+  }
   if (message.type === 'cf-configuration-changed') { await notifyConnectionChanged(); return true; }
   if (message.type === 'cf-status') return { paired: !!(await connectionToken()), extensionId: chrome.runtime.id };
   if (message.type === 'cf-check') {
@@ -93,7 +109,8 @@ async function handleMessage(message, sender, kind) {
     if (result.status === 0) return { state: 'unavailable' };
     if (result.status === 401 || result.status === 403) return { state: 'unauthorized' };
     if (result.status === 200 && result.body.ok && (token === TOKEN || result.body.extensionPaired === true)) {
-      return { state: 'connected' };
+      const service = companionInfo(result.body);
+      return { state: service.modelDraftSupported ? 'connected' : 'update-required', service };
     }
     return { state: result.status === 200 || result.status === 404 ? 'incompatible' : 'error' };
   }
@@ -140,6 +157,12 @@ chrome.runtime.onInstalled.addListener(({ reason }) => {
 
 chrome.action.onClicked.addListener(async (tab) => {
   // 离线批注是完整可用的起点，未配对也应先打开文章侧栏。
-  if (tab?.id != null) chrome.tabs.sendMessage(tab.id, { type: 'cf-toggle' })
-    .catch(() => chrome.runtime.openOptionsPage());
+  if (tab?.id != null) {
+    try { await chrome.tabs.sendMessage(tab.id, { type: 'cf-toggle' }); }
+    catch {
+      // No new permissions and no page URL is collected. Explain the missing
+      // reading surface instead of implying a failed click requires AI pairing.
+      await chrome.tabs.create({ url: chrome.runtime.getURL('options.html#reading-help') });
+    }
+  }
 });

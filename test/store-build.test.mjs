@@ -15,6 +15,14 @@ try {
   const files = readdirSync(output);
   for (const file of files) assert.ok(!readFileSync(join(output, file)).includes(sentinel), `${file} 泄露发布者 token`);
   const manifest = JSON.parse(readFileSync(join(output, 'manifest.json'), 'utf8'));
+  const { JSDOM }=await import('jsdom');
+  const policy=new JSDOM(readFileSync(join(output,'privacy.html'),'utf8')).window.document;
+  const sourcePolicy=new JSDOM(readFileSync('store/privacy.html','utf8')).window.document;
+  assert.equal(policy.body.textContent,sourcePolicy.body.textContent,'扩展与官网隐私正文必须完全一致');
+  assert.ok(files.includes(policy.querySelector('link[rel=icon]').getAttribute('href')),'扩展隐私图标必须随包提供');
+  const listing=readFileSync('store/LISTING.zh-CN.md','utf8');
+  assert.equal(listing.split('## 简介\n\n')[1].split('\n')[0],manifest.description,'商店简介与实际 manifest 一致');
+  policy.defaultView?.close();sourcePolicy.defaultView?.close();
   assert.equal(manifest.manifest_version, 3);
   assert.equal(manifest.key, undefined);
   assert.deepEqual(manifest.host_permissions, ['http://127.0.0.1:7317/*']);

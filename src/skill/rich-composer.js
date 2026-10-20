@@ -90,6 +90,7 @@ export class RichComposer {
   renderText(block, index) {
     const ta = document.createElement('textarea');
     ta.className = 'rc-text'; ta.rows = 1; ta.value = block.value || '';
+    ta.setAttribute('aria-label', this.o.label || this.o.placeholder || '编辑我的想法');
     ta.dataset.blockIndex = String(index);
     ta.placeholder = this.blocks.length === 1 ? (this.o.placeholder || '') : '';
     ta.addEventListener('input', () => { block.value = ta.value; grow(ta); this.emit(); });
@@ -119,6 +120,7 @@ export class RichComposer {
     }
     const caption = document.createElement('input');
     caption.className = 'rc-caption'; caption.value = block.alt || '';
+    caption.setAttribute('aria-label','图片说明');
     caption.placeholder = '添加图片说明'; caption.disabled = !!block.pending;
     caption.addEventListener('input', () => { block.alt = caption.value; this.emit(); });
     caption.addEventListener('blur', () => this.commit());
@@ -169,9 +171,24 @@ export class RichComposer {
 
   commit() {
     clearTimeout(this.saveTimer);
-    if (!this.dirty) return;
+    if (!this.dirty) return this.pendingCommit;
     this.dirty = false;
-    this.o.onCommit?.(this.value());
+    const value = this.value();
+    try {
+      const result = this.o.onCommit?.(value);
+      if (result?.then) {
+        this.pendingCommit = result;
+        const clear = () => { if (this.pendingCommit === result) this.pendingCommit = null; };
+        result.then(clear, clear);
+      }
+      result?.catch?.((error) => {
+        if (this.value() === value) { this.dirty = true; this.busy(false, `保存失败：${error.message}，请重试或复制备份`); }
+      });
+      return result;
+    } catch (error) {
+      this.dirty = true;
+      this.busy(false, `保存失败：${error.message}，请重试或复制备份`);
+    }
   }
   focus() { this.list.querySelector('.rc-text')?.focus(); return this; }
 }

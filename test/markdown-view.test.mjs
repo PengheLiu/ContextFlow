@@ -176,4 +176,13 @@ t('重复渲染替换旧内容，CRLF 与空输入不抛', () => {
   assert.equal(out().textContent, '');
 });
 
+t('导出的列点支持引文、多段落与嵌套列表，不显示原始 > 或把后续内容拆出记录',()=>{
+  renderMarkdownInto(out(),'- > 原文\n\n- 💬 我的想法\n  下一行\n\n  第二段\n  - 子项\n    - 孙项\n\n- **另一个记录**');
+  const list=out().querySelector('ul');assert.equal(list.children.length,3);
+  assert.equal(list.children[0].querySelector('blockquote').textContent,'原文');
+  assert.match(list.children[1].textContent,/下一行.*第二段.*子项.*孙项/s);
+  assert.ok(list.children[1].querySelector('ul ul li'));assert.ok(list.children[2].querySelector('strong'));
+  assert.equal(out().children.length,1);
+});
+
 console.log(`\n${pass} 项通过`);

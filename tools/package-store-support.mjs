@@ -8,7 +8,7 @@ import { stageWebsite, websiteFiles } from './build-website.mjs';
 
 const root = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const runtimeFiles = [
-  'server/agent.mjs', 'server/assets.mjs', 'server/config.mjs', 'server/convo.mjs',
+  'server/agent.mjs', 'server/agent-test.mjs', 'server/assets.mjs', 'server/config.mjs', 'server/connection-checks.mjs', 'server/convo.mjs',
   'server/db.mjs', 'server/extension-pairing.mjs', 'server/index.mjs', 'server/jobs.mjs',
   'server/layout.mjs', 'server/llm.mjs', 'server/lookup.mjs', 'server/mdfile.mjs', 'server/paths.mjs',
   'server/obsidian.mjs', 'server/origin.mjs', 'server/siyuan.mjs', 'server/sync.mjs',
@@ -42,7 +42,7 @@ export function packageStoreSupport(output = join(root, 'release')) {
     const companion = join(temporary, 'companion');
     for (const file of runtimeFiles) copy(file, join(companion, file));
     copy('store/COMPANION.md', join(companion, 'README.md'));
-    copy('store/privacy.html', join(companion, 'privacy.html'));
+    writeFileSync(join(companion,'privacy.html'),readFileSync(join(root,'store/privacy.html'),'utf8').replace(/\s*<link rel="icon"[^>]*>/,''));
     const scripts = Object.fromEntries(['server', 'pair', 'service'].map(name => [name, manifest.scripts[name]]));
     writeFileSync(join(companion, 'package.json'), `${JSON.stringify({ ...manifest, scripts }, null, 2)}\n`);
     archive('contextflow-companion', companion, [...runtimeFiles, 'README.md', 'privacy.html', 'package.json']);

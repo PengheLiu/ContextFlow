@@ -50,8 +50,10 @@ await t('纯 LLM 时：三类共享一条对话（前缀最长、缓存复用最
 await t('服务端翻译路由把 viaAgent 传给 lookup.translate（回归）', () => {
   const src = readFileSync('server/index.mjs', 'utf8');
   const route = src.slice(src.indexOf("path === '/translate'"), src.indexOf("path === '/article'"));
-  assert.match(route, /const \{ viaAgent \} = await lookup\.plan\(cfg\)/,
-    'translate 路由没有先 plan(cfg)');
+  assert.match(route, /const requestConfig = cfg/,'翻译也必须先捕获配置，避免 plan 等待期间切换上下文');
+  assert.match(route, /const \{ viaAgent \} = await lookup\.plan\(requestConfig\)/,
+    'translate 路由没有先 plan(requestConfig)');
+  assert.match(route,/lookup\.translate\(\{[^}]*cfg: requestConfig/s,'翻译执行与 plan 必须使用同一配置');
   assert.match(route, /lookup\.translate\(\{[^}]*viaAgent/s,
     'translate 路由没有把 viaAgent 传下去');
 });

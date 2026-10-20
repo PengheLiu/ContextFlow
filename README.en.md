@@ -19,13 +19,13 @@
 
 </div>
 
-> **Available on Chrome Web Store:** as of October 19, 2026, the store version is v0.3.1. The v0.3.2 guided connection and in-page settings update has been submitted to Google and will publish automatically after approval. The [v0.3.2 companion service](https://github.com/PengheLiu/ContextFlow/releases/tag/v0.3.2) is available now. Follow the [setup guide](./docs/GETTING_STARTED.md) for the current store version. The extension UI is primarily in Chinese.
+> **1.0: capture, find, and keep your understanding.** [Release packages and notes](https://github.com/PengheLiu/ContextFlow/releases/tag/v1.0.0). The existing Chrome Store version remains available; the 1.0 store update has not been submitted yet. Match your companion to the extension's installed version ([v0.3.2](https://github.com/PengheLiu/ContextFlow/releases/tag/v0.3.2) / [v1.0.0](https://github.com/PengheLiu/ContextFlow/releases/tag/v1.0.0)). Annotations and Markdown export need no companion. [Setup guide →](./docs/GETTING_STARTED.md). The UI is primarily in Chinese.
 
 ContextFlow is a browser reading workspace for people who read to understand. Keep **passages, questions, and your own judgments** together as you work through papers, technical articles, and research reports—then bring them back to your notes.
 
 <img src="./assets/readme/inline-annotation.png" alt="Actual extension UI: write beside a selected passage while the same annotation appears in the reading panel" width="100%">
 
-<sub>Write beside the source; review in the panel. Captured from the v0.3.2 development build using original sample text and an example annotation. Inline annotations, panel mirroring, and Markdown export are already available in v0.3.1.</sub>
+<sub>Actual 1.0 interface on original sample text: write beside the source and review the same record in the panel. No private reading data.</sub>
 
 ## Keep more than the article. Keep why it mattered.
 
@@ -67,6 +67,16 @@ ContextFlow connects the web, AI, and your existing knowledge rather than creati
 
 [Full installation and troubleshooting guide (Chinese) →](./docs/GETTING_STARTED.md)
 
+## Find it again. Take it with you.
+
+Open **我的阅读库** (My reading library) to search across saved articles, passages, questions, and personal notes. Filter by content type, preview a record, and download the article as Markdown with locally available images—without a companion.
+
+<img src="./assets/readme/reading-library.png" alt="Actual 1.0 reading library with search, preview, export and backup" width="100%">
+
+Long answers can be collapsed; regeneration keeps the previous answer and up to five historical versions. Cancel generation, retry failures, and undo recent deletions within the current page session. JSON backup restores missing records and images after validation and confirmation, without overwriting existing or deleted records or restarting AI jobs.
+
+**帮助与诊断** (Help and diagnostics) checks connection and storage counts without calling AI. Preview the entire redacted report before copying it; it contains no URLs, reading contents or credentials. JSON backups are unencrypted and limited to 32 MB per file. Back up before uninstalling. [1.0 scope and known limits (Chinese) →](./docs/RELEASE_1_0.md)
+
 Works on ordinary web pages in desktop Chrome / Chromium 111+. Chrome internal pages, Web Store pages, and the built-in PDF viewer are not supported.
 
 ### Enable only what your workflow needs
@@ -75,7 +85,8 @@ Works on ordinary web pages in desktop Chrome / Chromium 111+. Chrome internal p
 | --- | --- |
 | Highlights, inline annotations, pasted images, Markdown export | Extension only |
 | Sync to Obsidian / Markdown / SiYuan | Local companion and an output destination; AI is optional |
-| AI overviews, explanations, follow-up questions, translation | Local companion and your own model or agent configuration |
+| AI overviews, explanations and follow-up questions | Local companion and your own LLM or local agent |
+| Translation | Local companion and an LLM configuration; an agent alone is not enough |
 | Answers informed by personal notes | Local agent and explicit permission to read a notes directory |
 
 The companion requires Node.js 22.13+ and currently uses terminal-based installation and startup. Model charges are set by your provider; ContextFlow includes no model credits. [Companion setup (Chinese) →](./docs/GETTING_STARTED.md#开启-ai-和笔记同步)

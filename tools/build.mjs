@@ -132,7 +132,8 @@ async function buildExtension() {
   for (const file of ['options.html', 'options.css']) {
     copyFileSync(`extension/${file}`, join(EXT_DIR, file));
   }
-  copyFileSync('store/privacy.html', join(EXT_DIR, 'privacy.html'));
+  // The hosted policy uses assets/mark.svg; the extension ships toolbar icons.
+  writeFileSync(join(EXT_DIR, 'privacy.html'), readFileSync('store/privacy.html','utf8').replace('href="assets/mark.svg"','href="toolbar-32.png"'));
 
   const kb = (b) => `${(b / 1024).toFixed(1)} KB`;
   const outputBytes = (result) => Object.values(result.metafile.outputs)[0]?.bytes || 0;
@@ -142,8 +143,8 @@ async function buildExtension() {
     console.log('Chrome Web Store 包：manifest.key 已移除；商店会分配扩展 id');
   } else {
     console.log(`扩展 id  ${id}`);
-    console.log('把这一行加进 ~/.contextflow/config.json 的 allowedOrigins，然后可以关掉 allowAnyOrigin：');
-    console.log(`  "chrome-extension://${id}"`);
+    console.log('加载扩展后，在「扩展程序选项」按提示独立配对；无需手改 allowedOrigins 或开启 allowAnyOrigin。');
+    console.log(`已有服务可在项目目录执行 npm run pair -- ${id}，再在扩展连接页填写生成的配对码。`);
   }
 }
 

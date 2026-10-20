@@ -6,6 +6,7 @@ import {
   migrateLegacyOutbox, listPendingAssets, markOfflineAssetUploaded, saveOfflineAsset,
 } from './offline-store.js';
 import { browserStorage } from './browser-storage.js';
+import { companionInfo } from './companion-info.js';
 
 const BASE = 'http://127.0.0.1:7317';
 const OUTBOX = 'contextflow:outbox';
@@ -120,19 +121,22 @@ export async function fetchEvents(urlKey) {
  * 先原子落 IDB，再尝试直达服务。失败时 queued 操作保留；成功后由 flush 的 lease ack。
  * 调用方可先把 UI 更新，不会再出现镜像已写、outbox 因配额丢失的裂缝。
  */
-export async function pushEvents(events) {
+export async function pushEvents(events, { onLocalSaved } = {}) {
   if (!events.length) return true;
   if (offlineAvailable()) {
     await saveOfflineEvents(events);
+    onLocalSaved?.();
     const flushed = await flushOutbox();
     return flushed > 0 || await outboxSize() === 0;
   }
   try {
     await call('/events', { method: 'POST', body: JSON.stringify({ events }) });
+    onLocalSaved?.();
     return true;
   } catch (e) {
     console.warn('[ContextFlow] 推送失败，已入降级 outbox：', e.message);
     writeOutbox([...readOutbox(), ...events]);
+    onLocalSaved?.();
     return false;
   }
 }
@@ -191,8 +195,27 @@ export function outboxSize(urlKey) {
 // ---- 配置界面 ----
 export const getConfig = () => call('/config');
 export const putConfig = (patch) => call('/config', { method: 'POST', body: JSON.stringify(patch) });
-export const listModels = () => call('/llm/models');
-export const testModel = () => call('/llm/test', { method: 'POST', body: '{}' });
+const companionUpdateError = () => Object.assign(new Error('本地服务尚不支持不保存配置的模型测试。请更新配套服务并重启；仅更新 Chrome 扩展不会更新本地服务。现有批注和笔记保留，无需重新配对。'), { status: 409, code: 'COMPANION_UPDATE_REQUIRED' });
+async function modelDraftBody(draft) {
+  if (draft === undefined) return '{}';
+  const service = await health();
+  if (!companionInfo(service).modelDraftSupported) throw companionUpdateError();
+  return JSON.stringify({ translate: draft });
+}
+export async function listModels(draft) {
+  return draft === undefined ? call('/llm/models')
+    : call('/llm/models', { method: 'POST', body: await modelDraftBody(draft) });
+}
+export async function testModel(draft) {
+  try { return await call('/llm/test', { method: 'POST', body: await modelDraftBody(draft) }); }
+  catch (error) {
+    // 旧服务的本地路由 404，不是上游的密钥/模型错误；不能提示用户反复改密钥。
+    if (error.status === 404 && (error.code === 'ROUTE_NOT_FOUND' || /^无此路由 POST \/llm\/test$/.test(error.message))) {
+      throw Object.assign(new Error('本地服务版本过旧，或更新代码后仍在运行旧进程，尚不支持模型连接测试。请更新配套服务并停止旧进程后重新启动；macOS 常驻服务可在服务目录执行 npm run service -- restart。仅更新 Chrome 扩展不会更新本地服务，无需重新配对或填写密钥。'), { status: 404, code: 'COMPANION_UPDATE_REQUIRED' });
+    }
+    throw error;
+  }
+}
 export const listNotebooks = () => call('/siyuan/notebooks');
 export const listVaults = () => call('/obsidian/vaults');
 export const listFolders = (backend) => call(`/fs/folders?backend=${encodeURIComponent(backend)}`);
@@ -238,11 +261,16 @@ export async function cancelJob(id) {
  */
 export async function summarize({ urlKey, fresh, onProgress, signal } = {}) {
   const first = await call('/summary', {
-    method: 'POST', body: JSON.stringify({ urlKey, fresh }),
+    method: 'POST', body: JSON.stringify({ urlKey, fresh, async: true }),
   });
+  if (signal?.aborted) {
+    if (first.job?.id) cancelJob(first.job.id);
+    throw Object.assign(new Error('已取消'), { code: 'ABORTED' });
+  }
   if (first.mode !== 'job') return first;
 
   const id = first.job.id;
+  onProgress?.(first.job);
   for (;;) {
     if (signal?.aborted) { cancelJob(id); throw Object.assign(new Error('已取消'), { code: 'ABORTED' }); }
     const job = await getJob(id);
@@ -258,6 +286,30 @@ export async function detectAgents(fresh = false) {
   return call(`/agents/detect${fresh ? '?fresh=1' : ''}`);
 }
 
+export async function testAgent(id, { signal, onProgress } = {}) {
+  const service = companionInfo(await health());
+  if (!service.agentTestSupported) throw Object.assign(new Error('本地服务暂不支持 Agent 连接测试，请更新并重启配套服务；无需重新配对。'), { code:'COMPANION_UPDATE_REQUIRED', status:409 });
+  if (signal?.aborted) throw Object.assign(new Error('已取消测试'), { code:'ABORTED' });
+  const first = await call('/agents/test', { method:'POST', body:JSON.stringify({id}) });
+  if (first.mode !== 'job' || !first.job?.id) throw new Error('Agent 测试响应无效，请更新配套服务');
+  const jobId = first.job.id;
+  const cancel = () => { cancelJob(jobId); };
+  signal?.addEventListener('abort', cancel, { once:true });
+  try {
+    onProgress?.(first.job);
+    for (;;) {
+      if (signal?.aborted) { cancel(); throw Object.assign(new Error('已取消测试'), {code:'ABORTED'}); }
+      const job = await getJob(jobId);
+      if (signal?.aborted) continue;
+      if (job.status === 'done') return job.result;
+      if (job.status === 'error') throw Object.assign(new Error(job.error?.message || 'Agent 测试失败'), {code:job.error?.code,status:502});
+      if (job.status === 'canceled') throw Object.assign(new Error('已取消测试'), {code:'ABORTED'});
+      onProgress?.(job);
+      await new Promise(resolve => setTimeout(resolve,800));
+    }
+  } finally { signal?.removeEventListener('abort', cancel); }
+}
+
 /**
  * 解释。后端可能是 LLM（同步返回结果）或本地 agent（返回作业，需轮询）。
  * 用 onProgress 回调把排队/进度报给浮层 —— agent 实测要几十秒，
@@ -265,11 +317,16 @@ export async function detectAgents(fresh = false) {
  */
 export async function explain({ text, question, urlKey, offset, fresh, onProgress, signal }) {
   const first = await call('/explain', {
-    method: 'POST', body: JSON.stringify({ text, question, urlKey, offset, fresh }),
+    method: 'POST', body: JSON.stringify({ text, question, urlKey, offset, fresh, async: true }),
   });
+  if (signal?.aborted) {
+    if (first.job?.id) cancelJob(first.job.id);
+    throw Object.assign(new Error('已取消'), { code: 'ABORTED' });
+  }
   if (first.mode !== 'job') return first;          // LLM 路径，直接就是答案
 
   let id = first.job.id;
+  onProgress?.(first.job);
   for (;;) {
     if (signal?.aborted) { cancelJob(id); throw Object.assign(new Error('已取消'), { code: 'ABORTED' }); }
     const job = await getJob(id);

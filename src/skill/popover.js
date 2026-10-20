@@ -107,6 +107,7 @@ const CSS = `${FLOAT}
   .rz{position:absolute;right:0;bottom:0;width:20px;height:20px;cursor:nwse-resize}
   .rz::after{content:'';position:absolute;right:5px;bottom:5px;width:7px;height:7px;
      border-right:1.5px solid ${T.lineStrong};border-bottom:1.5px solid ${T.lineStrong}}
+  .hd:focus-visible,.rz:focus-visible{outline:2px solid ${T.focusLine};outline-offset:-3px}
   @media (max-width:420px){
     .source,.response{margin-left:14px;margin-right:14px}.ask{padding-left:14px;padding-right:14px}
     .hd-copy small{display:none}.ask{grid-template-columns:1fr}.ask button{justify-self:end}
@@ -134,7 +135,7 @@ export class Popover {
       <button class="exp" id="exp" type="button" title="展开原文" aria-label="展开原文">${icon('expand')}</button>
     </section>`;
     sh.innerHTML += `<div class="card${o.input ? ' has-input' : ''}" id="c">
-      <div class="hd" id="hd">
+      <div class="hd" id="hd" tabindex="0" role="group" aria-label="移动面板：方向键移动，Shift 加速" title="拖动或聚焦后按方向键移动面板">
         <span class="hd-lock"><span class="hd-seal">${brandMark()}</span>
           <span class="hd-copy"><b>${o.title}</b><small>CONTEXT NOTE</small></span></span>
         <span class="r"><button class="x" id="x" type="button" title="关闭" aria-label="关闭">${icon('close')}</button></span>
@@ -147,7 +148,7 @@ export class Popover {
       <section class="response"><div class="eyebrow">${icon(modeIcon)} ${o.title}结果</div><div id="b"></div>
         <div id="again" style="display:none"><button id="re" type="button">${icon('retry')}<span>重新解释</span></button></div></section>
       ${o.supplement ? '<section class="supp" id="supp"><div class="eyebrow">我的补充</div><div id="suppEditor"></div></section>' : ''}
-      <div id="f"></div><div class="rz" id="rz" title="拖动调整大小"></div>
+      <div id="f"></div><div class="rz" id="rz" role="button" tabindex="0" aria-label="调整面板大小：方向键调整，Enter 复位" title="拖动或按方向键调整大小；Enter 复位"></div>
     </div>`;
     this.sh = sh;
     this.$ = (id) => sh.getElementById(id);
@@ -158,6 +159,10 @@ export class Popover {
     if (this.$('src')) this.$('src').onclick = () => this.toggleSrc();
     this.wireDrag();
     this.wireResize();
+    this.el.addEventListener('keydown',e=>{
+      if(e.key!=='Escape' || e.defaultPrevented)return;
+      e.preventDefault();e.stopPropagation();this.close();
+    });
     const submit = (refresh = false) => {
       if (this.$('go')?.disabled) return;
       // 顶部提交、Enter 和底部重试共用错误处理与防重复提交状态。
@@ -190,7 +195,6 @@ export class Popover {
       q.addEventListener('keydown', (e) => {
         // Enter 提交，Shift+Enter 换行 —— 这是输入框的通用预期
         if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); submit(); }
-        if (e.key === 'Escape') this.close();
       });
     }
 
@@ -202,6 +206,11 @@ export class Popover {
 
   /** @param {DOMRect} rect 选区位置  @param {string} [source] 顶部灰色引文 */
   open(rect, source = '') {
+    if (!this.open$) {
+      let active = document.activeElement;
+      while (active?.shadowRoot?.activeElement) active = active.shadowRoot.activeElement;
+      this.returnFocus = active;
+    }
     releaseTicker(this);
     this.anchorRect = rect;
     const src = this.$('src');
@@ -279,6 +288,13 @@ export class Popover {
   /** 拖标题栏移动。位置记进 localStorage —— 每次都回到选区旁边反而烦人 */
   wireDrag() {
     const hd = this.$('hd');
+    hd.addEventListener('keydown',e=>{
+      if(e.target!==hd || !['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(e.key))return;
+      e.preventDefault();const r=this.el.getBoundingClientRect(),step=e.shiftKey ? 50 : 20;
+      this.ui={...this.ui,x:Math.min(Math.max(8,r.left+(e.key==='ArrowRight' ? step : e.key==='ArrowLeft' ? -step : 0)),Math.max(8,innerWidth-r.width-8)),
+        y:Math.min(Math.max(8,r.top+(e.key==='ArrowDown' ? step : e.key==='ArrowUp' ? -step : 0)),Math.max(8,innerHeight-r.height-8))};
+      this.place(this.anchorRect);saveUI(this.ui);
+    });
     hd.addEventListener('mousedown', (e) => {
       if (e.target.closest('button')) return;      // 标题栏上的按钮不触发拖动
       e.preventDefault();
@@ -301,6 +317,17 @@ export class Popover {
 
   /** 拖右下角缩放 */
   wireResize() {
+    this.$('rz').addEventListener('keydown',e=>{
+      if(!['ArrowLeft','ArrowRight','ArrowUp','ArrowDown','Enter'].includes(e.key))return;
+      e.preventDefault();const r=this.el.getBoundingClientRect(),step=e.shiftKey ? 50 : 20;
+      if(e.key==='Enter') {this.ui={...this.ui,w:null,h:null};this.el.style.width='';this.el.style.height='';}
+      else {
+        const w=Math.max(Math.min(MIN_W,innerWidth-16),Math.min(r.width+(e.key==='ArrowRight' ? step : e.key==='ArrowLeft' ? -step : 0),innerWidth-r.left-8));
+        const h=Math.max(Math.min(MIN_H,innerHeight-16),Math.min(r.height+(e.key==='ArrowDown' ? step : e.key==='ArrowUp' ? -step : 0),innerHeight-r.top-8));
+        this.ui={...this.ui,w,h};this.el.style.width=`${w}px`;this.el.style.height=`${h}px`;
+      }
+      this.place(this.anchorRect);saveUI(this.ui);
+    });
     this.$('rz').addEventListener('mousedown', (e) => {
       e.preventDefault(); e.stopPropagation();
       const r = this.el.getBoundingClientRect();
@@ -404,7 +431,9 @@ export class Popover {
   close() {
     releaseTicker(this);
     if (this.open$ && this.supplementId) this.supplementComposer?.commit();
+    const restoreFocus = !!this.sh?.activeElement;
     this.el?.classList.remove('on');
+    if (restoreFocus && this.returnFocus?.isConnected) this.returnFocus.focus({ preventScroll: true });
   }
   get open$() { return !!this.el?.classList.contains('on'); }
 }

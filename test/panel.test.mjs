@@ -53,13 +53,85 @@ const mk = (over) => new Panel(handlers(over));
 
 console.log('右侧面板\n');
 
-await t('构造后四个 tab、速览区和简洁底栏都在', () => {
+await t('键盘可调宽、复位；关闭立即 inert 并归还焦点；Esc 可收起',()=>{
+  const p=mk();p.toggle(true,false);const grab=p.$('grab');
+  assert.equal(grab.getAttribute('role'),'separator');
+  const before=p.ui.width;grab.dispatchEvent(new window.KeyboardEvent('keydown',{key:'ArrowLeft',bubbles:true}));
+  assert.equal(p.ui.width,before+20);assert.equal(grab.getAttribute('aria-valuenow'),String(p.ui.width));
+  grab.dispatchEvent(new window.KeyboardEvent('keydown',{key:'Enter',bubbles:true}));assert.equal(p.ui.width,360);
+  grab.focus();p.$('wrap').dispatchEvent(new window.KeyboardEvent('keydown',{key:'Escape',bubbles:true}));
+  assert.equal(p.open,false);assert.equal(p.$('wrap').inert,true);assert.equal(p.sh.activeElement,p.$('panelToggle'));
+  p.toggle(true,false);assert.equal(p.$('wrap').inert,false);
+});
+
+await t('Tab 支持方向键及 Home/End，只有当前项进入 Tab 顺序', () => {
   const p = mk();
-  for (const k of ['translate', 'explain', 'comments', 'note']) {
+  const current = p.sh.getElementById('t-records');
+  current.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+  assert.equal(p.tab, 'brief');
+  assert.equal(p.sh.getElementById('t-brief').tabIndex, 0);
+  assert.equal(current.tabIndex, -1);
+  p.sh.getElementById('t-brief').dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Home', bubbles: true }));
+  assert.equal(p.tab, 'records');
+  assert.equal(p.sh.getElementById('t-records').getAttribute('aria-controls'), 'p-records');
+  assert.equal(p.sh.getElementById('p-records').getAttribute('role'), 'tabpanel');
+});
+
+await t('定位原文可通过键盘完成，保存与外部同步说明分开', () => {
+  const located = [];
+  const p = mk({ getItems: () => [{ id: 'keyboard', text: '原文' }], onLocate: id => located.push(id) });
+  p.toggle(true, false);
+  const source = p.sh.querySelector('.source-group .src');
+  assert.equal(source.getAttribute('role'), 'button');
+  assert.equal(source.tabIndex, 0);
+  source.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+  assert.deepEqual(located, ['keyboard']);
+  assert.match(p.sh.querySelector('.storage-note').textContent, /保存在浏览器.*笔记软件/);
+});
+
+await t('笔记同步防连点，结果持久展示后端及目标路径', async () => {
+  let resolve, calls = 0, announce;
+  const started = new Promise(yes => { announce = yes; });
+  const p = mk({ onSync: () => { calls++; announce(); return new Promise(yes => { resolve = yes; }); } });
+  const run = p.doSync();
+  await p.doSync();
+  await started;
+  assert.equal(calls, 1);
+  assert.equal(p.sh.getElementById('sync').disabled, true);
+  resolve({ backend: 'obsidian', inserted: 1, articles: 1, files: ['/vault/阅读记录/article.md'] });
+  await run;
+  assert.equal(p.sh.getElementById('sync').disabled, false);
+  assert.match(p.sh.getElementById('syncmsg').textContent, /已同步到 Obsidian.*article.md/);
+});
+
+await t('同步等待防抖输入与正在落盘的编辑；窄窗口不覆盖桌面布局偏好', async () => {
+  let complete, sent = false;
+  const p = mk({ onNoteChange: () => new Promise(yes => { complete = yes; }),
+    onSync: async () => { sent = true; return { backend:'markdown',articles:1 }; } });
+  p.noteComposer.dirty = true;
+  const original = p.noteComposer.commit();
+  const run = p.doSync();
+  assert.equal(sent,false,'已有的持久化仍在进行，不能提前请求笔记同步');
+  complete(); await original; await run; assert.equal(sent,true);
+  const before = innerWidth;
+  try {
+    global.innerWidth = 390; p.ui.width = 360; p.ui.mode = 'push'; p.toggle(true,false);
+    assert.equal(p.$('wrap').style.width,'350px');
+    assert.equal(p.$('wrap').style.left,'40px');
+    assert.equal(p.$('wrap').classList.contains('float'),true);
+    assert.equal(p.ui.width,360); assert.equal(p.ui.mode,'push');
+  } finally { global.innerWidth = before; p.toggle(false,false); }
+});
+
+await t('阅读记录、文章速览和我的笔记独立展示，导出与同步仍在', () => {
+  const p = mk();
+  for (const k of ['records', 'brief', 'note']) {
     assert.ok(p.sh.getElementById(`t-${k}`), `缺 tab ${k}`);
     assert.ok(p.sh.getElementById(`p-${k}`), `缺 pane ${k}`);
   }
   assert.ok(p.sh.getElementById('brief'), '缺速览区');
+  assert.equal(p.$('brief').closest('.pane').id, 'p-brief');
+  assert.equal(p.$('note').closest('.pane').id, 'p-note');
   assert.equal(p.sh.querySelector('#copyMd .label').textContent, '复制');
   assert.equal(p.sh.querySelector('#downloadMd .label').textContent, '下载');
   assert.equal(p.sh.querySelector('#sync .label').textContent, '同步');
@@ -400,7 +472,7 @@ await t('解释的“我的补充”与原文旁面板双向镜像', () => {
   assert.deepEqual(commits, [['ex-supp', '右栏补充']], '镜像内容由原文旁面板提交，不应从右栏重复提交');
 });
 
-await t('底部任务轮询重绘时，已完成解释在 mousedown 就跳转原文', () => {
+await t('任务轮询不替换原文定位按钮，按下与松开跨刷新仍可点击', () => {
   const items = [{
     id: 'done', action: 'explain', text: 'BBH', value: '答案',
     anchor: { start: 1 }, createdAt: 1, extra: { question: 'Q' },
@@ -415,32 +487,29 @@ await t('底部任务轮询重绘时，已完成解释在 mousedown 就跳转原
   });
   p.toggle(true, false); p.select('explain');
   const oldItem = p.sh.querySelector('[data-id="done"]');
-  oldItem.querySelector('.kind').dispatchEvent(
-    new dom.window.MouseEvent('mousedown', { bubbles: true, button: 0 }));
-  oldItem.querySelector('.seq').dispatchEvent(
-    new dom.window.MouseEvent('mousedown', { bubbles: true, button: 0 }));
-  const oldSource = oldItem.querySelector('.src');
+  const oldSource = oldItem.closest('.source-group').querySelector('.src');
   oldSource.dispatchEvent(new dom.window.MouseEvent('mousedown', { bubbles: true, button: 0 }));
   items[1].extra.progress = '正在生成…';
   p.render();
   oldSource.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true, detail: 1 }));
-  assert.deepEqual(located, ['done', 'done', 'done'], '标签、原文位置和引文都应立即跳转且不重复');
+  assert.deepEqual(located, ['done'], '进度变化不吞掉点击');
 
-  const currentSource = p.sh.querySelector('[data-id="done"] .src');
+  const currentSource = p.sh.querySelector('[data-id="done"]').closest('.source-group').querySelector('.src');
+  assert.equal(currentSource, oldSource);
   currentSource.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true, detail: 1 }));
   currentSource.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true, detail: 0 }));
-  assert.deepEqual(located, ['done', 'done', 'done', 'done', 'done'], '普通鼠标和键盘 click 都应兜底跳转');
+  assert.deepEqual(located, ['done', 'done', 'done'], '鼠标与键盘均能定位');
 });
 
 await t('失锚解释不响应原文定位手势', () => {
   let located = 0;
   const p = mk({
-    getLookups: () => [{ id: 'lost', text: 'lost', value: 'answer', createdAt: 1 }],
+    getLookups: kind => kind === 'explain' ? [{ id: 'lost', text: 'lost', value: 'answer', createdAt: 1 }] : [],
     isOrphan: () => true,
     onLocate: () => { located++; },
   });
   p.toggle(true, false); p.select('explain');
-  const src = p.sh.querySelector('[data-id="lost"] .src');
+  const src = p.sh.querySelector('[data-id="lost"]').closest('.source-group').querySelector('.src');
   src.dispatchEvent(new dom.window.MouseEvent('mousedown', { bubbles: true, button: 0 }));
   src.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true, detail: 1 }));
   src.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true, detail: 0 }));
@@ -486,10 +555,11 @@ await t('收起时不通知', () => {
 });
 
 // 面板停在别的 tab 上时，角标是"速览已生成"的唯一线索
-await t('有速览时「总结」tab 出现角标', () => {
+await t('AI 速览与个人笔记角标互不混淆', () => {
   const p = mk({ getLookups: (k) => (k === 'summary' ? [{ value: '速览内容' }] : []) });
   p.renderStatus();
-  assert.ok(p.sh.getElementById('b-note').classList.contains('has-content'));
+  assert.ok(p.sh.getElementById('b-brief').classList.contains('has-content'));
+  assert.ok(!p.sh.getElementById('b-note').classList.contains('has-content'));
   assert.equal(p.sh.getElementById('b-note').textContent, '', '状态应由统一的 CSS 圆点表达，不再混用字符图标');
 });
 
@@ -518,6 +588,16 @@ await t('扩展未配对时保留阅读功能，并提供主动连接入口', as
   p.h.isOnline = () => true;
   p.renderStatus();
   assert.equal(p.$('connectionNote').hidden, true);
+});
+
+await t('扩展阅读库入口先等待当前编辑保存；公开脚本不出现失效入口',async()=>{
+  let opened=0,release;
+  const p=mk({canOpenLibrary:()=>true,onOpenLibrary:()=>opened++});p.renderStatus();
+  assert.equal(p.$('library').hidden,false);
+  p.flushEdits=()=>new Promise(resolve=>{release=resolve;});
+  p.$('library').click();assert.equal(opened,0);release();await new Promise(resolve=>setTimeout(resolve,0));
+  assert.equal(opened,1);
+  p.h.canOpenLibrary=()=>false;p.renderStatus();assert.equal(p.$('library').hidden,true);
 });
 
 console.log(`\n${pass} 项通过`);
