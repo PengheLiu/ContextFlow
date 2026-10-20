@@ -52,7 +52,7 @@ try {
       assert.match(document.body.textContent, /模型费用另计/);
       assert.match(document.body.textContent, /卸载扩展会清除/);
       assert.match(document.body.textContent, /Node.js 22.13\+/);
-      assert.match(document.body.textContent, /商店 1.0 更新尚未提交/);
+      assert.match(document.body.textContent, /1.0 已提交 Chrome 商店审核/);
       assert.match(document.querySelector('.hero-copy .release-notice').textContent,/商店当前 v0.3.2/,'版本差异应在安装入口附近告知，不能只藏在 FAQ');
     }
     dom.window.close();

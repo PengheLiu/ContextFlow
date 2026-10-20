@@ -19,7 +19,7 @@
 
 </div>
 
-> **1.0：从阅读现场，到可找回、可带走的理解。** [查看 1.0 发行包与更新说明](https://github.com/PengheLiu/ContextFlow/releases/tag/v1.0.0)。Chrome 商店现有版本仍可安装；1.0 商店更新尚未提交，不代表已审核上线。请按扩展详情中的实际版本下载匹配的配套服务（[v0.3.2](https://github.com/PengheLiu/ContextFlow/releases/tag/v0.3.2) / [v1.0.0](https://github.com/PengheLiu/ContextFlow/releases/tag/v1.0.0)）。基础批注和导出无需本地服务。[安装指南 →](./docs/GETTING_STARTED.md)
+> **1.0：从阅读现场，到可找回、可带走的理解。** [查看 1.0 发行包与更新说明](https://github.com/PengheLiu/ContextFlow/releases/tag/v1.0.0)。1.0 已提交 Chrome 商店审核，审核通过后自动发布，目前尚未上线；商店现有版本仍可安装。请按扩展详情中的实际版本下载匹配的配套服务（[v0.3.2](https://github.com/PengheLiu/ContextFlow/releases/tag/v0.3.2) / [v1.0.0](https://github.com/PengheLiu/ContextFlow/releases/tag/v1.0.0)）。基础批注和导出无需本地服务。[安装指南 →](./docs/GETTING_STARTED.md)
 
 ContextFlow 是为深度阅读打造的浏览器阅读工作台。读论文、技术文章或研究报告时，把**原文、疑问和自己的判断**留在一起，再将它们整理进自己的笔记，而不是散落在收藏夹、聊天窗口和临时文档里。
 

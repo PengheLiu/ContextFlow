@@ -19,7 +19,7 @@
 
 </div>
 
-> **1.0: capture, find, and keep your understanding.** [Release packages and notes](https://github.com/PengheLiu/ContextFlow/releases/tag/v1.0.0). The existing Chrome Store version remains available; the 1.0 store update has not been submitted yet. Match your companion to the extension's installed version ([v0.3.2](https://github.com/PengheLiu/ContextFlow/releases/tag/v0.3.2) / [v1.0.0](https://github.com/PengheLiu/ContextFlow/releases/tag/v1.0.0)). Annotations and Markdown export need no companion. [Setup guide →](./docs/GETTING_STARTED.md). The UI is primarily in Chinese.
+> **1.0: capture, find, and keep your understanding.** [Release packages and notes](https://github.com/PengheLiu/ContextFlow/releases/tag/v1.0.0). The 1.0 update has been submitted for Chrome Web Store review and will publish automatically after approval; it is not live yet. The existing store version remains available. Match your companion to the extension's installed version ([v0.3.2](https://github.com/PengheLiu/ContextFlow/releases/tag/v0.3.2) / [v1.0.0](https://github.com/PengheLiu/ContextFlow/releases/tag/v1.0.0)). Annotations and Markdown export need no companion. [Setup guide →](./docs/GETTING_STARTED.md). The UI is primarily in Chinese.
 
 ContextFlow is a browser reading workspace for people who read to understand. Keep **passages, questions, and your own judgments** together as you work through papers, technical articles, and research reports—then bring them back to your notes.
 
