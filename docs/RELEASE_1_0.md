@@ -4,7 +4,7 @@
 
 ## 发行状态
 
-代码与配套包按 1.0.0 冻结；Chrome 商店尚未提交，等待维护者完成 Google 身份验证。GitHub 发行包不代表商店已经审核或自动更新。
+代码与配套包按 1.0.0 冻结并已在 [GitHub Release](https://github.com/PengheLiu/ContextFlow/releases/tag/v1.0.0)公开，代码 tag 对应 `a1d9393`；官网已同步并验明公开内容。Chrome 商店尚未提交，等待维护者完成 Google 身份验证及后台资料终检。GitHub 发行包不代表商店已经审核或自动更新。
 
 ## 1.0 的完整阅读路径
 
