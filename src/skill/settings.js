@@ -197,8 +197,10 @@ const FORM = `
               <div class="agent-version" id="s-agentVersion"></div>
               <div class="agent-actions"><button class="quiet-action" id="s-testAgent" type="button" disabled>测试 Agent 连接</button><button class="quiet-action" id="s-cancelAgentTest" type="button" hidden>取消测试</button></div>
               <p id="s-agentTestStatus" class="hint model-feedback" role="status" aria-live="polite" aria-atomic="true"></p>
+              <p id="s-agentSaveHint" class="hint model-feedback" role="status" aria-live="polite"></p>
               <span class="hint">仅向所选 Agent 发送固定短消息，验证登录与模型回答；不发送文章或笔记、不保存配置，可能产生少量费用。测试不验证笔记读取或完整权限。</span>
             </div>
+            <label class="field"><span class="field-label">Agent 程序路径（可选）</span><input id="s-agentExecutable" spellcheck="false" placeholder="留空自动检测；也可填写程序的完整路径"><span class="hint">仅用于所选 Agent。可直接测试当前路径，测试通过后再保存；不支持终端别名或自定义批处理。</span></label>
             <label class="field"><span class="field-label">允许读取的笔记库</span><input id="s-notesDir" placeholder="/path/to/notes（留空则不授权目录）"><span class="hint">Safe 档只授予指定目录的只读访问。</span></label>
             <fieldset class="permission-set field"><legend>Agent 权限</legend>
               <div class="profile"><label><input type="radio" name="agent-profile" id="s-profileSafe" value="safe"><span class="profile-copy">安全<span class="hint">只读文件与检索；隔离写入、命令、MCP 和持久会话。</span></span><span class="tag">SAFE</span></label></div>
@@ -266,6 +268,9 @@ export class Settings {
   constructor(sh, mount, api, onBlock = null, options = {}) {
     this.sh = sh; this.api = api; this.onBlock = onBlock;
     this.onSaved = options.onSaved;
+    this.onStateChange = options.onStateChange;
+    this.standalone = !!options.standalone;
+    this.persistentFeedback = !!options.desktop;
     mount.innerHTML = FORM;
     this.form = mount.querySelector('.folio');
     this.loadingNotice = document.createElement('p');
@@ -285,6 +290,31 @@ export class Settings {
     }
     for(const disclosure of mount.querySelectorAll('.disclosure')) wireDisclosure(disclosure);
     if (options.standalone) this.$('s-chapter-scope').hidden = true;
+    // Desktop owns the same form and data, but presents AI and note tasks in
+    // separate destinations. Native pickers live next to the field they fill.
+    if (options.desktop) {
+      this.form.classList.add('desktop-form');
+      const picker = (fieldId, label, choose) => {
+        const field = this.$(fieldId), button = document.createElement('button');
+        button.type = 'button'; button.className = 'desktop-field-picker'; button.textContent = label;
+        button.onclick = this.guard(async () => {
+          if (this.saving || button.disabled) return;
+          button.disabled = true; button.setAttribute('aria-busy', 'true');
+          try {
+            const value = await choose(); if (!value) return;
+            field.value = value; field.dispatchEvent(new Event('input', { bubbles: true }));
+            field.focus(); this.msg('已填入，请确认后保存更改。', false, { footer: false });
+          } finally { button.disabled = false; button.removeAttribute('aria-busy'); }
+        });
+        field.insertAdjacentElement('afterend', button);
+      };
+      if (options.chooseFolder) {
+        picker('s-mdDir', '选择文件夹', () => options.chooseFolder('markdown'));
+        picker('s-vaultPath', '选择 Obsidian 库', () => options.chooseFolder('obsidian'));
+        picker('s-notesDir', '选择只读笔记目录', () => options.chooseFolder('agent'));
+      }
+      if (options.chooseAgent) picker('s-agentExecutable', '选择 Agent 程序', options.chooseAgent);
+    }
 
     // 所有交互都过 guard：handler 里抛异常时，界面上必须看得见。
     // 起因是「点检测没反应」——我把 this.api 写成了 this.h.api，onclick 抛
@@ -314,7 +344,9 @@ export class Settings {
     on('s-profileSafe', 'onchange', () => { this.syncProfileUi(); this.refreshSummaries(); });
     on('s-profileFull', 'onchange', () => { this.syncProfileUi(); this.refreshSummaries(); });
     on('s-agent', 'onchange', () => {
+      const previousId=this.wantAgent || this.cfg?.agent?.id || '';
       this.wantAgent = this.$('s-agent').value;
+      if (this.wantAgent!==previousId || this.wantAgent !== this.cfg?.agent?.id && this.$('s-agentExecutable').value === (this.cfg?.agent?.executable || '')) this.$('s-agentExecutable').value = '';
       this.syncProfileUi();
       this.renderAgentState();
       this.refreshSummaries();
@@ -344,7 +376,62 @@ export class Settings {
         this.$('s-modelPickWrap').hidden = true;
         this.refreshSummaries();
       }
+      if (['s-agent', 's-agentExecutable', 's-profileSafe', 's-profileFull', 's-exBackend'].includes(e.target.id)) {
+        this.modelFeedback('s-agentTestStatus', 'Agent 选择已修改，请测试当前草稿；测试不会保存或授予工具权限。', null);
+        this.refreshSummaries();
+        this.renderAgentState();
+      }
     });
+  }
+
+  notifyState() {
+    this.onStateChange?.({ dirty: !!this.dirty, saving: !!this.saving, agentWorking: !!this.agentWorking, modelWorking: !!this.modelWorking });
+  }
+
+  agentDraft() {
+    return { executable: this.$('s-agentExecutable').value.trim(), profile: this.$('s-profileFull').checked ? 'full' : 'safe' };
+  }
+
+  agentChoiceChanged() {
+    const id = this.$('s-agent').value, previous = this.cfg?.agent || {}, draft = this.agentDraft();
+    return id !== (previous.id || '') || draft.executable !== (previous.executable || '') || draft.profile !== (previous.profile || 'safe');
+  }
+
+  agentFingerprint(value = {}) {
+    const id = value.id ?? this.$('s-agent').value, draft = this.agentDraft();
+    const installed = this.agents?.find(row => row.id === id), saved = this.cfg?.connectionChecks?.agents?.[id];
+    return JSON.stringify([id, value.executable ?? draft.executable, value.profile ?? draft.profile,
+      value.path ?? installed?.path ?? saved?.path ?? '', value.version ?? installed?.version ?? saved?.version ?? '']);
+  }
+
+  agentResult() {
+    const result = this.agentTests?.get(this.$('s-agent').value);
+    return result?.fingerprint === this.agentFingerprint() ? result : null;
+  }
+
+  needsAgentTest() {
+    return this.$('s-exBackend').value === 'agent' && (!this.$('s-agent').value || this.cfg?.explain?.backend !== 'agent' || this.agentChoiceChanged());
+  }
+
+  refreshSaveState() {
+    const blocked = this.needsAgentTest() && this.agentResult()?.ok !== true;
+    const text = blocked ? '请先测试当前 Agent 选择，测试通过后再保存；也可还原 Agent 选择后保存其他设置。' : '';
+    this.$('s-save').disabled = !!(this.saving || this.agentWorking || this.modelWorking || blocked);
+    this.$('s-save').title = text; this.$('s-save').setAttribute('aria-describedby', 's-agentSaveHint');
+    this.$('s-agentSaveHint').textContent = text;
+  }
+
+  setPresentation(mode = 'all') {
+    if (!['all', 'ai', 'notes'].includes(mode)) throw new Error('无效的设置展示方式');
+    this.presentation = mode;
+    const allowed = mode === 'ai' ? ['translate', 'explain'] : mode === 'notes' ? ['archive'] : ['translate', 'explain', 'archive', ...(this.standalone ? [] : ['scope'])];
+    for (const name of ['translate', 'explain', 'archive', 'scope']) {
+      const chapter = this.$(`s-chapter-${name}`);
+      chapter.hidden = !allowed.includes(name);
+      if (!chapter.hidden && mode !== 'all' && !chapter.dataset.desktopOpened) {
+        chapter.open = true; chapter.dataset.desktopOpened = 'true'; chapter.disclosure?.sync();
+      }
+    }
   }
 
 
@@ -366,7 +453,8 @@ export class Settings {
     this.agentTests=new Map();
     for(const [id,result] of Object.entries(checks.agents || {})) {
       if(typeof result?.ok!=='boolean' || !Number.isFinite(result.checkedAt)) continue;
-      this.agentTests.set(id,{...result,message:`${this.agents?.find(a=>a.id===id)?.label || id} 上次连接测试${result.ok ? '通过' : '未通过'} · ${checkTime(result.checkedAt)}。${result.ok ? '仅验证当时的登录与模型回应，不代表工具或笔记权限。' : '请确认 CLI 登录与默认模型可用后重新测试。'}`});
+      const same = this.cfg?.agent?.id === id;
+      this.agentTests.set(id,{...result,fingerprint:this.agentFingerprint({id, executable:same ? this.cfg.agent.executable || '' : '', profile:result.profile || (same ? this.cfg.agent.profile || 'safe' : 'safe'), path:result.path, version:result.version}),message:`${this.agents?.find(a=>a.id===id)?.label || id} 上次连接测试${result.ok ? '通过' : '未通过'} · ${checkTime(result.checkedAt)}。${result.ok ? '仅验证当时的登录与模型回应，不代表工具或笔记权限。' : '请确认 CLI 登录与默认模型可用后重新测试。'}`});
     }
     this.renderAgentState();this.refreshSummaries();
   }
@@ -405,7 +493,7 @@ export class Settings {
       && (this.$('s-provider').value === 'anthropic' || this.$('s-baseUrl').value.trim()));
     const tested = this.modelTest?.fingerprint === JSON.stringify(this.modelDraft());
     this.chapterState('translate', tested ? this.modelTest.ok ? '连接已通过' : '连接失败' : modelReady ? '已填写 · 待测试' : '待配置', tested ? this.modelTest.ok ? 'ok':'bad' : '');
-    const result = this.agentTests?.get(this.$('s-agent').value);
+    const result = this.agentResult();
     this.chapterState('explain', !isAgent ? '使用模型连接' : this.agentWorking ? '测试中' : result?.ok ? '连接已通过' : result ? '测试未通过' : selected?.available ? '已安装 · 待测试' : '待检测',
       isAgent && result ? result.ok ? 'ok' : 'bad' : '');
     this.chapterState('archive', destination ? '已选择位置' : '待配置');
@@ -437,12 +525,13 @@ export class Settings {
     if (this.modelWorking || this.saving || this.agentWorking) return;
     this.modelWorking = true;
     this.renderAgentState();
+    this.notifyState();
     const other = this.$(id === 's-fetchModels' ? 's-testModel' : 's-fetchModels');
     const save = this.$('s-save'), saveDisabled = save.disabled;
     other.disabled = true;
     save.disabled = true;
     try { return await this.busy(id, label, fn); }
-    finally { other.disabled = false; save.disabled = saveDisabled; this.modelWorking = false; this.renderAgentState(); }
+    finally { other.disabled = false; save.disabled = saveDisabled; this.modelWorking = false; this.renderAgentState(); this.notifyState(); }
   }
 
   modelFeedback(id, text, bad = false) {
@@ -497,6 +586,7 @@ export class Settings {
     el.textContent = '有未保存的更改';
     el.className = 'msg';
     el.setAttribute('role', 'status');
+    this.refreshSaveState(); this.notifyState();
   }
 
   /**
@@ -545,11 +635,13 @@ export class Settings {
       this.$('s-toastText').textContent = text;
       toast.className = `settings-toast${bad ? ' bad' : ''}`;
       toast.hidden = false;
-      this.toastTimer = setTimeout(() => this.dismissToast(), bad ? 10000 : 6000);
-      this.toastTimer.unref?.();
+      if (!this.persistentFeedback) {
+        this.toastTimer = setTimeout(() => this.dismissToast(), bad ? 10000 : 6000);
+        this.toastTimer.unref?.();
+      }
     }
     // Setup failures must remain visible while the user fixes the input.
-    if (footer && text && !bad) {
+    if (footer && text && !bad && !this.persistentFeedback) {
       this.messageTimer = setTimeout(() => { el.textContent = ''; }, 12000);
       this.messageTimer.unref?.();
     }
@@ -659,6 +751,7 @@ export class Settings {
       this.$('s-chunkChars').value = c.translate.chunkChars ?? 5000;
       this.$('s-exBackend').value = c.explain?.backend || 'llm';
       this.$('s-notesDir').value = c.agent?.notesDir || '';
+      this.$('s-agentExecutable').value = c.agent?.executable || '';
       this.wantAgent = c.agent?.id || '';
       this.$('s-profileSafe').checked = (c.agent?.profile || 'safe') === 'safe';
       this.$('s-profileFull').checked = c.agent?.profile === 'full';
@@ -776,13 +869,14 @@ export class Settings {
     if (this.detecting || this.agentWorking || this.saving) return;
     this.detecting = true;
     this.renderAgentState();
+    this.notifyState();
     this.modelFeedback('s-agentDiscoveryStatus','正在检测本机安装，不会调用模型…',null);
     try {
       const { agents, connectionChecks } = await this.api.detectAgents(verbose);
       if (!Array.isArray(agents)) throw new Error('服务未返回有效的安装列表，请更新配套服务');
       for(const id of this.agentTests?.keys() || []) {
         const before=this.agents?.find(a=>a.id===id) || this.agentTests.get(id),after=agents.find(a=>a.id===id);
-        if(!after?.available || ['version','path'].some(key=>before[key]!==after[key]) || after.safeSupport==='unsupported') this.agentTests.delete(id);
+        if(!after?.available || ['version','path'].some(key=>before[key]!==after[key]) || !(after.connectionTestSupported ?? after.safeSupport!=='unsupported')) this.agentTests.delete(id);
       }
       this.agents = agents;
       this.syncAgentSel();
@@ -799,7 +893,7 @@ export class Settings {
       const text=`检测安装失败：${e.message}`;
       this.modelFeedback('s-agentDiscoveryStatus',text,true);
       if (verbose) this.msg(text, true,{footer:false});
-    } finally { this.detecting=false;this.renderAgentState();this.refreshSummaries(); }
+    } finally { this.detecting=false;this.renderAgentState();this.refreshSummaries();this.notifyState(); }
   }
 
   /** 把探测结果填进下拉，并保住配置里已选的那个 */
@@ -817,8 +911,8 @@ export class Settings {
       this.renderAgentState();
       return;
     }
-    sel.innerHTML = '<option value="">选择要使用的 Agent</option>' + list.map((a) => `<option value="${esc(a.id)}"${a.available || a.id === this.wantAgent ? '' : ' disabled'}>`
-      + `${esc(a.label)}${a.available ? ' · 已安装' : ' · 未安装'}</option>`).join('');
+    sel.innerHTML = '<option value="">选择要使用的 Agent</option>' + list.map((a) => `<option value="${esc(a.id)}">`
+      + `${esc(a.label)}${a.id==='dsh' && a.source ? ` · ${esc(a.source==='desktop' ? '桌面版' : a.source==='cli' ? '命令行兼容版' : '自定义入口')}` : ''}${a.available ? ' · 已安装' : ' · 未安装'}</option>`).join('');
     if(this.wantAgent && !list.some(a=>a.id===this.wantAgent)) sel.insertAdjacentHTML('beforeend',`<option value="${esc(this.wantAgent)}">${esc(this.wantAgent)} · 未检测到</option>`);
     sel.value=this.wantAgent || '';
     this.renderAgentState();
@@ -827,17 +921,22 @@ export class Settings {
   }
 
   renderAgentState() {
-    const id=this.$('s-agent').value, selected=this.agents?.find(a=>a.id===id), result=this.agentTests?.get(id);
+    const id=this.$('s-agent').value, selected=this.agents?.find(a=>a.id===id), result=this.agentResult();
     this.$('s-agentName').textContent=selected?.label || id || '选择要使用的 Agent';
-    this.$('s-agentInstalled').textContent=this.detecting ? '正在检测…' : selected ? selected.available ? '已找到可执行程序' : '未找到可执行程序' : '尚未检测';
+    const source=selected?.id==='dsh' ? ({desktop:'桌面版',cli:'命令行兼容版',explicit:'自定义入口'})[selected.source] : '';
+    this.$('s-agentInstalled').textContent=this.detecting ? '正在检测…' : selected ? selected.available ? source ? `已找到${source}` : '已找到可执行程序' : '未找到可执行程序' : '尚未检测';
     this.$('s-agentConnection').textContent=this.agentWorking ? '正在验证实际回答…' : result?.ok ? `已通过${result.checkedAt ? ` · ${checkTime(result.checkedAt)}` : ' · 登录与模型回应正常'}` : result ? result.canceled ? '已取消，可重新测试' : '未通过，请按下方提示处理' : '尚未测试 · 安装不等于可用';
     this.$('s-agentVersion').textContent=selected?.version ? `版本：${selected.version}` : '';
     const badge=this.$('s-agentReady');
     badge.textContent=this.agentWorking ? '测试中' : result?.ok ? '可用' : result ? result.canceled ? '已取消' : '需处理' : selected?.available ? '待测试' : '待检测';
     badge.dataset.state=result && !this.agentWorking ? result.ok ? 'ok' : result.canceled ? '' : 'bad' : '';
     const button=this.$('s-testAgent');
-    const outdated=this.service?.agentTestSupported===false;
-    button.disabled=this.saving || this.detecting || this.agentWorking || this.modelWorking || outdated || !selected?.available || selected?.safeSupport==='unsupported';
+    const outdated=this.service?.agentTestSupported===false || this.service?.agentDraftTestSupported===false && this.agentChoiceChanged();
+    const explicit=!!this.$('s-agentExecutable').value.trim();
+    // A new DSH executable may be a supported desktop build even when the old
+    // discovered entry is not. The server freshly validates its test isolation.
+    const testUnsupported=id==='gemini' || selected && !(selected.connectionTestSupported ?? selected.safeSupport!=='unsupported') && !(id==='dsh' && explicit);
+    button.disabled=this.saving || this.detecting || this.agentWorking || this.modelWorking || outdated || !id || (!selected?.available && !explicit) || !!testUnsupported;
     button.setAttribute('aria-busy',String(!!this.agentWorking));
     button.textContent=this.agentWorking ? '测试中…' : '测试 Agent 连接';
     this.$('s-cancelAgentTest').hidden=!this.agentWorking;
@@ -846,37 +945,52 @@ export class Settings {
     this.$('s-detectAgent').setAttribute('aria-busy',String(!!this.detecting));
     this.$('s-agent').disabled=!!this.agentWorking;
     if(!this.modelWorking) for(const id of ['s-fetchModels','s-testModel']) this.$(id).disabled=!!(this.agentWorking || this.saving);
-    if(!this.agentWorking) this.modelFeedback('s-agentTestStatus',outdated ? '当前本地服务暂不支持 Agent 连接测试，请更新并重启配套服务。无需重新配对，已有配置保留。' : result?.message || (selected?.safeSupport==='unsupported'
-      ? '此 Agent 暂不支持受限连接测试，不能安全验证。不会为测试自动开启完整权限，请改选支持安全档的 Agent。' : ''),result && !result.ok && !result.canceled ? true : result?.ok ? false : null);
+    if(!this.agentWorking) this.modelFeedback('s-agentTestStatus',outdated ? '当前本地服务暂不支持 Agent 草稿连接测试，请更新并重启配套服务。无需重新配对，已有配置保留。' : result?.message || (testUnsupported
+      ? selected?.id==='dsh' ? '此 Agent 的当前版本暂不支持受限连接测试，请重新检测安装或更新桌面版。' : '此 Agent 暂不支持受限连接测试，请改选支持受限测试的 Agent。'
+      : selected?.id==='dsh' ? '连接测试使用独立会话并禁用全部工具，仅验证登录和模型回答。' : this.agentChoiceChanged() ? '测试当前 Agent 草稿，成功后再保存；不会保存配置或授权笔记。' : ''),result && !result.ok && !result.canceled ? true : result?.ok ? false : null);
+    this.refreshSaveState();
   }
 
   async testAgent() {
     if(this.agentWorking || this.saving || this.detecting || this.modelWorking) return;
     const id=this.$('s-agent').value, selected=this.agents?.find(a=>a.id===id);
-    if(!selected?.available) { this.modelFeedback('s-agentTestStatus','请先检测安装，并选择已安装的 Agent。',true);return; }
+    const draft=this.agentDraft(), choice=JSON.stringify([id,draft]), fingerprint=this.agentFingerprint();
+    if(!id || !selected?.available && !draft.executable) { this.modelFeedback('s-agentTestStatus','请先选择 Agent 并检测安装，或填写所选 Agent 的完整程序路径。',true);return; }
     this.agentWorking=true;
     const controller=this.agentController=new AbortController();
     this.$('s-save').disabled=true;
     this.renderAgentState();this.refreshSummaries();
+    this.notifyState();
     this.modelFeedback('s-agentTestStatus','正在提交固定短消息测试…',null);
     this.agentTests ??= new Map();
     try {
-      const result=await this.api.testAgent(id,{signal:controller.signal,onProgress:job=>{
+      const result=await this.api.testAgent(id,{...(this.service?.agentDraftTestSupported===false && !this.agentChoiceChanged() ? {} : {draft}),signal:controller.signal,onProgress:job=>{
         if(!controller.signal.aborted) this.modelFeedback('s-agentTestStatus',job.queuedAhead ? `测试排队中，前面 ${job.queuedAhead} 个任务。可取消，不会重复提交。`
           : job.progress ? `${job.progress}${job.progress.includes('实际回答') ? '最多 45 秒，可随时取消。' : '可随时取消。'}` : '正在准备连接测试，可随时取消。',null);
       }});
       if(controller.signal.aborted) return;
       if(result?.ok!==true || result.agent!==id || result.scope!=='connection-only') throw new Error('测试结果无效，请更新并重启本地服务');
-      const message=`${selected.label} 连接测试通过 · ${new Date(result.checkedAt || Date.now()).toLocaleTimeString('zh-CN',{hour12:false})}。认证与模型回应正常。`;
-      this.agentTests.set(id,{ok:true,checkedAt:result.checkedAt || Date.now(),path:selected.path,version:selected.version,message}); this.msg(message,false,{footer:false});
+      if(result.configuredProfile && result.configuredProfile!==draft.profile) throw new Error('Agent 测试结果与所选权限档不一致，请重新测试');
+      const changed=choice!==JSON.stringify([this.$('s-agent').value,this.agentDraft()]);
+      const path=result.path ?? selected?.path ?? '',version=result.version ?? selected?.version ?? '';
+      if(!changed) {
+        const support=result.safeSupport ?? selected?.safeSupport ?? ({claude:'best-effort',codex:'verified',dsh:'unsupported',gemini:'unsupported'})[id] ?? 'unsupported';
+        if(!this.agents?.some(row=>row.id===id)) this.agents=[...(this.agents || []),{id,label:result.label || id,available:true,path,version,safeSupport:support,connectionTestSupported:result.connectionTestSupported ?? true}];
+        else this.agents=this.agents.map(row=>row.id===id ? {...row,path,version,available:true,safeSupport:support,connectionTestSupported:result.connectionTestSupported ?? row.connectionTestSupported} : row);
+        if(typeof result.executable==='string') this.$('s-agentExecutable').value=result.executable;
+        this.syncProfileUi();
+      }
+      const message=changed ? '刚才的 Agent 草稿测试通过，但当前选择已变化，请重新测试后保存。'
+        : `${selected?.label || result.label || id} 连接测试通过 · ${new Date(result.checkedAt || Date.now()).toLocaleTimeString('zh-CN',{hour12:false})}。认证与模型回应正常，可以保存更改；不代表笔记或工具权限已授权。`;
+      this.agentTests.set(id,{ok:true,checkedAt:result.checkedAt || Date.now(),path,version,fingerprint:changed ? this.agentFingerprint({id,...draft,path,version}) : this.agentFingerprint(),message}); this.msg(message,false,{footer:false});
     } catch(error) {
       if(controller.signal.aborted || error.code==='ABORTED') return;
       const message=`Agent 测试失败：${describeError(error)}`;
-      this.agentTests.set(id,{ok:false,message}); this.msg(message,true,{footer:false});
+      this.agentTests.set(id,{ok:false,fingerprint,message}); this.msg(message,true,{footer:false});
     } finally {
       if(this.agentController===controller) {
         this.agentController=null;this.agentWorking=false;this.$('s-save').disabled=!!this.modelWorking;
-        this.renderAgentState();this.refreshSummaries();
+        this.renderAgentState();this.refreshSummaries();this.notifyState();
       }
     }
   }
@@ -885,9 +999,9 @@ export class Settings {
     if(!this.agentWorking)return;
     const id=this.$('s-agent').value;
     this.agentController?.abort();this.agentController=null;this.agentWorking=false;
-    this.agentTests ??= new Map();this.agentTests.set(id,{ok:false,canceled:true,message:'测试已取消，原配置与已有阅读记录保持不变。需要时可重新测试。'});
+    this.agentTests ??= new Map();this.agentTests.set(id,{ok:false,canceled:true,fingerprint:this.agentFingerprint(),message:'测试已取消，原配置与已有阅读记录保持不变。需要时可重新测试。'});
     this.$('s-save').disabled=!!this.modelWorking;
-    this.renderAgentState();this.refreshSummaries();
+    this.renderAgentState();this.refreshSummaries();this.notifyState();
   }
 
   async fetchModels() {
@@ -940,6 +1054,9 @@ export class Settings {
 
   /** 收集表单 → PATCH。密钥留空即不提交该字段。 */
   patch() {
+    if (this.needsAgentTest() && this.agentResult()?.ok !== true) {
+      throw Object.assign(new Error('请先测试当前 Agent 选择，测试通过后再保存；测试不会授权笔记或工具。'), { code: 'AGENT_TEST_REQUIRED' });
+    }
     const profile = this.$('s-profileFull').checked ? 'full' : 'safe';
     const agentId = this.$('s-agent').value.trim();
     const previous = this.cfg?.agent || {};
@@ -975,6 +1092,7 @@ export class Settings {
       explain: { backend: this.$('s-exBackend').value },
       agent: {
         id: agentId,
+        executable: this.$('s-agentExecutable').value.trim(),
         notesDir: this.$('s-notesDir').value.trim(),
         profile,
         profileSource: profile === 'full' && this.preservesLegacyFull() ? 'legacy-migrated' : 'user',
@@ -1007,6 +1125,8 @@ export class Settings {
   async persist({ silent = false } = {}) {
     const testedModel=this.modelTest?.fingerprint === JSON.stringify(this.modelDraft());
     this.cfg = await this.api.putConfig(this.patch());
+    // Native paths may be canonicalized (for example ~/ or quoted paths).
+    if(this.cfg.agent?.executable!==undefined) this.$('s-agentExecutable').value=this.cfg.agent.executable;
     // 提交后清空密钥输入框，占位符改为「已配置」
     for (const [id, set] of [['s-apiKey', this.cfg.translate.apiKeySet], ['s-syToken', this.cfg.siyuan.tokenSet]]) {
       this.$(id).value = '';
@@ -1015,8 +1135,9 @@ export class Settings {
     if(this.cfg.connectionChecks) this.applyConnectionChecks(this.cfg.connectionChecks);
     else if(testedModel) this.modelTest.fingerprint=JSON.stringify(this.modelDraft());
     this.refreshSummaries();
-    this.onSaved?.(this.cfg);
     this.dirty = false;
+    this.onSaved?.(this.cfg);
+    this.notifyState();
     this.checkService();
     if (!silent) this.msg('已保存');
     return this.cfg;
@@ -1027,9 +1148,10 @@ export class Settings {
     this.saving = true;
     const controls = [...this.sh.querySelectorAll('.folio input,.folio select,.folio button')].map(el => [el, el.disabled]);
     for (const [el] of controls) el.disabled = true;
+    this.notifyState();
     try { await this.persist(); if (this.$('s-backend').value === 'siyuan') await this.loadSiyuan(); }
     catch (e) { this.msg(`保存失败：${e.message}`, true); }
-    finally { for (const [el, disabled] of controls) el.disabled = disabled; this.saving = false;this.renderAgentState(); }
+    finally { for (const [el, disabled] of controls) el.disabled = disabled; this.saving = false;this.renderAgentState();this.notifyState(); }
   }
 
   async checkService() {

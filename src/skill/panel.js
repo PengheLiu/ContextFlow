@@ -178,6 +178,7 @@ ${Object.entries(MARKS).map(([k, m]) => `  .item.k-${k} .src.lk{text-decoration-
   .brief.run .txt{color:${T.quote};display:flex;align-items:baseline;gap:7px}
   .brief.run .dot2{width:6px;height:6px;border-radius:50%;background:${T.accent};flex:0 0 auto;position:relative;top:-1px;animation:cfpulse 1.1s ease-in-out infinite}
   .brief.err::before{background:${T.bad}}.brief.err .txt{color:${T.bad}}
+  .stream-preview{margin-top:12px;white-space:pre-wrap;overflow-wrap:anywhere;color:${T.inkSoft};font:13.5px/1.72 ${T.sans}}
 
   .note-head{display:flex;align-items:center;justify-content:space-between;margin:20px 0 10px;
         color:${T.quote};font-size:12px;font-weight:680;letter-spacing:.065em}
@@ -272,6 +273,7 @@ export class Panel {
   /** @param {object} h 回调集合，见 main.js handlers() */
   constructor(h) {
     this.h = h;
+    this.lookupPreviews = new Map();
     this.ui = loadUI();
     // 打开工作台只回看，不自动调用 AI。
     this.tab = 'records';
@@ -712,6 +714,8 @@ export class Panel {
     // Polling only updates text, never replaces the cancel button mid-click.
     if (o.state === 'run' && this.briefState === 'run') {
       el.querySelector('.brief-progress').textContent = o.text || '';
+      const preview = el.querySelector('.stream-preview');
+      if (preview) { preview.textContent = o.partialAnswer || ''; preview.hidden = !o.partialAnswer; }
       return;
     }
     this.briefState = o.state;
@@ -719,10 +723,13 @@ export class Panel {
     const dot = o.state === 'run' ? '<span class="dot2"></span>' : '';
     el.innerHTML = `<div class="hd2"><span class="brief-label">${icon('sparkle')}<span>AI 速览</span></span>`
       + `${o.state === 'run' ? '<button data-act="cancel-brief">取消生成</button>' : o.configure ? '<button data-act="configure-ai">配置 AI</button>' : o.retry ? `<button class="with-icon" data-act="rebrief">${icon('retry')}<span>${o.initial ? '生成速览' : '重新生成'}</span></button>` : ''}</div>`
-      + `<div class="txt">${dot}</div>${o.previous ? '<div class="previous-brief" style="margin-top:14px"></div>' : ''}`
+      + `<div class="txt">${dot}</div>${o.state === 'run' ? '<div class="stream-preview" hidden></div>' : ''}${o.previous ? '<div class="previous-brief" style="margin-top:14px"></div>' : ''}`
       + `${o.meta ? `<div class="ft">${esc(o.meta)}</div>` : ''}`;
     const body = el.querySelector('.txt');
     if (o.previous) renderMarkdownInto(el.querySelector('.previous-brief'), o.previous);
+    if (o.state === 'run' && o.partialAnswer) {
+      const preview = el.querySelector('.stream-preview'); preview.textContent = o.partialAnswer; preview.hidden = false;
+    }
     if (o.state === 'ok') renderMarkdownInto(body, o.text || '');
     else { const text = document.createElement('span'); text.className = 'brief-progress'; text.textContent = o.text || ''; body.append(text); }
     const cancel = el.querySelector('[data-act=cancel-brief]');
@@ -780,9 +787,26 @@ export class Panel {
 
   renderLookups(kind) { this.records.select(kind); }
 
+  /** Keep streamed text outside the event model, exports, and offline storage. */
+  renderLookupPreview(id, text = '') {
+    if (text) this.lookupPreviews.set(id, text); else this.lookupPreviews.delete(id);
+    const record = this.records.views.get(id)?.el;
+    if (!record) return;
+    let preview = record.querySelector('.stream-preview');
+    if (!text) { preview?.remove(); return; }
+    if (!preview) {
+      preview = document.createElement('div'); preview.className = 'stream-preview';
+      record.querySelector('.st').after(preview);
+    }
+    if (preview.textContent !== text) preview.textContent = text;
+  }
+
   render() {
     this.renderStatus();
-    if (this.open && this.tab === 'records') this.records.render();
+    if (this.open && this.tab === 'records') {
+      this.records.render();
+      for (const [id, text] of this.lookupPreviews) this.renderLookupPreview(id, text);
+    }
   }
 }
 

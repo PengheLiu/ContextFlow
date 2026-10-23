@@ -10,6 +10,8 @@ import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { markdownLicenseComment } from './markdown-licenses.mjs';
+import { assertExtensionText } from './extension-text.mjs';
 
 const EXT = process.argv.includes('--ext');
 const PUBLIC_SKILL = process.argv.includes('--public');
@@ -34,7 +36,10 @@ const EXT_DIR = process.env.CONTEXTFLOW_EXT_DIR || (STORE ? 'release/chrome-exte
 
 const common = {
   bundle: true,
-  charset: 'utf8',
+  // KaTeX contains U+FFFF in a regex boundary string. Raw UTF-8 passes ordinary
+  // decoders but Chromium rejects noncharacters when loading content scripts.
+  // ASCII output preserves runtime strings through JavaScript Unicode escapes.
+  charset: 'ascii',
   legalComments: 'none',
   target: 'chrome111',            // world:"MAIN" 与 MV3 的下限；ISOLATED 路径更低也行
 };
@@ -65,6 +70,7 @@ async function buildExtension() {
     format: 'iife',
     define: { __CONTEXTFLOW_TOKEN__: '""' },
     metafile: true,
+    banner: { js: markdownLicenseComment() },
   });
 
   // service worker：唯一持有 token 的地方
@@ -83,6 +89,7 @@ async function buildExtension() {
     outfile: join(EXT_DIR, 'options.js'),
     format: 'iife',
     define: { __CONTEXTFLOW_TOKEN__: '""' },
+    banner: { js: markdownLicenseComment() },
   });
 
   const storeBuild = STORE;
@@ -92,7 +99,7 @@ async function buildExtension() {
     version: JSON.parse(readFileSync('package.json', 'utf8')).version,
     description: '网页高亮批注与 Markdown 导出；连接自己的本地服务后使用 AI 解释、总结和笔记同步。',
     minimum_chrome_version: '111',
-    permissions: ['storage'],
+    permissions: ['storage', 'nativeMessaging'],
     host_permissions: ['http://127.0.0.1:7317/*'],
     background: { service_worker: 'sw.js', type: 'module' },
     options_ui: { page: 'options.html', open_in_tab: true },
@@ -135,6 +142,12 @@ async function buildExtension() {
   // The hosted policy uses assets/mark.svg; the extension ships toolbar icons.
   writeFileSync(join(EXT_DIR, 'privacy.html'), readFileSync('store/privacy.html','utf8').replace('href="assets/mark.svg"','href="toolbar-32.png"'));
 
+  // charset does not escape regex literals or banner comments, so also check
+  // actual bytes. Fail the build before handing an unloadable extension over.
+  for (const file of ['app.js','sw.js','options.js','manifest.json','options.html','options.css','privacy.html']) {
+    assertExtensionText(readFileSync(join(EXT_DIR, file)), file);
+  }
+
   const kb = (b) => `${(b / 1024).toFixed(1)} KB`;
   const outputBytes = (result) => Object.values(result.metafile.outputs)[0]?.bytes || 0;
   console.log(`${join(EXT_DIR, 'app.js')}  ${kb(outputBytes(ui))}`);
@@ -143,8 +156,8 @@ async function buildExtension() {
     console.log('Chrome Web Store 包：manifest.key 已移除；商店会分配扩展 id');
   } else {
     console.log(`扩展 id  ${id}`);
-    console.log('加载扩展后，在「扩展程序选项」按提示独立配对；无需手改 allowedOrigins 或开启 allowAnyOrigin。');
-    console.log(`已有服务可在项目目录执行 npm run pair -- ${id}，再在扩展连接页填写生成的配对码。`);
+    console.log('加载扩展后，基础批注即可用；开启 AI / 同步请在「扩展程序选项」按官网下载桌面端、打开并确认连接。');
+    console.log(`高级 CLI 兼容：已有服务可在项目目录执行 npm run pair -- ${id}，再在扩展连接页的「高级与兼容方式」填写配对码；无需改 allowedOrigins。`);
   }
 }
 
@@ -166,9 +179,9 @@ const config = {
   // 公开userscript绝不带发布者本机 token。它可以离线标注/导出；连接本地服务需后续配对。
   define: { __CONTEXTFLOW_TOKEN__: JSON.stringify(PUBLIC_SKILL ? '' : token) },
   banner: {
-    js: PUBLIC_SKILL
+    js: (PUBLIC_SKILL
       ? `// ContextFlow 浏览器 Skill v${version} — LLMBridge AI + 本地批注 + Obsidian/Markdown 同步。`
-      : `// ContextFlow v${version} — 私人本地服务版，请勿公开发布。`,
+      : `// ContextFlow v${version} — 私人本地服务版，请勿公开发布。`) + `\n${markdownLicenseComment()}`,
   },
 };
 

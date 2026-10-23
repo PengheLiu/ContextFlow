@@ -5,6 +5,7 @@ export function companionInfo(service) {
     serviceVersion: typeof service?.serviceVersion === 'string' ? service.serviceVersion : null,
     modelDraftSupported: Array.isArray(service?.capabilities) && service.capabilities.includes(MODEL_DRAFT_CAPABILITY),
     agentTestSupported: Array.isArray(service?.capabilities) && service.capabilities.includes('agent.test'),
+    agentDraftTestSupported: Array.isArray(service?.capabilities) && service.capabilities.includes('agent.test.draft'),
     connectionChecksSupported: Array.isArray(service?.capabilities) && service.capabilities.includes('connection.checks'),
     llmConfigured: service?.llmConfigured === true,
     explainConfigured: service?.explainConfigured === true,

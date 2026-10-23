@@ -8,6 +8,7 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { randomBytes, createHash } from 'node:crypto';
 import { normalizeRoot } from './paths.mjs';
+import { transformSecrets } from './secrets.mjs';
 
 // CONTEXTFLOW_DIR 供测试指向临时目录 —— 同步层的测试要真实读写库和文件，
 // 绝不能碰用户 ~/.contextflow 里的阅读记录和密钥。生产环境不设这个变量。
@@ -77,6 +78,7 @@ const DEFAULTS = {
   // 本地 agent。id 由配置界面「检测」后选择
   agent: {
     id: '',                                   // claude | codex | dsh | gemini
+    executable: '',                           // optional absolute executable path
     notesDir: '',                             // 授予**只读**访问的笔记库；空则不授权
     maxTurns: 12,
     timeoutMs: 240000,
@@ -122,13 +124,15 @@ function merge(base, patch) {
 
 function readFile() {
   if (!existsSync(FILE)) return {};
-  try { return JSON.parse(readFileSync(FILE, 'utf8')); }
-  catch (e) { console.warn(`[config] ${FILE} 解析失败，忽略：${e.message}`); return {}; }
+  try { return transformSecrets(JSON.parse(readFileSync(FILE, 'utf8')), 'decode'); }
+  catch (e) { if (e.code === 'CONFIG_SECRET_LOCKED') throw e; console.warn(`[config] ${FILE} 解析失败，忽略：${e.message}`); return {}; }
 }
 
 function write(cfg) {
   mkdirSync(DIR, { recursive: true });
-  writeFileSync(FILE, JSON.stringify(cfg, null, 2) + '\n', { mode: 0o600 });
+  const temporary = `${FILE}.${process.pid}.tmp`;
+  writeFileSync(temporary, JSON.stringify(transformSecrets(cfg, 'encode'), null, 2) + '\n', { mode: 0o600 });
+  renameSync(temporary, FILE);
 }
 
 /** 配置迁移。必须在 defaults merge **之前**看原始字段，否则无法分辨旧用户。 */
@@ -196,9 +200,16 @@ export function saveConfig(patch) {
   if (patch?.translate && patch.translate.apiKey === '') delete patch.translate.apiKey;
   if (patch?.siyuan && patch.siyuan.token === '') delete patch.siyuan.token;
   const next = merge(current, patch);
+  // Explicit credentials and binary overrides belong to one CLI, not to the
+  // dropdown as a whole. Switching Agent must not inherit another CLI's env.
+  if (patch?.agent && Object.hasOwn(patch.agent, 'id') && patch.agent.id !== current.agent.id) {
+    if (!Object.hasOwn(patch.agent, 'env')) next.agent.env = {};
+    if (!Object.hasOwn(patch.agent, 'executable')) next.agent.executable = '';
+  }
   next.markdown.dir = normalizeRoot(next.markdown.dir);
   next.obsidian.vaultPath = normalizeRoot(next.obsidian.vaultPath);
   next.agent.notesDir = normalizeRoot(next.agent.notesDir);
+  next.agent.executable = normalizeRoot(next.agent.executable || '');
   next.schemaVersion = 2;
   next.agent.profile = ['safe', 'full'].includes(next.agent.profile) ? next.agent.profile : 'safe';
   // profileSource 是服务端所有的迁移状态，不能信任页面传来的 legacy-migrated。
@@ -232,6 +243,7 @@ export function publicView(cfg) {
     explain: { backend: cfg.explain?.backend || 'llm' },
     agent: {
       id: cfg.agent?.id || '',
+      executable: cfg.agent?.executable || '',
       notesDir: cfg.agent?.notesDir || '',
       maxTurns: cfg.agent?.maxTurns ?? 12,
       timeoutMs: cfg.agent?.timeoutMs ?? 240000,

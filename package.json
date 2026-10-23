@@ -2,11 +2,18 @@
   "name": "contextflow",
   "private": true,
   "type": "module",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "浏览器阅读过程 context 采集与笔记库同步",
   "homepage": "https://pengheliu.github.io/ContextFlow/",
   "scripts": {
-    "test": "node test/hygiene.test.mjs && node test/theme.test.mjs && node test/boot.test.mjs && node test/blocklist.test.mjs && node test/anchor.test.mjs && node test/index.test.mjs && node test/highlight.test.mjs && node test/mark-delete.test.mjs && node test/mark-delete-app.test.mjs && node test/explain-restore-app.test.mjs && node test/order.test.mjs && node test/reading-workbench.test.mjs && node test/reconcile.test.mjs && node test/assets.test.mjs && node test/offline-store.test.mjs && node test/lookupkey.test.mjs && node test/layout.test.mjs && node test/markdown.test.mjs && node test/markdown-view.test.mjs && node test/convo.test.mjs && node test/summary.test.mjs && node test/config.test.mjs && node test/agent.test.mjs && node test/agent-connection.test.mjs && node test/jobs.test.mjs && node test/panel.test.mjs && node test/popover.test.mjs && node test/settings.test.mjs && node test/transport.test.mjs && node test/db.test.mjs && node test/assets-server.test.mjs && node test/mdfile.test.mjs && node test/siyuan.test.mjs && node test/origin.test.mjs && node test/public-api.test.mjs && node test/public-file-sync.test.mjs && node test/public-skill.test.mjs && node test/extbuild.test.mjs && node test/service.test.mjs",
+    "desktop:install": "npm ci --prefix desktop",
+    "desktop:prepare": "node tools/prepare-desktop.mjs",
+    "desktop:dev": "npm run desktop:prepare && npm --prefix desktop run dev",
+    "desktop:pack": "npm run desktop:prepare && npm --prefix desktop run pack",
+    "desktop:dist": "npm run desktop:prepare && npm --prefix desktop run dist",
+    "test:desktop": "node --test test/desktop.test.mjs test/desktop-service.test.mjs test/desktop-recovery.test.mjs test/desktop-journey.test.mjs test/desktop-product-ui.test.mjs test/desktop-live-state.test.mjs test/desktop-reading-progress.test.mjs test/desktop-layout.test.mjs test/reading-status.test.mjs test/desktop-visibility.test.mjs test/desktop-tray.test.mjs test/desktop-menu-bar.test.mjs test/desktop-tray-menu.test.mjs test/desktop-packaging.test.mjs test/desktop-os-lifecycle.test.mjs test/platform.test.mjs test/secrets.test.mjs test/native-connection.test.mjs test/native-extension.test.mjs test/native-host.test.mjs test/legacy-revocation.test.mjs test/desktop-pairing-approval.test.mjs",
+    "test:desktop:smoke": "node tools/smoke-desktop.mjs",
+    "test": "node test/hygiene.test.mjs && node test/theme.test.mjs && node test/boot.test.mjs && node test/blocklist.test.mjs && node test/anchor.test.mjs && node test/index.test.mjs && node test/highlight.test.mjs && node test/mark-delete.test.mjs && node test/mark-delete-app.test.mjs && node test/explain-restore-app.test.mjs && node test/order.test.mjs && node test/reading-workbench.test.mjs && node test/reconcile.test.mjs && node test/assets.test.mjs && node test/offline-store.test.mjs && node test/lookupkey.test.mjs && node test/layout.test.mjs && node test/markdown.test.mjs && node test/markdown-view.test.mjs && node test/convo.test.mjs && node test/summary.test.mjs && node test/config.test.mjs && node test/agent.test.mjs && npm run test:codex && npm run test:dsh && node test/agent-connection.test.mjs && node test/jobs.test.mjs && npm run test:stream && node test/panel.test.mjs && node test/popover.test.mjs && node test/settings.test.mjs && node test/transport.test.mjs && node test/db.test.mjs && node test/assets-server.test.mjs && node test/mdfile.test.mjs && node test/siyuan.test.mjs && node test/origin.test.mjs && node test/public-api.test.mjs && node test/public-file-sync.test.mjs && node test/public-skill.test.mjs && node test/extbuild.test.mjs && node test/service.test.mjs",
     "build:skill": "node tools/build.mjs",
     "build:skill:public": "node tools/build.mjs --public && node tools/check-public-skill.mjs",
     "check:public-release": "node tools/check-public-skill.mjs release/public-skill/skill.js",
@@ -19,7 +26,7 @@
     "build:ext": "node tools/build.mjs --ext",
     "build:store": "node tools/package-extension.mjs",
     "test:store": "node test/store-build.test.mjs && node test/setup-commands.test.mjs && node test/onboarding.test.mjs && node test/extension-runtime.test.mjs && node test/extension-pairing.test.mjs && node test/website.test.mjs",
-    "pretest": "node test/release-consistency.test.mjs && node test/job-config-snapshot.test.mjs && node test/diagnostics.test.mjs && node test/library-performance.test.mjs && node test/connection-checks.test.mjs && node test/reading-library.test.mjs",
+    "pretest": "node --test test/uuid.test.mjs && node test/release-consistency.test.mjs && node test/job-config-snapshot.test.mjs && node test/diagnostics.test.mjs && node test/library-performance.test.mjs && node test/connection-checks.test.mjs && node test/reading-library.test.mjs",
     "posttest": "npm run test:store",
     "pair": "node tools/pair-extension.mjs",
     "build:store-support": "node tools/package-store-support.mjs",
@@ -27,15 +34,30 @@
     "deploy:website": "node tools/deploy-website.mjs",
     "test:website": "node test/website.test.mjs",
     "test:store-support": "node test/store-support.test.mjs",
-    "check:release-links": "node tools/check-release-links.mjs"
+    "check:release-links": "node tools/check-release-links.mjs",
+    "check:public-surface": "node tools/check-release-links.mjs --published --website",
+    "check:product": "node tools/check-product-release.mjs",
+    "test:product": "node --test test/product-release.test.mjs test/public-surface.test.mjs test/node-license.test.mjs && node test/release-consistency.test.mjs && node test/website.test.mjs",
+    "test:release": "npm test && npm run test:product && npm run test:desktop && npm run test:store-support",
+    "test:release:browser": "node test/extension-load-browser.test.mjs && node test/onboarding-browser.test.mjs && node test/store-artifact-browser.test.mjs && node test/desktop-site-browser.test.mjs",
+    "test:codex": "node test/codex-note-tools.test.mjs && node test/codex-app-server.test.mjs && node test/codex-reading-session.test.mjs",
+    "test:stream": "node test/job-stream.test.mjs && node test/job-stream-http.test.mjs && node test/extension-job-stream.test.mjs",
+    "test:dsh": "node test/dsh-installation.test.mjs && node test/dsh-detection.test.mjs && node test/dsh-probe-config.test.mjs && node test/dsh-connection-test.test.mjs && node test/dsh-runtime.test.mjs && node test/dsh-reading-session.test.mjs",
+    "test:dsh:installed": "node test/dsh-desktop-installed.test.mjs",
+    "test:dsh:connection:installed": "node test/dsh-desktop-connection.test.mjs",
+    "test:dsh:legacy:installed": "node test/dsh-installed.test.mjs"
   },
   "devDependencies": {
     "esbuild": "^0.25.0",
     "fake-indexeddb": "^6.2.5",
-    "jsdom": "^29.1.1"
+    "jsdom": "^29.1.1",
+    "katex": "0.19.0",
+    "markdown-it": "15.0.3",
+    "markdown-it-footnote": "4.0.0"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.117.1"
+    "@anthropic-ai/sdk": "^0.117.1",
+    "ws": "^8.22.0"
   },
   "engines": {
     "node": ">=22.13"

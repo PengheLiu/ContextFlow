@@ -25,7 +25,8 @@ export const RECORD_CSS = `
   .record-actions{display:flex;flex-wrap:wrap;gap:4px;margin:8px 0}
   .record-actions button{padding:4px 7px;font-size:11.5px;color:${T.quote};border:1px solid ${T.line};border-radius:5px;display:inline-flex;align-items:center;gap:4px}
   .record-actions .ico{width:13px;height:13px}.record-actions button:hover{color:${T.accent};background:${T.hover}}
-  .answer-preview{white-space:pre-wrap;overflow-wrap:anywhere;margin-top:8px;color:${T.inkSoft};display:-webkit-box;-webkit-line-clamp:5;-webkit-box-orient:vertical;overflow:hidden}
+  .answer-preview{overflow-wrap:anywhere;margin-top:8px;color:${T.inkSoft};max-height:11em;overflow:hidden;
+    mask-image:linear-gradient(#000 calc(100% - 1em),transparent)}
   .answer-details summary,.answer-history summary{cursor:pointer;font-size:12px;color:${T.accent};padding:6px 0;list-style-position:inside}
   .answer-details[open] summary{position:sticky;top:130px;background:${T.paper};z-index:1}
   .answer-history{margin-top:10px;padding-top:6px;border-top:1px dashed ${T.line}}
@@ -39,6 +40,31 @@ export const RECORD_CSS = `
 const labels = { comments: '批注', explain: '解释', translate: '翻译' };
 const safe = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const time = value => new Date(value || Date.now()).toLocaleString('zh-CN', { hour12: false });
+
+// Clone a bounded semantic excerpt, keeping formulas atomic. textContent would
+// expose the hidden TeX annotation and flatten fractions back into plain text.
+function answerPreview(target, answer) {
+  target.replaceChildren(); target.classList.add('md');
+  const budget = { chars: 280, nodes: 80 };
+  const clone = node => {
+    if (budget.chars <= 0 || budget.nodes-- <= 0) return null;
+    if (node.nodeType === 3) {
+      const value = node.textContent.slice(0, budget.chars); budget.chars -= value.length;
+      return document.createTextNode(value);
+    }
+    if (node.nodeType !== 1 || node.matches('.md-footnotes')) return null;
+    if (node.matches('.md-math')) {
+      budget.chars -= Math.min(80, node.querySelector('annotation')?.textContent.length || node.textContent.length);
+      const math = node.cloneNode(true); math.removeAttribute('tabindex'); return math;
+    }
+    const copy = node.cloneNode(false); copy.removeAttribute('id');
+    if (copy.matches('a,button,[tabindex]')) copy.tabIndex = -1;
+    if (copy.matches('button')) copy.disabled = true;
+    for (const child of node.childNodes) { const part = clone(child); if (part) copy.append(part); }
+    return copy;
+  };
+  for (const child of [...answer.children].slice(0, 3)) { const part = clone(child); if (part) target.append(part); }
+}
 
 // Keyed views are deliberately retained across polling, filters and tab switches.
 // Updating one job must not replace another record's textarea, selection or paste.
@@ -170,10 +196,9 @@ export class RecordList {
       const details = el.querySelector('.answer-details');
       details.hidden = !item.value; details.querySelector('summary').hidden = !view.long;
       details.open = !view.long;
-      renderMarkdownInto(el.querySelector('.ans'), item.value || '');
+      const answer = el.querySelector('.ans'); renderMarkdownInto(answer, item.value || '');
       const preview = el.querySelector('.answer-preview'); preview.hidden = !view.long;
-      const plain = [...el.querySelector('.ans').children].map(node => node.textContent).join('\n\n');
-      preview.textContent = view.long ? `${plain.slice(0, 240)}…` : '';
+      if (view.long) answerPreview(preview, answer); else preview.replaceChildren();
     }
     const history = item.extra?.history || [];
     const historyKey = JSON.stringify(history);

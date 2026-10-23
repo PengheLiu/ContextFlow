@@ -171,4 +171,19 @@ await t('初始提交期间取消 Agent 测试，晚到 job 会取消且不被�
   await assert.rejects(running,e=>e.code==='ABORTED');assert.ok(cancels>=1);
 });
 
+await t('Agent 草稿只发送当前程序路径与权限档，测试从不保存其他草稿',async()=>{
+  const seen=[];
+  api.setTransport(async(path,init={})=>{seen.push({path,init});
+    if(path==='/health')return {status:200,body:{capabilities:['agent.test','agent.test.draft']}};
+    if(path==='/agents/test')return {status:202,body:{mode:'job',job:{id:'draft-agent',status:'running'}}};
+    return {status:200,body:{job:{status:'done',result:{ok:true,agent:'codex',scope:'connection-only'}}}};
+  });
+  await api.testAgent('codex',{draft:{executable:'/fixture/codex',profile:'safe'}});
+  assert.deepEqual(JSON.parse(seen.find(row=>row.path==='/agents/test').init.body),{id:'codex',executable:'/fixture/codex',profile:'safe'});
+  assert.equal(seen.some(row=>row.path==='/config'),false);
+  await assert.rejects(()=>api.testAgent('codex',{draft:{prompt:'arbitrary task'}}),e=>e.code==='BAD_INPUT');
+  api.setTransport(async(path)=>{assert.equal(path,'/health');return {status:200,body:{capabilities:['agent.test']}};});
+  await assert.rejects(()=>api.testAgent('codex',{draft:{executable:'/fixture/codex',profile:'safe'}}),e=>e.code==='COMPANION_UPDATE_REQUIRED');
+});
+
 console.log(`\n${pass} 项通过`);

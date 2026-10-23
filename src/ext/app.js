@@ -8,7 +8,7 @@
 // 那边直接 fetch 并把 token 编译进产物；这边转发给 service worker，token 只在 SW 里。
 import { initializePrivateStorage } from './storage.js';
 import { request } from './rpc.js';
-import { setTransport } from '../core/api.js';
+import { setTransport, setStreamTransport } from '../core/api.js';
 import { boot } from '../skill/main.js';
 import { blockedScope, showUnblockChip } from '../skill/blocklist.js';
 
@@ -43,6 +43,35 @@ setTransport((path, init = {}) => new Promise((resolve) => {
     clearTimeout(timer);
     finish({ status: 0, body: { error: `无法联系 service worker：${e.message}` } });
   }
+}));
+
+setStreamTransport((id, onJob, signal) => new Promise((resolve, reject) => {
+  let port, done = false, timer;
+  const finish = (error) => {
+    if (done) return;
+    done = true; clearTimeout(timer); signal?.removeEventListener('abort', abort);
+    try { port?.disconnect(); } catch { /* Extension may have been reloaded. */ }
+    if (error) reject(error); else resolve();
+  };
+  const abort = () => finish(Object.assign(new Error('已取消'), { code: 'ABORTED' }));
+  const arm = () => { clearTimeout(timer); timer = setTimeout(() => finish(new Error('扩展事件通道超时')), 45000); };
+  if (signal?.aborted) { abort(); return; }
+  signal?.addEventListener('abort', abort, { once: true });
+  try {
+    port = chrome.runtime.connect({ name: 'cf-job-stream' });
+    port.onMessage.addListener((message) => {
+      if (done) return;
+      arm();
+      if (message.type === 'job') onJob(message.job);
+      else if (message.type === 'end') finish();
+      else if (message.type === 'error') finish(new Error(message.error));
+    });
+    port.onDisconnect.addListener(() => {
+      const error = chrome.runtime.lastError;
+      finish(new Error(error?.message || '扩展事件通道断开'));
+    });
+    arm(); port.postMessage({ id });
+  } catch (error) { finish(error); }
 }));
 
 let app;

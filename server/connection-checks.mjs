@@ -31,6 +31,7 @@ export class ConnectionChecks {
   }
   agentKey(agent) {
     return this.identity('agent', [agent.id, agent.path || '', agent.version || '',
+      agent.profile || 'safe',
       Object.entries(agent.env || {}).sort(([a], [b]) => a.localeCompare(b))]);
   }
   begin(key) {
@@ -58,9 +59,10 @@ export class ConnectionChecks {
   view(cfg, installed = []) {
     const agents = {};
     for (const row of installed) {
-      if (!row.available || row.safeSupport === 'unsupported') continue;
-      const result = this.entries.get(this.agentKey({ ...row, env: cfg.agent?.id === row.id ? cfg.agent.env : {} }));
-      if (result) agents[row.id] = { ...result, version: row.version || '', path: row.path || '' };
+      if (!row.available || !(row.connectionTestSupported ?? row.safeSupport !== 'unsupported')) continue;
+      const profile = cfg.agent?.id === row.id ? cfg.agent.profile || 'safe' : 'safe';
+      const result = this.entries.get(this.agentKey({ ...row, profile, env: cfg.agent?.id === row.id ? cfg.agent.env : {} }));
+      if (result) agents[row.id] = { ...result, version: row.version || '', path: row.path || '', profile };
     }
     return { model: this.entries.get(this.modelKey(cfg)) || null, agents };
   }

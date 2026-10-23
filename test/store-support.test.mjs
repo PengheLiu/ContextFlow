@@ -37,8 +37,16 @@ try {
     for (const link of document.querySelectorAll('a[href]')) {
       const href = link.getAttribute('href');
       if (href.startsWith('#')) assert.ok(document.getElementById(href.slice(1)), `锚点不可用：${href}`);
-      else if (href === './') assert.ok(existsSync(join(site, 'index.html')));
-      else if (!href.startsWith('https://')) assert.ok(existsSync(join(site, href)), `站内链接不可用：${href}`);
+      else if (!href.startsWith('https://')) {
+        const target = new URL(href, `https://contextflow.invalid/${filename}`);
+        const path = join(site, target.pathname === '/' ? 'index.html' : decodeURIComponent(target.pathname.slice(1)));
+        assert.ok(existsSync(path), `站内链接不可用：${href}`);
+        if (target.hash) {
+          const targetDOM = new JSDOM(readFileSync(path, 'utf8'));
+          assert.ok(targetDOM.window.document.getElementById(decodeURIComponent(target.hash.slice(1))), `跨页锚点不可用：${href}`);
+          targetDOM.window.close();
+        }
+      }
     }
   }
 

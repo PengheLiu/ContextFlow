@@ -8,11 +8,15 @@
 // 该写的是转义序列（'\u001f'），运行时值一样，源码保持纯文本。
 import assert from 'node:assert/strict';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
-import { join, extname } from 'node:path';
+import { join, extname, relative } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const ROOT = new URL('..', import.meta.url).pathname;
+const ROOT = fileURLToPath(new URL('..', import.meta.url));
 // release 与 dist 都是编译产物；esbuild 会把转义分隔符还原成运行时控制字符。
 const SKIP = new Set(['node_modules', '.git', 'dist', 'release', 'assets']);
+// These exact ignored build targets are not source. In particular, a prepare
+// may atomically remove an extracted Node tree while source tests are running.
+const GENERATED = new Set(['desktop/build', 'desktop/.cache', 'desktop/ui/app.js']);
 // 制表符与换行是正常的；其余 C0 控制字符不该出现在源码里
 const CTRL = /[\u0000-\u0008\u000b-\u001f]/;
 
@@ -20,6 +24,7 @@ function walk(dir, out = []) {
   for (const name of readdirSync(dir)) {
     if (SKIP.has(name)) continue;
     const p = join(dir, name);
+    if (GENERATED.has(relative(ROOT, p).replaceAll('\\', '/'))) continue;
     if (statSync(p).isDirectory()) walk(p, out);
     else if (['.js', '.mjs', '.json', '.md', '.html', '.css'].includes(extname(p))) out.push(p);
   }
@@ -38,6 +43,12 @@ const files = walk(ROOT);
 
 t(`扫描到 ${files.length} 个源文件（目录遍历本身没瞎跑）`, () =>
   assert.ok(files.length > 10, `只找到 ${files.length} 个，遍历可能有问题`));
+t('保留桌面源文件检查，不扫描被忽略的构建与运行时缓存', () => {
+  const names = files.map(file => relative(ROOT, file).replaceAll('\\', '/'));
+  assert.ok(names.includes('desktop/main.mjs'));
+  assert.ok(names.includes('src/core/uuid.js'));
+  assert.ok(names.every(name => !name.startsWith('desktop/build/') && !name.startsWith('desktop/.cache/') && name !== 'desktop/ui/app.js'));
+});
 
 t('没有字面控制字符（应写成 \\uXXXX 转义）', () => {
   const bad = [];

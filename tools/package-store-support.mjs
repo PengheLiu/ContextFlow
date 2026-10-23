@@ -7,12 +7,16 @@ import { fileURLToPath } from 'node:url';
 import { stageWebsite, websiteFiles } from './build-website.mjs';
 
 const root = resolve(fileURLToPath(new URL('..', import.meta.url)));
-const runtimeFiles = [
+export const runtimeFiles = [
   'server/agent.mjs', 'server/agent-test.mjs', 'server/assets.mjs', 'server/config.mjs', 'server/connection-checks.mjs', 'server/convo.mjs',
+  'server/codex-app-server.mjs', 'server/codex-note-tools.mjs',
+  'server/platform.mjs', 'server/secrets.mjs',
+  'server/dsh-runtime.mjs', 'server/dsh-installation.mjs', 'server/dsh-desktop-host.mjs', 'server/dsh-desktop.patch.yml',
+  'server/dsh-connection-test.mjs', 'server/dsh-connection-child.mjs', 'server/dsh-probe-config.mjs',
   'server/db.mjs', 'server/extension-pairing.mjs', 'server/index.mjs', 'server/jobs.mjs',
   'server/layout.mjs', 'server/llm.mjs', 'server/lookup.mjs', 'server/mdfile.mjs', 'server/paths.mjs',
-  'server/obsidian.mjs', 'server/origin.mjs', 'server/siyuan.mjs', 'server/sync.mjs',
-  'src/core/assets.js', 'src/core/lookupkey.js', 'src/core/markdown.js',
+  'server/obsidian.mjs', 'server/origin.mjs', 'server/siyuan.mjs', 'server/sync.mjs', 'server/sync-status.mjs', 'server/reading-status.mjs',
+  'src/core/assets.js', 'src/core/lookupkey.js', 'src/core/markdown.js', 'src/core/destination.js',
   'tools/pair-extension.mjs', 'tools/service.mjs', 'package-lock.json', 'LICENSE',
 ];
 

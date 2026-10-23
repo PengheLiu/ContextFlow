@@ -3,6 +3,7 @@
 // Safe 不是一句 prompt：必须由 CLI 参数限制工具面、会话与文件系统。Full 则保留
 // 用户主动确认后的原有能力。这里锁住两档差异，以及每家 CLI 踩过的兼容性参数。
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import { AGENTS, AGENT_IDS, detect, _argvFor, _parseOut } from '../server/agent.mjs';
 
 let pass = 0;
@@ -110,6 +111,32 @@ await t('Codex 两档都保留用户认证配置与临时目录兼容参数', ()
   }
 });
 
+await t('Codex 笔记目录属于 exec 参数，必须放在 resume 子命令之前', () => {
+  const notesDir = '/tmp/ContextFlow notes/阅读笔记';
+  for (const profile of ['safe', 'full']) {
+    for (const resume of [false, true]) {
+      const c = call('codex', { profile, resume, sessionId: 'S1', notesDir });
+      assert.deepEqual(c.argv.slice(0, 3), ['exec', '--cd', notesDir]);
+      assert.equal(c.argv.filter((v) => v === '--cd').length, 1);
+      if (profile === 'full' && resume) {
+        assert.deepEqual(c.argv.slice(3, 5), ['resume', 'S1']);
+      } else {
+        assert.ok(!c.argv.includes('resume'));
+      }
+      assert.equal(c.argv.at(-1), '-');
+      assert.equal(c.stdin, true);
+    }
+  }
+});
+
+await t('Codex 未配置笔记目录时不添加工作目录参数', () => {
+  for (const profile of ['safe', 'full']) {
+    for (const resume of [false, true]) {
+      assert.ok(!argv('codex', profile, { resume }).includes('--cd'));
+    }
+  }
+});
+
 // ---- 不支持 Safe 的 agent ----
 
 await t('dsh / Gemini 拒绝 Safe，不用系统提示冒充沙箱', () => {
@@ -128,9 +155,9 @@ await t('dsh / Gemini 仅在 Full 下可调用，prompt 走 argv', () => {
   assert.ok(g.argv.includes('Q'));
 });
 
-await t('dsh Full 续接带上 session id', () => {
+await t('dsh 兼容模式不传旧 headless 不支持的 --resume', () => {
   const d = call('dsh', { profile: 'full', resume: true, sessionId: 'S9', prompt: 'x' });
-  assert.ok(has(d.argv, '--resume', 'S9'));
+  assert.deepEqual(d.argv, ['--profile', 'headless', 'x']);
 });
 
 // ---- 两档共享的运行约束 ----
@@ -180,6 +207,28 @@ await t('detect(true) 绕过缓存', async () => {
   assert.deepEqual(a.map((x) => x.id), b.map((x) => x.id));
 });
 
+// 真实 CLI 的子命令解析与 mock 不同；--help 在参数解析后退出，绝不启动模型或续接会话。
+const codex = (await detect()).find((row) => row.id === 'codex' && row.available);
+if (codex) {
+  await t('本机 Codex CLI 可解析带/不带笔记目录的首轮、续接及安全档参数（仅 --help）', () => {
+    for (const profile of ['safe', 'full']) {
+      for (const resume of [false, true]) {
+        for (const notesDir of ['', '/tmp/ContextFlow notes/阅读笔记']) {
+          const a = argv('codex', profile, { resume, notesDir, sessionId: 'diagnostic-session' });
+          const r = spawnSync(codex.path, [...a, '--help'], {
+            encoding: 'utf8', timeout: 5000,
+          });
+          assert.ifError(r.error);
+          assert.equal(r.status, 0, `${codex.version}: ${JSON.stringify(a)}\n${r.stderr}`);
+          assert.match(r.stdout, /Usage: codex exec/);
+        }
+      }
+    }
+  });
+} else {
+  console.log('  skip 本机未安装 Codex CLI，跳过真实 --help 参数解析；参数契约测试仍执行');
+}
+
 await t('Claude JSON 结果不依赖字段顺序或排版，答案中的括号保持原样', () => {
   const result = { duration_ms: 321, result: '答案 {x} 与 "type": "result"',
     usage: { cache_read_input_tokens: 12 }, type: 'result', subtype: 'success', is_error: false };
@@ -213,6 +262,29 @@ await t('其他错误、损坏 JSON 和非结果输出不能进入答案缓存',
   for (const text of ['{"type":"result",', '{"type":"system"}', '诊断文本', '']) {
     assert.throws(() => _parseOut('claude', text), (e) => e.code === 'AGENT_PARSE');
   }
+});
+
+await t('Codex 中间回答后 turn.failed 不能当作成功答案', () => {
+  const messages = [
+    { type: 'thread.started', thread_id: 'demo' },
+    { type: 'item.completed', item: { type: 'agent_message', text: '正在检查，尚未完成' } },
+    { type: 'turn.failed', error: { message: 'upstream disconnected' } },
+  ];
+  assert.throws(() => _parseOut('codex', messages.map(JSON.stringify).join('\n')),
+    error => error.code === 'AGENT_ERROR');
+  assert.throws(() => _parseOut('codex', messages.slice(0, 2).map(JSON.stringify).join('\n')),
+    error => error.code === 'AGENT_PARSE');
+});
+
+await t('Codex 成功终态保留最终答案和真实输入输出用量', () => {
+  const messages = [
+    { type: 'thread.started', thread_id: 'demo' },
+    { type: 'item.completed', item: { type: 'agent_message', text: '最终答案' } },
+    { type: 'turn.completed', usage: { input_tokens: 150, output_tokens: 20, cached_input_tokens: 100 } },
+  ];
+  const result = _parseOut('codex', messages.map(JSON.stringify).join('\n'));
+  assert.equal(result.answer, '最终答案');
+  assert.deepEqual(result.meta.usage, { in: 150, out: 20, cacheRead: 100, cacheWrite: 0 });
 });
 
 console.log(`\n${pass} 项通过`);

@@ -10,6 +10,7 @@ import { readFileSync, existsSync, mkdtempSync, writeFileSync, rmSync } from 'no
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
+import { assertExtensionText } from '../tools/extension-text.mjs';
 
 let pass = 0;
 const t = (name, fn) => {
@@ -40,6 +41,19 @@ try {
 const read = (f) => readFileSync(join(OUT, f), 'utf8');
 
 if (built) {
+  t('Chrome 可加载文本：严格 UTF-8、无字面非字符，不能仅用普通解码器检查', () => {
+    for (const file of ['app.js','options.js','sw.js','manifest.json','options.html','options.css','privacy.html']) {
+      assertExtensionText(readFileSync(join(OUT, file)), file);
+    }
+    const script = read('app.js');
+    assert.ok(script.includes('\\uFFFF'), 'KaTeX 的边界字符应转义，而不是删除或改变范围');
+    for (const cp of [0,0xFDD0,0xFDEF,0xFFFE,0xFFFF,0x1FFFE,0x10FFFF]) {
+      assert.throws(() => assertExtensionText(Buffer.from(String.fromCodePoint(cp)), 'bad.js'), /Chrome/);
+    }
+    assert.throws(() => assertExtensionText(Buffer.from([0xC3,0x28]), 'bad.js'), /UTF-8/);
+    assert.equal(assertExtensionText(Buffer.from('中文😀𝑥\\uFFFF'), 'good.js'), '中文😀𝑥\\uFFFF');
+  });
+
   t('三个产物都在', () => {
     for (const f of ['manifest.json', 'app.js', 'sw.js']) {
       assert.ok(existsSync(join(OUT, f)), `缺 ${f}`);
@@ -91,7 +105,7 @@ if (built) {
 
   t('只申请必要权限：没有 tabs / <all_urls> / webRequest 这类大权限', () => {
     const m = mf();
-    assert.deepEqual(m.permissions, ['storage']);
+    assert.deepEqual(m.permissions, ['storage', 'nativeMessaging']);
     assert.deepEqual(m.host_permissions, ['http://127.0.0.1:7317/*'],
       'host_permissions 应只含本地服务');
     assert.ok(!JSON.stringify(m).includes('<all_urls>'),
@@ -126,13 +140,15 @@ if (built) {
   // 而 userscript 直接 fetch、没有这层，所以只在扩展上炸。/summary 就这么漏过一次。
   // 与其指望下次记得，不如让测试从 index.mjs 里把路由抽出来对账。
 
-  t('sw 的白名单覆盖服务端所有路由', () => {
+  t('sw 的白名单覆盖浏览器路由，但不开放桌面专用状态接口', () => {
     const server = readFileSync('server/index.mjs', 'utf8');
     // path === '/x'  与  path.startsWith('/x/')  两种写法
     const routes = new Set();
     for (const m of server.matchAll(/path === '\/([a-z][a-z-]*)/g)) routes.add(m[1]);
     for (const m of server.matchAll(/path\.startsWith\('\/([a-z][a-z-]*)\//g)) routes.add(m[1]);
     assert.ok(routes.size >= 8, `只抽到 ${routes.size} 个路由，抽取逻辑可能失效了`);
+    assert.ok(routes.delete('desktop'), '桌面原子状态由私有父进程凭据访问，不经扩展代理');
+    assert.match(server, /!desktopToken \|\| tok !== desktopToken \|\| req.headers.origin \|\| extensionId/);
 
     const sw = readFileSync(join(OUT, 'sw.js'), 'utf8');
     const m = sw.match(/\^\\\/\(([a-z|]+)\)/);

@@ -15,10 +15,12 @@ const xml = (value) => String(value)
   .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
   .replace(/"/g, '&quot;').replace(/'/g, '&apos;');
 
-export function servicePaths({ home = homedir(), root = ROOT, node = process.execPath, uid = process.getuid?.() } = {}) {
+export function servicePaths({ home = homedir(), root = ROOT, node = process.execPath, uid = process.getuid?.(),
+  codexHome = process.env.CODEX_HOME || '', dshHome = process.env.DSH_HOME || '',
+  dshBin = process.env.CONTEXTFLOW_DSH_BIN || '' } = {}) {
   const dataDir = process.env.CONTEXTFLOW_DIR || join(home, '.contextflow');
   return {
-    home, root, node, uid, dataDir,
+    home, root, node, uid, dataDir, codexHome, dshHome, dshBin,
     server: join(root, 'server', 'index.mjs'),
     launchAgents: join(home, 'Library', 'LaunchAgents'),
     plist: join(home, 'Library', 'LaunchAgents', `${LABEL}.plist`),
@@ -51,6 +53,9 @@ export function renderPlist(p) {
     <string>${xml(p.home)}</string>
     <key>CONTEXTFLOW_DIR</key>
     <string>${xml(p.dataDir)}</string>
+${p.codexHome ? `    <key>CODEX_HOME</key>\n    <string>${xml(p.codexHome)}</string>` : ''}
+${p.dshHome ? `    <key>DSH_HOME</key>\n    <string>${xml(p.dshHome)}</string>` : ''}
+${p.dshBin ? `    <key>CONTEXTFLOW_DSH_BIN</key>\n    <string>${xml(p.dshBin)}</string>` : ''}
     <key>PATH</key>
     <string>${xml(`${dirname(p.node)}:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin`)}</string>
   </dict>

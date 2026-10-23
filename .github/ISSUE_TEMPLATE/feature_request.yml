@@ -1,0 +1,18 @@
+name: 体验或功能建议
+description: 描述你想完成的阅读任务及当前困难
+title: "[Idea] "
+body:
+  - type: textarea
+    id: scenario
+    attributes:
+      label: 使用场景与当前困难
+      description: 你在阅读、理解、找回或保存哪一步遇到了什么困难？不需要提供私人内容。
+    validations:
+      required: true
+  - type: textarea
+    id: outcome
+    attributes:
+      label: 期望的体验
+      description: 希望怎样完成这件事？也可以补充目前的替代方式。
+    validations:
+      required: true

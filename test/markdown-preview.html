@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="zh-CN">
+<meta charset="utf-8"><title>ContextFlow Markdown 渲染验收</title>
+<style>
+  body{margin:0;background:#fff;color:#24211d;font:17px/1.8 system-ui,sans-serif}
+  main{max-width:830px;padding:40px 50px}h1{font:600 32px/1.4 Georgia,serif}
+  nav{display:flex;gap:8px;flex-wrap:wrap}button{padding:8px 13px;border:1px solid #bdb3a4;background:#fbfaf7;border-radius:6px;color:#24211d;cursor:pointer}
+  #library{max-width:1200px;margin:auto;padding:20px}body.dark{background:#24211d;color:#eee7dd}
+</style>
+<main><h1>Reading uncertainty, without losing context.</h1>
+<p id="selection">Brier loss measures the squared error between a predicted probability and the observed outcome.</p>
+<nav><button id="show-answer">解释与列表</button><button id="show-library">阅读库</button><button id="theme">切换明暗</button></nav>
+<p>这是隔离验收样文：使用真实组件和合成记录，不调用模型、不保存笔记。</p></main>
+<div id="library" hidden></div><script src="/preview.js"></script>
+</html>

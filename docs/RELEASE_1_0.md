@@ -1,5 +1,7 @@
 # ContextFlow 1.0
 
+> **2026-10-23 状态复核：** [公开 Chrome 商店](https://chromewebstore.google.com/detail/contextflow/aemncphfnlpbhlddifhohpgegejjejfm)显示 1.0.0，更新日期为 2026-10-21，已上线。下文待审核描述是 2026-10-20 的历史记录，不是当前状态。GitHub 的 v1.0.0 tag / 附件保持冻结；新的桌面连接、`nativeMessaging` 与客户端属于 1.1.0 候选，未包含在公开 1.0 中。[当前候选发布检查](./RELEASE_READINESS.md)。
+
 2026-10-20 · 版本 1.0.0 · Chrome 商店 ID 保持 `aemncphfnlpbhlddifhohpgegejjejfm`。
 
 ## 发行状态

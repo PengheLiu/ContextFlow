@@ -197,5 +197,6 @@ export const listFolders = getConfig;
 export const listPaths = getConfig;
 export const sync = (urlKey) => syncToFileTarget(urlKey);
 export const getJob = getConfig;
+export const waitForJob = getConfig;
 export const cancelJob = async () => false;
 export const detectAgents = () => unavailable('公开userscript不运行本地 Agent');

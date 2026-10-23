@@ -1,5 +1,11 @@
 # 审核与发布准备
 
+## 当前入口：2026-10-23 / 1.1.0 候选
+
+公开 Chrome 商店已显示 **1.0.0**，上次更新为 **2026-10-21**。以下“尚未上线 / 待审核”条目均为当时的历史记录；不改写历史提交事实，也不覆盖 v1.0.0 的冻结附件。
+
+当前源码 1.1.0 新增桌面客户端与 `nativeMessaging` 权限，不能沿用 1.0“无新增权限”的结论。本轮按用户授权更新 GitHub / 官网，统一在 tag `v1.1.0` 提供 Mac ARM64、同版本 companion、Chrome 和网站 ZIP，GitHub 标为 prerelease、非 latest。Mac 包明确没有 Developer ID 签名 / Apple 公证，不开放尚无实机验收的 Windows 下载。桌面保持原生一键连接，不新增配对码入口；用户已授权完整验收后重新提交 Chrome 审核。先看 [发布准备清单](../docs/RELEASE_READINESS.md)，再使用 [候选审核指引](./REVIEW_INSTRUCTIONS.zh-CN.md)。没有后台成功确认就不能标成已提交。
+
 ## 1.0.0：2026-10-20
 
 **1.0.0 已于 2026-10-20 提交 Chrome Web Store 审核。** 后台明确确认「已将您的扩展程序提交送审」，北京时间 17:50 刷新状态页复核为「状态：待审核」「该草稿尚待审核」。沿用原条目，保留审核通过后自动发布；这不是已获批或已上架。
@@ -109,14 +115,14 @@
 - `npm test` 再次通过；`npm run test:store-support` 验证了解压后的服务包全新安装生产依赖、实际启动、独立配对和实时撤销。静态支持首页已在浏览器目视检查，隐私链接可访问；三个发行 ZIP 的校验和均验证通过。
 - 已从后台读取并保存商店公钥 `store/extension-key.pub`，不修改个人开发版的公钥。以该公钥加载隔离测试副本，浏览器实际 ID 与正式商店 ID 一致；配对、凭证隔离、撤销、离线恢复和 Markdown 导出的真实浏览器测试全部通过。测试仅在临时副本更换本地服务端口并注入公钥，已上传的商店 ZIP 未改动。
 
-## 后台入口
+## 2026-10-12 历史后台入口（非当前状态）
 
 - 草稿详情：<https://chrome.google.com/webstore/devconsole/54ca0f6b-9de1-48e1-9df1-dbe29949b67d/aemncphfnlpbhlddifhohpgegejjejfm/edit/listing>
 - 扩展 ID：`aemncphfnlpbhlddifhohpgegejjejfm`。
 - 已接收文件：`release/contextflow-chrome-0.3.0.zip`，SHA-256 为 `53b12d77eba97f1840cbe7472970e3133af4892237aa3f1afe27b8d29bcc99bd`。
 - 该条目尚未发布，后台入口不是用户安装链接。
 
-## 提供给审核者的测试说明草稿
+## 早期历史测试说明草稿（非当前送审材料）
 
 ContextFlow 是本地优先的网页阅读批注扩展。离线高亮、批注和 Markdown 导出可以直接验证；AI、agent 及笔记同步需要用户自己的本地服务，扩展不提供托管模型账号。
 

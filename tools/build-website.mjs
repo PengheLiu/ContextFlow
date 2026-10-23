@@ -7,6 +7,7 @@ const root = fileURLToPath(new URL('..', import.meta.url));
 // 官网发布白名单；不部署整个仓库，也不复制 release 内的旧包或个人配置。
 export const websiteFiles = [
   ['store/index.html', 'index.html'],
+  ['store/download.html', 'download.html'],
   ['store/site.css', 'site.css'],
   ['store/privacy.html', 'privacy.html'],
   ['store/demo.html', 'demo.html'],

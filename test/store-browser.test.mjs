@@ -78,6 +78,9 @@ try {
   await options.screenshot({ path: join(screenshots, 'welcome-390x844.png'), fullPage: true });
   await options.setViewportSize({ width: 1280, height: 800 });
   await options.getByRole('link', { name: '我想开启 AI 或笔记同步 ↓' }).click();
+  assert.equal(await options.locator('#advanced-connection').getAttribute('open'), null, '旧命令行方式默认折叠，不抢桌面端主流程');
+  assert.equal(await options.locator('#download-desktop').getAttribute('href'), 'https://pengheliu.github.io/ContextFlow/download.html');
+  await options.locator('#advanced-connection > summary').click();
   const commands = companionCommands(extensionId);
   assert.equal(await options.locator('#directory-command').textContent(), commands.check);
   assert.equal(await options.locator('#install-command').textContent(), commands.setup);

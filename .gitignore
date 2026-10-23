@@ -1,6 +1,6 @@
 node_modules/
 
-# 构建产物含机器专属的本地服务 token（tools/build.mjs 从 ~/.context_it/config.json 注入），
+# 个人开发构建可能包含机器专属的本地服务 token（tools/build.mjs 从 ~/.contextflow/config.json 注入），
 # 不能入库 —— 换机器请自行 npm run build:skill 重新生成。
 dist/
 
@@ -11,8 +11,16 @@ probe/probe.log
 .DS_Store
 .idea/
 .vscode/
-# 扩展产物：sw.js 里编译进了本地服务的 token
+# 个人开发扩展的 sw.js 可能带本机 token；商店包独立构建，不复用此目录
 extension/dist/
 release/
 *.crx
 *.pem
+
+# Desktop dependencies, verified runtime cache and staging output
+desktop/build/
+desktop/.cache/
+desktop/ui/app.js
+desktop/ui/trayTemplate.png
+desktop/ui/trayTemplate@2x.png
+desktop/ui/icon.png

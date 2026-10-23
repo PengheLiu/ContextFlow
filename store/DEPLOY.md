@@ -2,6 +2,8 @@
 
 ## 当前边界
 
+2026-10-23：公开商店与 GitHub 冻结正式发行均为 1.0.0，源码为 1.1.0。Mac ARM64 桌面端、companion、Chrome 与网站 ZIP 统一在 tag `v1.1.0` 分发，GitHub 标为 prerelease、非 latest。Mac 包未 Developer ID 签名 / Apple 公证，不能宣传为受系统信任的签名包。官网不加“预览版”标签，但须保留安装安全说明和验证范围。其他桌面架构未开放下载。初次审查时线上下载页为 404；没有完成部署及公开验证前，不报告“官网已更新”。后续正式签名发新版本，不覆盖此次 tag 或旧 v1.0.0。本文件末尾的早期 0.3.x 记录不代表当前最新版本。当前门禁与未完成事项见[发布准备清单](../docs/RELEASE_READINESS.md)。
+
 本地构建产物不等于已部署。未验证真实 HTTPS 地址之前，不把预想的 URL 填入 Chrome Web Store；也不把尚无新配对功能的 GitHub 默认分支作为当前扩展的安装版本。
 
 ## 构建与检查
@@ -31,6 +33,7 @@ python3 -m http.server 7339 --bind 127.0.0.1 --directory release/website
 打开终端输出的本地 URL。`release/website` 是部署目录，不包含服务端或扩展运行文件。`tools/build-website.mjs` 导出唯一的发布白名单，预览、打包和发布使用同一套文件映射：
 
 - `index.html`：产品官网、真实截图、功能介绍、安装路径与 FAQ。
+- `download.html`：桌面系统 / 架构、真实下载与 SHA、未签名限制、商店 1.0 配对、新版原生连接、升级及旧版兼容入口。仅给实际可下载的包提供按钮。
 - `site.css`：官网桌面与窄屏样式。
 - `privacy.html`：完整隐私政策。
 - `demo.html`：不含真实个人数据的阅读示例。
@@ -49,6 +52,8 @@ gh api repos/PengheLiu/ContextFlow/pages/builds/latest
 将 ZIP 解压内容交给已授权的静态 HTTPS 托管服务即可；不需要 Node.js、数据库、服务端密钥或登录。不要部署整个仓库、`release/` 或个人配置目录。
 
 部署后验收：
+
+先运行 `npm run check:public-surface`：检查冻结公开版本的 companion / SHA、独立桌面 DMG / SHA 及摘要绑定，以及官网首页、`download.html`、隐私与练习页。默认 `npm run check:release-links` 检查源码候选版本的正式 companion 下载，不会把已公开 1.0 的成功误当成 1.1 扩展已上线；可追加 `-- --website` 检查官网入口。
 
 1. 使用未登录环境打开首页及 `privacy.html`，确认返回 HTML 内容而不是源码下载、登录页或 404。
 2. 核对隐私政策标题和更新日期，并检查所有站内链接。

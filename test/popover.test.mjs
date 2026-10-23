@@ -136,6 +136,15 @@ await t('成功答案渲染 Markdown，进度与错误仍是纯文本', () => {
   assert.equal(pop.sh.getElementById('b').className, 'prog');
 });
 
+await t('解释面板正确渲染截图中的公式，错误状态清理旧公式', () => {
+  pop.answer(String.raw`布里尔损失：\[L_{\text{Brier}}=(q-c)^2\]，其中 \(q\) 是概率。`);
+  assert.equal(pop.$('b').querySelectorAll('math').length, 2);
+  assert.ok(pop.$('b').querySelector('msub'));
+  assert.match(pop.sh.querySelector('style').textContent, /\.md \.md-math-display\{[^}]*overflow-x:auto/);
+  pop.body('解释失败，请重试', 'bad');
+  assert.equal(pop.$('b').querySelector('math'), null);
+});
+
 await t('「重新解释」默认隐藏，命中本地缓存时才露出', () => {
   const again = pop.sh.getElementById('again');
   pop.showRefresh(false);

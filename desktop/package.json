@@ -1,0 +1,109 @@
+{
+  "name": "contextflow-desktop",
+  "version": "1.1.0",
+  "private": true,
+  "type": "module",
+  "main": "main.mjs",
+  "description": "ContextFlow 本地阅读助手 · Desktop Companion",
+  "author": "ContextFlow contributors",
+  "license": "MIT",
+  "scripts": {
+    "dev": "electron .",
+    "pack": "node ../tools/package-desktop.mjs --dir",
+    "dist": "node ../tools/package-desktop.mjs"
+  },
+  "devDependencies": {
+    "electron": "45.0.0",
+    "electron-builder": "26.15.3"
+  },
+  "build": {
+    "appId": "io.github.pengheliu.contextflow",
+    "productName": "ContextFlow",
+    "icon": "../assets/icon-512.png",
+    "beforePack": "./build-guard.cjs",
+    "artifactName": "ContextFlow-${version}-${os}-${arch}.${ext}",
+    "directories": {
+      "output": "../release/.desktop-build.noindex"
+    },
+    "files": [
+      "*.mjs",
+      "!smoke.mjs",
+      "*.cjs",
+      "!build-guard.cjs",
+      "ui/**",
+      "!ui/renderer.js",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "build/core",
+        "to": "core"
+      },
+      {
+        "from": "build/core/node_modules",
+        "to": "core/node_modules",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "build/runtime",
+        "to": "runtime"
+      },
+      {
+        "from": "build/native",
+        "to": "native"
+      },
+      {
+        "from": "build/target.json",
+        "to": "desktop-build.json"
+      },
+      {
+        "from": "../LICENSE",
+        "to": "LICENSE"
+      }
+    ],
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "PengheLiu",
+        "repo": "ContextFlow",
+        "releaseType": "draft"
+      }
+    ],
+    "mac": {
+      "minimumSystemVersion": "13.5",
+      "extendInfo": {
+        "LSUIElement": true
+      },
+      "category": "public.app-category.productivity",
+      "target": [
+        "dmg",
+        "zip"
+      ],
+      "hardenedRuntime": true,
+      "entitlements": "entitlements.mac.plist",
+      "entitlementsInherit": "entitlements.mac.plist",
+      "binaries": [
+        "Contents/Resources/runtime/node",
+        "Contents/Resources/native/menu-bar"
+      ]
+    },
+    "win": {
+      "target": [
+        "nsis"
+      ],
+      "executableName": "ContextFlow",
+      "verifyUpdateCodeSignature": true
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowElevation": false,
+      "allowToChangeInstallationDirectory": true,
+      "deleteAppDataOnUninstall": false,
+      "include": "installer.nsh",
+      "createDesktopShortcut": false
+    }
+  }
+}

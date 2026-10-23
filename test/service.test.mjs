@@ -33,6 +33,24 @@ await t('plist 使用绝对路径并转义 XML', () => {
   assert.match(text, /<key>KeepAlive<\/key>\s*<true\/>/);
 });
 
+await t('后台服务保留显式 Codex 配置目录，未指定时使用 Codex 默认值', () => {
+  const p = servicePaths({ home: '/Users/example', codexHome: '/profiles/Codex & Work' });
+  assert.match(renderPlist(p), /<key>CODEX_HOME<\/key>\s*<string>\/profiles\/Codex &amp; Work<\/string>/);
+  assert.doesNotMatch(renderPlist({ ...p, codexHome: '' }), /<key>CODEX_HOME<\/key>/);
+});
+
+await t('后台服务保留显式 DSH 配置目录，未指定时使用 DSH 默认值', () => {
+  const p = servicePaths({ home: '/Users/example', dshHome: '/profiles/DeepSeek & Work' });
+  assert.match(renderPlist(p), /<key>DSH_HOME<\/key>\s*<string>\/profiles\/DeepSeek &amp; Work<\/string>/);
+  assert.doesNotMatch(renderPlist({ ...p, dshHome: '' }), /<key>DSH_HOME<\/key>/);
+});
+
+await t('后台服务保留自定义 DSH 入口，默认由桌面版发现逻辑选择', () => {
+  const p = servicePaths({ dshBin: '/Applications/DeepSeek & Work.app/bin/dsh' });
+  assert.match(renderPlist(p), /<key>CONTEXTFLOW_DSH_BIN<\/key>\s*<string>\/Applications\/DeepSeek &amp; Work.app\/bin\/dsh<\/string>/);
+  assert.doesNotMatch(renderPlist({ ...p, dshBin: '' }), /<key>CONTEXTFLOW_DSH_BIN<\/key>/);
+});
+
 await t('install 写入 plist 并按顺序重载服务', async () => {
   const home = temp();
   const root = join(home, 'repo');

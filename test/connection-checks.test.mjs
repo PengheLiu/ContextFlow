@@ -30,12 +30,29 @@ try {
   }
   assert.equal(checks.view({...cfg,translate:{...cfg.translate,baseUrl:'https://model.test/v1/chat/completions/',target:'English',thinking:true}},installed).model.ok,true);
   assert.equal(checks.view({...cfg,agent:{...cfg.agent,env:{TOKEN:'new'}}},installed).agents.claude,undefined);
+  assert.equal(checks.view({...cfg,agent:{...cfg.agent,profile:'full'}},installed).agents.claude,undefined);
+  assert.equal(checks.view({...cfg,agent:{...cfg.agent,notesDir:'/new/notes'}},installed).agents.claude.ok,true,'connection tests do not verify note permissions');
   assert.equal(checks.view(cfg,[{...installed[0],path:'/new/claude'}]).agents.claude,undefined);
   assert.equal(checks.view(cfg,[{...installed[0],version:'2.0'}]).agents.claude,undefined);
   assert.equal(checks.view(cfg,[{...installed[0],available:false}]).agents.claude,undefined);
   assert.equal(checks.view(cfg,[{...installed[0],safeSupport:'unsupported'}]).agents.claude,undefined);
   assert.equal(new ConnectionChecks(temporary,'new-service-secret').view(cfg,installed).model,null);
   console.log('ok 服务重启仍保留；模型/地址/密钥、CLI 路径/版本/凭据或服务身份变化不误用旧结果');
+
+  const fullCfg={...cfg,agent:{...cfg.agent,profile:'full'}};
+  checks.finish(checks.begin(checks.agentKey({...installed[0],profile:'full',env:cfg.agent.env})),true,2100);
+  assert.equal(checks.view(fullCfg,installed).agents.claude.profile,'full');
+  assert.equal(checks.view(fullCfg,installed).agents.claude.checkedAt,2100);
+  assert.equal(checks.view(cfg,installed).agents.claude.checkedAt,2000);
+  console.log('ok 待保存的权限档进入连接指纹；Safe/Full不互借测试，也不把连接成功当笔记授权');
+
+  const desktop={id:'dsh',available:true,path:'/Applications/DeepSeek Harness.app/bin/dsh',version:'0.2.1-rc.2',
+    safeSupport:'unsupported',connectionTestSupported:true};
+  const desktopCfg={...cfg,agent:{id:'dsh',env:{}}};
+  checks.finish(checks.begin(checks.agentKey(desktop)),true,2200);
+  assert.equal(checks.view(desktopCfg,[desktop]).agents.dsh.ok,true);
+  assert.equal(checks.view(desktopCfg,[{...desktop,connectionTestSupported:false}]).agents.dsh,undefined);
+  console.log('ok 桌面 DSH 可保存独立连接测试结果，不要求开放普通 Safe 权限');
 
   const older=checks.begin(checks.modelKey(cfg)), newer=checks.begin(checks.modelKey(cfg));
   checks.finish(newer,false,3000);checks.finish(older,true,2500);

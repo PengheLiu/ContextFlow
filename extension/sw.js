@@ -1,6 +1,8 @@
 import * as offline from '../src/core/offline-store.js';
 import { encodeMessage, decodeMessage } from '../src/ext/rpc.js';
 import { companionInfo } from '../src/core/companion-info.js';
+import { readJobStream } from '../src/core/job-stream.js';
+import { randomUUID } from '../src/core/uuid.js';
 
 const BASE = 'http://127.0.0.1:7317';
 const TOKEN = typeof __CONTEXTFLOW_TOKEN__ === 'string' ? __CONTEXTFLOW_TOKEN__ : '';
@@ -21,7 +23,15 @@ async function connectionToken() {
   return connection ? connection.token || '' : TOKEN;
 }
 
-async function fetchService(path, init = {}, token) {
+async function instanceHeaders(token, instanceId) {
+  if (instanceId === undefined) {
+    const { connection } = await chrome.storage.local.get('connection');
+    instanceId = connection?.token === token ? connection.instanceId : '';
+  }
+  return instanceId ? { 'X-ContextFlow-Instance': instanceId } : {};
+}
+
+async function fetchService(path, init = {}, token, instanceId) {
   if (typeof path !== 'string' || !OK_PATH.test(path) || path.includes('\\') || path.includes('..')) {
     return { status: 400, body: { error: `路径不被放行：${path}` } };
   }
@@ -33,7 +43,7 @@ async function fetchService(path, init = {}, token) {
     const response = await fetch(BASE + path, {
       method: init.method || 'GET', body: init.body,
       headers: { 'Content-Type': 'application/json', 'X-ContextFlow': '1', Authorization: `Bearer ${token}`,
-        ...(token !== TOKEN ? { 'X-ContextFlow-Extension': chrome.runtime.id } : {}) },
+        ...(token !== TOKEN ? { 'X-ContextFlow-Extension': chrome.runtime.id } : {}), ...await instanceHeaders(token, instanceId) },
       redirect: 'error', signal: AbortSignal.timeout(20000),
     });
     return { status: response.status, body: await response.json().catch(() => ({})) };
@@ -48,6 +58,40 @@ function senderKind(sender) {
   if (/^https?:\/\//.test(sender.url || '') && sender.tab && sender.frameId === 0) return 'page';
   return null;
 }
+
+// The content script can subscribe to a job, but never sees the pairing token.
+chrome.runtime.onConnect?.addListener((port) => {
+  if (port.name !== 'cf-job-stream') return;
+  if (!senderKind(port.sender || {})) { port.disconnect(); return; }
+  const controller = new AbortController();
+  let started = false, closed = false, headerTimer, heartbeat;
+  const send = (message) => { if (!closed) { try { port.postMessage(message); } catch { controller.abort(); } } };
+  port.onDisconnect.addListener(() => { closed = true; controller.abort(); clearTimeout(headerTimer); clearInterval(heartbeat); });
+  port.onMessage.addListener(async (message) => {
+    if (started) return;
+    started = true;
+    try {
+      if (!/^[A-Za-z0-9_-]{1,160}$/.test(message?.id || '')) throw new Error('无效的作业编号');
+      const token = await connectionToken();
+      if (!token) throw new Error('本地服务尚未配对');
+      if (closed) return;
+      headerTimer = setTimeout(() => controller.abort(), 15000);
+      const response = await fetch(`${BASE}/jobs/${encodeURIComponent(message.id)}/stream`, {
+        headers: { 'X-ContextFlow': '1', Authorization: `Bearer ${token}`,
+          ...(token !== TOKEN ? { 'X-ContextFlow-Extension': chrome.runtime.id } : {}), ...await instanceHeaders(token) },
+        signal: controller.signal, redirect: 'error',
+      });
+      clearTimeout(headerTimer); send({ type: 'ready' });
+      heartbeat = setInterval(() => send({ type: 'ping' }), 15000);
+      await readJobStream(response, (job) => send({ type: 'job', job }), { signal: controller.signal });
+      send({ type: 'end' });
+    } catch { send({ type: 'error', error: '任务事件流不可用，正在重新读取进度' }); }
+    finally {
+      clearTimeout(headerTimer); clearInterval(heartbeat); controller.abort();
+      if (!closed) { closed = true; port.disconnect(); }
+    }
+  });
+});
 
 async function notifyConnectionChanged() {
   try {
@@ -101,7 +145,11 @@ async function handleMessage(message, sender, kind) {
     return true;
   }
   if (message.type === 'cf-configuration-changed') { await notifyConnectionChanged(); return true; }
-  if (message.type === 'cf-status') return { paired: !!(await connectionToken()), extensionId: chrome.runtime.id };
+  if (message.type === 'cf-status') {
+    const { connection } = await chrome.storage.local.get('connection');
+    return { paired: !!(await connectionToken()), extensionId: chrome.runtime.id,
+      source: connection?.source === 'desktop' ? 'desktop' : 'companion' };
+  }
   if (message.type === 'cf-check') {
     const token = await connectionToken();
     if (!token) return { state: 'unpaired' };
@@ -118,6 +166,40 @@ async function handleMessage(message, sender, kind) {
     await chrome.storage.local.set({ connection: { disconnected: true } });
     await notifyConnectionChanged();
     return true;
+  }
+  if (message.type === 'cf-connect-native') {
+    if (message.consent !== true) throw new Error('请先确认本地连接的数据使用说明');
+    if (typeof chrome.runtime.connectNative !== 'function') throw new Error('当前扩展尚不支持桌面连接，请更新扩展。');
+    const stored = await chrome.storage.local.get('desktopInstanceId');
+    const instanceId = stored.desktopInstanceId || randomUUID();
+    await chrome.storage.local.set({ desktopInstanceId: instanceId });
+    const result = await new Promise((resolve, reject) => {
+      // An explicit native port keeps the MV3 worker alive while the user is
+      // reading the desktop approval dialog. Always close it after one reply.
+      const port = chrome.runtime.connectNative('io.github.pengheliu.contextflow');
+      let settled = false;
+      const timer = setTimeout(() => {
+        if (settled) return; settled = true; port.disconnect(); reject(new Error('桌面端授权超时，请返回桌面端处理后重试。'));
+      }, 90000);
+      port.onMessage.addListener(response => {
+        if (settled) return; settled = true; clearTimeout(timer); resolve(response); port.disconnect();
+      });
+      port.onDisconnect.addListener(() => {
+        const error = chrome.runtime.lastError; // consume even after a handled response
+        if (settled) return; settled = true; clearTimeout(timer);
+        reject(new Error('桌面端未连接。请先安装并打开 ContextFlow 桌面端，再重试；如使用组织管理的 Chrome，请确认原生消息未被策略禁用。'));
+      });
+      port.postMessage({ type: 'pair', protocolVersion: 1, consent: true, instanceId, label: `Chrome · ${instanceId.slice(0, 8)}` });
+    });
+    if (!result?.ok) throw new Error(result?.error || '桌面端未完成连接授权');
+    if (result.protocolVersion !== 1 || result.baseUrl !== BASE || !/^[A-Za-z0-9_-]{43}$/.test(result.token || '')) {
+      throw new Error('桌面端连接协议或端口不兼容，请更新配套桌面端。');
+    }
+    const health = await fetchService('/health', {}, result.token, instanceId);
+    if (health.status !== 200 || health.body.extensionPaired !== true) throw new Error('桌面端已授权，但服务连接未验证成功；请检查本地服务后重试。');
+    await chrome.storage.local.set({ connection: { token: result.token, instanceId, consentVersion: 1, pairedAt: Date.now(), source: 'desktop' } });
+    await notifyConnectionChanged();
+    return { paired: true };
   }
   if (message.type === 'cf-connect') {
     const token = typeof message.token === 'string' ? message.token.trim() : '';

@@ -444,6 +444,29 @@ await t('速览、解释和翻译共用表格预览与横向滚动样式', () =>
   assert.match(p.sh.querySelector('style').textContent, /\.md \.md-table\{[^}]*overflow-x:auto/);
 });
 
+await t('侧栏速览、列表折叠预览、完整回答与历史均渲染公式且复制仍用原 Markdown', async () => {
+  const answer = String.raw`布里尔损失：
+\[L_{\text{Brier}}=(q-c)^2\]
+其中 \(q\) 是概率。
+
+` + '解释内容。'.repeat(120);
+  let copied;
+  const p = mk({ getLookups: kind => kind === 'explain' ? [{ id: 'math-list', action: 'explain', text: 'source', value: answer,
+    anchor: { start: 1 }, createdAt: 1, extra: { history: [{ at: 1, value: '$q^2$' }] } }] : [],
+    onCopyAnswer: value => { copied = value; } });
+  p.renderBrief({ state: 'ok', text: answer });
+  assert.equal(p.sh.querySelectorAll('#brief .txt math').length, 2);
+  p.toggle(true, false); p.select('explain');
+  const row = p.sh.querySelector('[data-id="math-list"]');
+  assert.equal(row.querySelector('.answer-details').open, false);
+  assert.ok(row.querySelector('.answer-preview math'));
+  assert.equal(row.querySelectorAll('.ans math').length, 2);
+  assert.ok(row.querySelector('.answer-history math'));
+  row.querySelector('[data-act=copy]').click(); await Promise.resolve();
+  assert.equal(copied, answer);
+  assert.match(p.sh.querySelector('style').textContent, /\.md \.md-math-display\{[^}]*overflow-x:auto/);
+});
+
 await t('解释的“我的补充”与原文旁面板双向镜像', () => {
   const inputs = [], commits = [];
   const item = {

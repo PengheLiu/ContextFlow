@@ -8,7 +8,7 @@
 </head>
 <body>
   <main>
-    <header><img src="toolbar-48.png" alt=""><span>ContextFlow <small>你的阅读，留下自己的理解</small></span><a href="https://pengheliu.github.io/ContextFlow/" target="_blank" rel="noreferrer">使用指南 ↗</a></header>
+    <header><img src="toolbar-48.png" alt=""><span>ContextFlow <small>你的阅读，留下自己的理解</small></span><span class="installed-badge"><span aria-hidden="true">✓</span> 扩展已安装</span><a href="https://pengheliu.github.io/ContextFlow/" target="_blank" rel="noreferrer">官网与指南 ↗</a></header>
     <nav class="page-nav" aria-label="ContextFlow 导航"><a href="#start" data-view="start">开始使用</a><a href="#library" data-view="library">我的阅读库</a><a href="#connect" data-view="connect">连接与设置</a><a href="#support" data-view="support">帮助与诊断</a></nav>
     <section id="support" class="support" hidden aria-labelledby="support-title">
       <p class="eyebrow">HELP & SUPPORT</p><h1 id="support-title">让问题有迹可循</h1>
@@ -31,11 +31,12 @@
       <a class="button" href="https://pengheliu.github.io/ContextFlow/demo.html" target="_blank" rel="noreferrer">用练习文章验证 →</a>
     </section>
     <section class="welcome" aria-labelledby="welcome-title">
-      <p class="eyebrow">从第一条批注开始</p>
-      <h1 id="welcome-title">读到有启发的地方，<br>就地记下你的想法。</h1>
-      <p class="lead">选中文字，直接批注，再把阅读记录带回你的笔记。<br>高亮、批注和 Markdown 导出现在就能用，无需注册或配置 AI。</p>
+      <div class="welcome-copy"><p class="eyebrow">一切从阅读开始</p>
+      <h1 id="welcome-title">读到这里，<br>留下自己的理解。</h1>
+      <p class="lead">选中原文，就地批注。把值得留下的想法，变成真正属于你的阅读笔记。</p>
       <div class="actions"><a class="button" id="start-reading" href="https://pengheliu.github.io/ContextFlow/demo.html" target="_blank" rel="noreferrer">打开练习文章 →</a><a class="text-link" href="#connect">我想开启 AI 或笔记同步 ↓</a></div>
-      <p class="small">也可以返回任意文章。刚安装后，先刷新已经打开的页面。</p>
+      <p class="small">批注和导出现在就能用，无需注册、AI 或桌面端。<br>也可以回到自己的文章；刚安装后先刷新页面。</p></div>
+      <aside class="welcome-preview" aria-label="就地批注示意"><div class="preview-top"><span class="preview-dot"></span> 阅读，在自己的上下文里</div><p class="preview-article">好的阅读，不止是记住原文，<br>更是<mark>形成自己的理解。</mark></p><div class="preview-note"><span class="preview-note-label">我的批注</span><p>这段让我想到正在研究的问题。<br>先记下来，稍后回到笔记里继续。</p><span class="preview-saved">✓ 自动保存在此浏览器</span></div><p class="preview-caption">在原文旁写下想法，不打断阅读。</p></aside>
     </section>
     <section class="first-note" aria-labelledby="first-note-title">
       <div class="section-head"><span class="eyebrow">第一次使用</span><h2 id="first-note-title">用一条批注，走完一次阅读</h2></div>
@@ -47,17 +48,38 @@
       <p class="tip">建议把 ContextFlow 固定到工具栏：点击 Chrome 右上角的拼图图标，再点击 ContextFlow 旁的图钉。</p>
     </section>
     <details class="connection" id="connect">
-      <summary><span><span class="eyebrow" id="connection-label">按需开启</span><strong>本地连接与设置</strong><small id="connection-summary">开启 AI、Agent 或笔记同步；基础批注无需配置</small></span><span class="summary-mark"><span data-disclosure-label>展开</span><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m9 5 7 7-7 7"/></svg></span></summary>
+      <summary><span><span class="eyebrow" id="connection-label">按需开启</span><strong>连接你的 AI 与笔记</strong><small id="connection-summary">扩展已经就绪，桌面端让本地能力接入阅读</small></span><span class="summary-mark"><span data-disclosure-label>展开</span><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m9 5 7 7-7 7"/></svg></span></summary>
       <div class="connection-body">
-        <p>本地服务负责连接你自己的模型和笔记软件，只需在本机配对一次。扩展不提供免费模型额度；仅同步笔记时，不需要先配置 AI。</p>
-        <p class="connection-state" id="connection-state" role="status" aria-live="polite">正在读取连接状态…</p>
-        <button id="check-connection" class="secondary" type="button" hidden>检查本地服务连接</button>
-        <section class="setup-step" id="update-help" hidden>
-          <h3>更新本地服务，不需要重新配对</h3>
-          <p>当前运行：<strong id="service-version"></strong>。扩展自动更新不会更新电脑上的服务。</p>
-          <p><a id="update-companion" href="https://github.com/PengheLiu/ContextFlow/releases/latest">下载匹配版本的配套服务包</a>，按<a href="https://github.com/PengheLiu/ContextFlow/blob/main/docs/GETTING_STARTED.md#日常运行与升级" target="_blank" rel="noreferrer">升级说明</a>更新服务代码并停止旧进程，再重新启动。请保留原有配置与数据，不要再次执行配对命令。</p>
-          <p class="small">macOS 常驻服务：在更新后的服务目录执行 <code>npm run service -- restart</code>；前台运行：先在原终端按 Ctrl+C，再在更新后的目录运行 <code>npm run server</code>。完成后点击上方「检查本地服务连接」。</p>
+        <p class="connection-intro">Chrome 负责阅读，ContextFlow 桌面端连接你自己的模型、Agent 和笔记。安装一次，之后在后台陪你阅读。</p>
+        <div class="connection-status"><span class="state-dot" aria-hidden="true"></span><div><p class="connection-state" id="connection-state" role="status" aria-live="polite">正在读取连接状态…</p><p class="small" id="connection-next">基础批注不受影响，你可以随时返回阅读。</p></div><button id="check-connection" class="secondary" type="button" hidden>检查本地服务连接</button></div>
+        <section class="setup-step" id="desktop-connect">
+          <div class="section-head"><div><p class="eyebrow">从扩展，到你的本地工作台</p><h2>接下来，连接桌面端</h2></div><div class="connection-shortcuts"><span class="small">无需 Node.js 或终端命令</span><button id="jump-connect" class="text-action" type="button">已安装，直接连接 ↓</button></div></div>
+          <ol class="desktop-journey" aria-label="桌面端连接步骤">
+            <li id="journey-download"><span class="journey-number">1</span><div><h3>从官网下载</h3><p>选择 macOS 或 Windows，核对版本与发布状态。</p><a id="download-desktop" class="button secondary" href="https://pengheliu.github.io/ContextFlow/download.html" target="_blank" rel="noreferrer">前往官网下载 ↗</a><p class="small" id="download-progress">下载页不接收你的模型密钥或配对信息。</p></div></li>
+            <li><span class="journey-number">2</span><div><h3>安装并打开</h3><p>打开 ContextFlow，等待本地服务就绪。桌面端会帮助你发现本机能力。</p><p class="small">已经安装？直接打开应用，继续下一步。</p></div></li>
+            <li id="journey-connect"><span class="journey-number">3</span><div><h3>回到这里，确认连接</h3><p>点击连接，再在桌面端批准这一次浏览器申请。</p><label class="consent"><input id="desktop-consent" type="checkbox"><span>我了解：使用 AI 时，文章、问题及授权笔记可能发送给我配置的模型或 Agent；使用自己的账号和额度。</span></label><button id="connect-desktop" type="button" disabled>连接桌面端</button><p class="small" id="desktop-consent-help">先确认数据使用说明；桌面端仍会单独征求授权。</p></div></li>
+          </ol>
+          <p id="desktop-status" class="desktop-feedback" role="status" aria-live="polite"></p>
+          <p class="small release-note">正式版与预览版的可用情况以官网下载页为准。尚无适配安装包时，基础阅读仍可用；熟悉终端的用户可选择下方高级方式。</p>
         </section>
+        <section class="setup-step" id="update-help" hidden>
+          <h3>更新本地连接，不需要重新配对</h3>
+          <p>当前运行：<strong id="service-version"></strong>。扩展自动更新不会更新电脑上的服务。</p>
+          <p><a href="https://pengheliu.github.io/ContextFlow/download.html" target="_blank" rel="noreferrer">前往官网下载页 ↗</a>，更新桌面端后重新打开并检查连接。请保留原有配置与数据。</p>
+          <p class="small">使用旧命令行服务？请展开下方「高级与兼容方式」查看匹配服务包与升级说明。</p>
+        </section>
+        <section class="setup-step next-step" id="next-step" hidden>
+          <div class="connected-heading"><span class="connected-check" aria-hidden="true">✓</span><div><p class="eyebrow">连接已准备好</p><h2>现在，把它用在阅读里。</h2></div></div>
+          <p>桌面端、这里和文章侧栏共用同一份配置。可以在桌面端完成发现与设置，也可以在下方继续。</p>
+          <p id="setup-progress" role="status" aria-live="polite"></p>
+          <div class="next-actions"><p><strong>笔记同步</strong><span>确认保存位置后，回文章侧栏点击「同步」，核对第一篇笔记。</span></p><p><strong>AI 与 Agent</strong><span>先主动测试，再保存更改。连接成功不代表模型已经测试，也不提供免费额度。</span></p></div>
+          <a class="button" href="https://pengheliu.github.io/ContextFlow/demo.html" target="_blank" rel="noreferrer">回到练习文章 →</a>
+          <div id="configuration"></div>
+        </section>
+        <div class="connection-tools" id="connection-tools" hidden><button id="disconnect" type="button" class="secondary">断开本扩展连接</button><p class="small">只清除本扩展的连接凭据，不删除笔记或模型配置。需要撤销桌面端授权时，在桌面端「设置与帮助 → 浏览器授权」操作。</p></div>
+        <details class="compatibility" id="advanced-connection"><summary><span>高级与兼容方式</span><small>旧命令行服务、手动配对及迁移</small></summary><div class="compatibility-body">
+        <p class="small">已在使用旧服务的用户可以继续使用，不必为了配对重新安装。普通用户优先使用上方桌面端流程；桌面端接管后，不要同时启动另一份命令行服务。</p>
+        <p class="small"><a id="update-companion" href="https://github.com/PengheLiu/ContextFlow/releases/latest">下载匹配版本的配套服务包</a> · <a href="https://github.com/PengheLiu/ContextFlow/blob/main/docs/GETTING_STARTED.md#日常运行与升级" target="_blank" rel="noreferrer">旧服务升级说明 ↗</a>。保留原配置和数据，停止旧进程后再启动更新后的服务，日常升级无需重新配对。</p>
         <div id="first-setup">
         <section class="setup-step">
           <h3><span>1</span> 下载并解压服务包</h3>
@@ -99,18 +121,10 @@
           <p>先进入之前解压的服务文件夹，再运行下方命令。无需重新安装或生成配对码；看到服务地址后点击「检查本地服务连接」。</p>
           <div class="command"><pre id="restart-command"></pre><button type="button" data-copy="restart-command" aria-label="复制重新启动命令">复制</button></div>
         </section>
-        <section class="setup-step next-step" id="next-step" hidden>
-          <h3><span>5</span> 连接成功，选择你接下来要做的事</h3>
-          <p>连接本机服务不等于模型已配置。直接在下方完成配置，无需先切回文章。</p>
-          <p id="setup-progress" role="status" aria-live="polite"></p>
-          <p><strong>笔记：</strong>选择归档位置并保存；然后打开练习文章，在侧栏点击「同步」，核对生成的 Markdown。每篇文章更新同一份笔记。</p>
-          <p><strong>AI：</strong>展开「AI 模型与翻译」，填写地址、API key 和模型，点击「测试模型连接」，成功后点击「保存更改」。测试不保存配置，会消耗少量模型额度，不会发送文章或笔记。</p>
-          <div id="configuration"></div>
-          <a href="https://pengheliu.github.io/ContextFlow/demo.html" target="_blank" rel="noreferrer">配置完成，去练习批注与同步 →</a>
-        </section>
         <details class="troubleshooting" id="repair-pairing"><summary>已有服务，或需要重新生成配对码？</summary><p>在服务文件夹另开终端运行。只有首次配对、配对失效或切换扩展时才需要；重新生成会让旧码失效，日常启动不要重复执行。</p><div class="command"><pre id="pair-command"></pre><button type="button" data-copy="pair-command" aria-label="复制配对命令">复制</button></div></details>
         <details class="troubleshooting"><summary>连接不上？先检查这几件事</summary><ul><li>「npm 不是内部命令」或「command not found」：安装 Node.js 后重新打开终端。</li><li>「目录不对」或无法找到 package.json：回到第 2 步，进入解压后的服务文件夹。</li><li>安装时出现陌生包名或 npm E404：先核对当前目录，可能运行了其他项目的安装；不要急着换源或删文件。</li><li>服务未连接：保持运行服务的终端打开，再点「检查本地服务连接」。</li><li>配对失效：重新复制上方命令生成配对码，旧码会同时失效。</li></ul><p><a href="https://github.com/PengheLiu/ContextFlow/blob/main/docs/GETTING_STARTED.md#遇到问题" target="_blank" rel="noreferrer">查看完整排查指南 ↗</a></p></details>
-        <details class="troubleshooting"><summary>停止连接、常驻运行与撤销授权</summary><p>临时停止服务：在运行服务的终端按 Ctrl+C。关闭终端后 AI / 同步会断开，但配对信息和批注保留。下次使用上方的重新启动命令，不用重新配对。</p><p>macOS：先用 Ctrl+C 停止前台服务，再在同一个服务文件夹运行下方命令，设置登录后自动启动。Windows / Linux 目前先保持前台终端运行。</p><div class="command"><pre id="service-command"></pre><button type="button" data-copy="service-command" aria-label="复制 macOS 常驻服务命令">复制</button></div><button id="disconnect" type="button" class="secondary" hidden>清除本扩展的配对码</button><p>如需立即撤销服务端授权，在服务文件夹运行：</p><pre id="revoke-command"></pre><p class="small">清除配对码不会删除笔记，也不等于撤销服务端授权。</p></details>
+        <details class="troubleshooting"><summary>旧服务的停止、常驻运行与撤销授权</summary><p>临时停止命令行服务：在运行服务的终端按 Ctrl+C。关闭终端后 AI / 同步会断开，但配对信息和批注保留。下次使用上方的重新启动命令，不用重新配对。</p><p>macOS：先用 Ctrl+C 停止前台服务，再在同一个服务文件夹运行下方命令，设置登录后自动启动。Windows / Linux 的旧服务保持前台终端运行。</p><div class="command"><pre id="service-command"></pre><button type="button" data-copy="service-command" aria-label="复制 macOS 常驻服务命令">复制</button></div><p>如需立即撤销旧命令行服务的授权，在服务文件夹运行：</p><pre id="revoke-command"></pre><p class="small">清除配对码不会删除笔记，也不等于撤销服务端授权。桌面端管理的授权请在桌面端撤销，不要并行启动旧服务。</p></details>
+        </div></details>
       </div>
     </details>
     <p id="copy-status" class="small" role="status" aria-live="polite"></p>

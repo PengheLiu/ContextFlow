@@ -1,0 +1,40 @@
+name: 报告问题
+description: 安装、连接、阅读或同步遇到问题
+title: "[Bug] "
+body:
+  - type: markdown
+    attributes:
+      value: "请勿公开 API key、配对码、完整配置、原始日志、备份或私人笔记。先保留数据，不要通过卸载或删配置排障。"
+  - type: textarea
+    id: versions
+    attributes:
+      label: 版本与环境
+      description: Chrome 扩展详情的版本、电脑系统与芯片；如使用桌面端，补充左下角版本及安装包来源。
+      placeholder: "扩展版本 / 商店或开发版；桌面版本；macOS 或 Windows 版本；ARM64 或 x64"
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: 如何复现
+      description: 从哪一步开始、点了什么；只提供可公开的示例网址，不提供内网页面或私人文档。
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: 期望与实际结果
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: 脱敏截图或诊断（可选）
+      description: 使用「帮助与诊断」的脱敏报告，粘贴前再次检查。不要上传原始日志或阅读备份。
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: 隐私检查
+      options:
+        - label: 我确认反馈不包含密钥、配对码、私人笔记或其他敏感信息。
+          required: true

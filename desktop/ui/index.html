@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <title>ContextFlow</title><link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <a href="#main" class="skip-link">跳到主要内容</a>
+  <aside class="sidebar">
+    <div class="brand"><img src="icon.png" width="32" height="32" alt=""><span>ContextFlow<small>让理解留在阅读现场</small></span></div>
+    <nav aria-label="主导航">
+      <button data-page="home" aria-current="page"><span data-icon="home"></span><span>首页</span></button>
+      <button data-page="ai"><span data-icon="spark"></span><span>AI 助手</span></button>
+      <button data-page="notes"><span data-icon="folder"></span><span>笔记</span></button>
+      <button data-page="support"><span data-icon="settings"></span><span>设置与帮助</span></button>
+    </nav>
+    <div class="sidebar-bottom"><p><span class="dot" id="sidebar-dot"></span><span id="sidebar-status">正在准备本地连接</span></p><small id="version">桌面阅读助手</small><button class="text-button" id="resume-setup">继续首次准备</button></div>
+  </aside>
+  <div id="toast" role="status" aria-live="polite" aria-atomic="true" hidden><span data-icon="info"></span><span id="toast-message" tabindex="0"></span><button id="dismiss-toast" class="icon-button" aria-label="关闭提示"><span data-icon="close"></span></button></div>
+  <main id="main" tabindex="-1">
+    <section data-view="home">
+      <header><p class="eyebrow">你的阅读工作台</p><h1 tabindex="-1">让理解顺着阅读发生</h1><p class="intro">Chrome 里阅读与批注，这里管理 AI 和笔记连接。</p></header>
+      <article class="hero"><div class="hero-mark" data-icon="reading"></div><div><p class="eyebrow">下一步</p><h2 id="home-title">正在准备你的阅读环境</h2><p id="home-detail">本地连接正在后台准备。</p><button class="primary" id="home-primary" disabled>正在准备本地连接…</button></div></article>
+      <h2 class="section-title">各项准备情况</h2>
+      <div class="status-grid">
+        <article class="status-tile"><span class="tile-icon" data-icon="browser"></span><h3>Chrome 扩展</h3><span class="badge" id="browser-badge">尚未授权</span><p id="browser-summary">在 Chrome 中发起连接，由你确认授权。</p><button class="text-button" data-action="browser">连接或管理浏览器</button></article>
+        <article class="status-tile"><span class="tile-icon" data-icon="spark"></span><h3>AI 回答</h3><span class="badge" id="model-badge">尚未验证</span><p id="model-summary">发现已安装的 Agent，不等于已经可以回答。</p><button class="text-button" data-page="ai">配置与测试</button></article>
+        <article class="status-tile"><span class="tile-icon" data-icon="folder"></span><h3>笔记保存</h3><span class="badge" id="notes-badge">尚未确认位置</span><p id="notes-summary">选择目的地，再在阅读页面主动同步。</p><button class="text-button" data-page="notes">管理保存位置</button></article>
+      </div>
+      <p class="quiet-note">基础高亮、批注、图片补充与 Markdown 下载不需要连接 AI。关闭桌面窗口会继续后台运行。</p>
+    </section>
+    <section data-view="setup" hidden>
+      <header class="setup-header"><div><p class="eyebrow">首次准备</p><h1 tabindex="-1">把阅读环境准备好</h1><p class="intro">按你的需要设置；可跳过、返回，稍后接着完成。</p></div><button class="quiet" id="defer-setup">稍后继续</button></header>
+      <ol class="steps" aria-label="准备步骤"><li><button data-step="connect"><span>1</span>连接浏览器</button></li><li><button data-step="tools"><span>2</span>选择 AI</button></li><li><button data-step="notes"><span>3</span>笔记位置</button></li><li><button data-step="finish"><span>4</span>开始阅读</button></li></ol>
+      <div id="setup-connect" class="setup-pane"><article class="card connect-card"><span class="large-icon" data-icon="browser"></span><h2>由你允许 Chrome 连接</h2><p>先打开 Chrome 扩展的「连接与设置」，勾选数据说明并点击「连接桌面端」。回来确认「允许连接」即可，不用粘贴配对码。</p><p class="inline-status" id="setup-browser-status" role="status">等待本地连接准备完成…</p><div class="actions"><button class="primary" data-action="browser">打开浏览器连接指引</button><button data-action="store">还没安装扩展？</button></div><p class="quiet-note">Chrome 的每个用户配置独立授权。首次操作可能需要在 Chrome 里选择正确的配置；此处不会替你授权。</p></article></div>
+      <div id="setup-tools" class="setup-pane" hidden><div class="step-intro"><h2>发现你已有的工具，再决定要不要使用</h2><p>本机检查不读取笔记正文，不调用模型，也不自动选择 Agent。模型和 Agent 的实际连接测试由你主动触发，可能产生少量费用。</p></div><div id="setup-tools-slot"></div></div>
+      <div id="setup-notes" class="setup-pane" hidden><div class="step-intro"><h2>给阅读记录选一个去处</h2><p>自动发现只是候选，不会访问笔记内容。选择位置并保存后，再明确确认；真正写入发生在网页侧栏点击「同步」时。</p></div><div id="setup-notes-slot"></div></div>
+      <div id="setup-finish" class="setup-pane" hidden><article class="card"><span class="large-icon" data-icon="reading"></span><h2>开始一段完整的阅读</h2><ol class="reading-steps"><li>在普通网页中选中文字，试试就地批注。</li><li>已测试 AI？点「解释」或「翻译」，验证实际回答。</li><li>确认好笔记位置后，在侧栏点「同步」，再检查生成的笔记。</li></ol><div class="finish-summary" id="finish-summary"></div><p class="quiet-note">跳过的设置不会变成「已完成」，也不影响基础批注与下载。</p></article></div>
+      <p id="setup-next-hint" class="quiet-note" role="status" aria-live="polite" hidden></p>
+      <footer class="setup-footer"><button id="setup-back">返回</button><div class="actions"><button class="quiet" id="setup-skip">暂时跳过</button><button class="primary" id="setup-next" aria-describedby="setup-next-hint">继续</button></div></footer>
+    </section>
+    <section data-view="ai" hidden><header><p class="eyebrow">按需开启</p><h1 tabindex="-1">AI 助手</h1><p class="intro">模型直接回答，或用本地 Agent 的工具能力。使用自己的账号和额度，先测试，再回到文章。</p></header><div id="ai-slot"></div></section>
+    <section data-view="notes" hidden><header><p class="eyebrow">由你掌握</p><h1 tabindex="-1">笔记</h1><p class="intro">把文章、引用与自己的想法保存在一起。选择位置不会自动写入，网页侧栏「同步」才会执行。</p></header><div id="notes-slot"></div></section>
+    <section data-view="support" hidden>
+      <header><p class="eyebrow">安心使用</p><h1 tabindex="-1">设置与帮助</h1><p class="intro">管理浏览器授权、后台运行、数据与更新。常规阅读不需要操作本地服务。</p></header>
+      <article class="card"><h2>浏览器授权</h2><p id="bridge-status">正在检查浏览器桥接…</p><div class="actions"><button data-action="browser">连接另一个 Chrome 配置</button><button data-action="download">安装与下载</button></div><div id="pairings" class="pairings"></div><p class="quiet-note">撤销只会停止该浏览器访问本地服务，不会删除笔记或浏览器内的记录。</p></article>
+      <article class="card"><h2>后台运行</h2><label class="switch-row"><span><strong>登录后自动启动</strong><small>启动后显示在菜单栏或系统托盘，不打断当前工作。</small></span><input id="open-at-login" type="checkbox"></label><p class="quiet-note">关闭窗口会继续后台运行，不会停止服务。Mac 同时保留 Dock 入口；Windows 托盘不可用时保留最小化窗口。选择「退出 ContextFlow」才会停止后台服务。</p><p class="quiet-note" id="menu-bar-status" role="status">可从菜单栏、系统托盘或应用程序重新打开已有窗口。</p><details id="service-controls"><summary>本地连接管理<span class="badge" id="service-badge">正在准备</span></summary><div class="details-body"><p id="service-message">正在准备本地连接…</p><div class="actions"><button data-action="start" id="start-service">启动服务</button><button data-action="restart">重启服务</button><button data-action="stop">停止本地服务</button><button data-action="takeover" id="takeover" hidden>接管旧版服务</button></div><p class="quiet-note">运行中或排队的任务会影响服务管理；不会强制接管未知进程。</p></div></details></article>
+      <article class="card"><h2>应用更新</h2><p id="update-status">桌面端通过官网下载更新；Chrome 扩展由商店单独更新。</p><div class="actions"><button data-action="download">前往官网下载更新 ↗</button></div><p class="quiet-note">先确认版本、系统与芯片；有任务时先完成或取消，再从菜单退出旧版并覆盖安装。不要卸载扩展或删除数据目录来升级。正式签名与可用版本以官网下载页为准。</p></article>
+      <article class="card"><h2>本机恢复点</h2><p>保存服务端阅读记录、图片和配置。创建时短暂停止服务；有任务时不会执行。</p><button id="create-recovery">创建恢复点</button><div id="recovery-points" class="pairings"></div><p class="quiet-note">只适用于当前电脑与系统账号，不含浏览器尚未同步的记录，也不还原已写入的笔记文件。阅读数据本身未加密，请勿公开共享恢复点。</p></article>
+      <article class="card"><h2>诊断与数据</h2><p>脱敏诊断只包含版本、服务能力和任务计数，不含文章、网址、路径、密钥或原始日志。</p><div class="actions"><button data-action="diagnostics">导出脱敏诊断</button><button data-action="data">打开数据文件夹</button><button data-action="logs">打开本地日志</button><button data-action="website">查看使用指南</button></div><p class="quiet-note">原始日志可能含个人信息，请勿直接公开。浏览器完整备份请在扩展「我的阅读库」中单独导出。</p></article>
+    </section>
+    <div id="workspace-parking" hidden><div id="settings-workspace">
+      <section class="discovery-panel" id="agent-discovery"><div class="section-heading"><div><h2>本机发现</h2><p>已安装不等于已登录，更不等于已获笔记权限。</p></div><button class="discover-button" data-discover>重新检查</button></div><div id="agent-candidates" class="candidate-list" aria-live="polite"></div></section>
+      <section class="discovery-panel" id="note-discovery"><div class="section-heading"><div><h2>发现的笔记库</h2><p>仅检查笔记软件登记的位置，不读取笔记正文。</p></div><button class="discover-button" data-discover>重新检查</button></div><div id="note-candidates" class="candidate-list" aria-live="polite"></div></section>
+      <p id="settings-unavailable" class="inline-status" role="status">本地连接准备完成后，即可配置。</p><p class="draft-note" id="draft-note">AI 与笔记共用一份配置。切换页面保留草稿；「保存更改」会提交所有未保存的改动。</p><div id="configuration"></div>
+      <article id="note-confirmation" class="confirmation-card"><div><h2 id="note-confirm-title">确认保存位置</h2><p id="note-confirm-detail">保存设置后，再确认使用这个位置。</p><p class="destination-path" id="note-confirm-path"></p></div><div class="actions"><button class="primary" id="confirm-notes" disabled>确认使用这个位置</button><button class="primary" id="verify-sync" data-action="practice" hidden>去网页验证同步</button><button id="edit-notes">更改保存位置</button></div></article>
+    </div></div>
+  </main><script src="app.js"></script>
+</body>
+</html>

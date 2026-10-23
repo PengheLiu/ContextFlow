@@ -1,6 +1,7 @@
 // 浏览器端离线事实库：事件与待发送操作在同一个 IndexedDB 事务里提交。
 // localStorage 只保留迁移兼容与小型 UI 偏好，不再承担并发写入正确性。
 import { referencedAssets, MAX_BACKUP_BYTES } from './reading-library.js';
+import { randomUUID as uid } from './uuid.js';
 
 const DB_NAME = 'contextflow-offline';
 const DB_VERSION = 4;
@@ -11,8 +12,6 @@ const ARTICLE_MAX_BYTES = 8 * 1024 * 1024;
 const ASSET_MAX_BYTES = 8 * 1024 * 1024;
 const ASSET_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp']);
 const now = () => Date.now();
-const uid = () => globalThis.crypto?.randomUUID?.()
-  || `${now().toString(36)}-${Math.random().toString(36).slice(2)}`;
 
 let dbPromise;
 let offlineTransport;

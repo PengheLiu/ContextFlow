@@ -5,6 +5,9 @@ import { normalizeRoot, resolveWithin } from '../server/paths.mjs';
 import { setupStatus } from '../server/config.mjs';
 import { testConnection, trimBase, listModels, modelDraft } from '../server/llm.mjs';
 import { checkReleaseLinks } from '../tools/check-release-links.mjs';
+import { readFileSync } from 'node:fs';
+import { buildSync } from 'esbuild';
+import { JSDOM } from 'jsdom';
 
 assert.equal(normalizeRoot('~/ContextFlow'), join(homedir(), 'ContextFlow'));
 assert.equal(normalizeRoot('"~/My Notes"'), join(homedir(), 'My Notes'));
@@ -70,3 +73,121 @@ try {
   await assert.rejects(() => listModels(cfg), /获取模型列表超时/);
 } finally { globalThis.fetch = original; }
 console.log('新手配置：用户目录展开、拒绝相对路径与越界、AI 配置完整性、固定消息测试及错误反馈通过');
+
+// Exercise the actual options entrypoint, not a second model of its states.
+const optionsHTML = readFileSync(new URL('../extension/options.html', import.meta.url), 'utf8');
+const optionsBundle = buildSync({ entryPoints: [new URL('../src/ext/options.js', import.meta.url).pathname],
+  bundle: true, write: false, format: 'iife', platform: 'browser', logLevel: 'silent' }).outputFiles[0].text;
+const until = async predicate => {
+  for (let attempt = 0; attempt < 100; attempt++) {
+    if (predicate()) return;
+    await new Promise(resolve => setTimeout(resolve, 5));
+  }
+  assert.fail('等待扩展引导界面状态超时');
+};
+const harness = async ({ paired = false, source = 'companion', state = 'unpaired', setup } = {}) => {
+  const dom = new JSDOM(optionsHTML, { url: 'chrome-extension://' + 'a'.repeat(32) + '/options.html#connect',
+    runScripts: 'outside-only', pretendToBeVisual: true });
+  const { window } = dom;
+  window.matchMedia = () => ({ matches: true });
+  window.HTMLElement.prototype.scrollIntoView = () => {};
+  const calls = [], stored = setup ? { desktopSetup: structuredClone(setup) } : {};
+  const model = { translate: { provider: 'openai', baseUrl: '', model: '', target: '简体中文', apiKeySet: false },
+    explain: { backend: 'llm' }, agent: { id: '', profile: 'safe', notesDir: '', executable: '' },
+    sync: { backend: 'markdown' }, markdown: { dir: '/tmp/contextflow-test', folder: '/阅读记录' },
+    obsidian: { vaultPath: '', folder: '/阅读记录' }, siyuan: { origin: 'http://127.0.0.1:6806', tokenSet: false } };
+  const service = { ok: true, serviceVersion: '1.0.0', capabilities: ['llm.draft', 'llm.test', 'connection.checks'], jobs: { running: 0, queued: 0 } };
+  const control = { state, paired, source, nativeError: '', config: model };
+  window.chrome = {
+    storage: { local: { get: async key => ({ [key]: structuredClone(stored[key]) }),
+      set: async values => Object.assign(stored, structuredClone(values)) } },
+    runtime: { id: 'a'.repeat(32), getManifest: () => ({ version: '1.0.0' }),
+      sendMessage(message, callback) {
+        calls.push(structuredClone(message));
+        queueMicrotask(() => {
+          let value;
+          if (message.type === 'cf-fetch') {
+            const body = message.path === '/config' ? structuredClone(control.config)
+              : message.path.startsWith('/fs/folders') ? { root: '/tmp/contextflow-test', folders: ['/阅读记录'] } : service;
+            callback({ status: 200, body }); return;
+          }
+          if (message.type === 'cf-status') value = { paired: control.paired, source: control.source };
+          else if (message.type === 'cf-check') value = { state: control.state, service };
+          else if (message.type === 'cf-connect-native') {
+            if (control.nativeError) { callback({ ok: false, error: control.nativeError }); return; }
+            control.paired = true; control.source = 'desktop'; control.state = 'connected'; value = { paired: true };
+          } else if (message.type === 'cf-disconnect') { control.paired = false; control.state = 'unpaired'; value = true; }
+          else value = true;
+          callback({ ok: true, value });
+        });
+      } },
+  };
+  window.eval(optionsBundle);
+  await until(() => window.document.getElementById('connection-state').textContent !== '正在读取连接状态…');
+  const $ = id => window.document.getElementById(id);
+  return { dom, window, $, calls, stored, control };
+};
+
+const fresh = await harness();
+try {
+  const { $, calls, window, stored, control } = fresh;
+  assert.equal(window.document.body.dataset.view, 'connect');
+  assert.equal($('advanced-connection').open, false, '终端方式应默认折叠');
+  assert.ok($('advanced-connection').contains($('pair-form')));
+  assert.ok($('advanced-connection').contains($('install-command')));
+  assert.equal($('download-desktop').href, 'https://pengheliu.github.io/ContextFlow/download.html');
+  assert.equal($('connect-desktop').disabled, true);
+  assert.equal(calls.some(call => call.type === 'cf-connect-native'), false, '首次打开不能自动唤醒或授权');
+  $('download-desktop').addEventListener('click', event => event.preventDefault());
+  $('download-desktop').click();
+  await until(() => !!stored.desktopSetup?.downloadViewedAt);
+  assert.match($('download-progress').textContent, /不代表安装已经完成/);
+  assert.equal(calls.some(call => call.type === 'cf-connect-native'), false, '前往官网下载不应调用 Native Messaging');
+  $('desktop-consent').checked = true;
+  $('desktop-consent').dispatchEvent(new window.Event('change'));
+  await until(() => stored.desktopSetup?.consent === true);
+  assert.deepEqual(Object.keys(stored.desktopSetup).sort(), ['consent', 'downloadViewedAt', 'version']);
+  assert.equal($('connect-desktop').disabled, false);
+  control.nativeError = '已取消连接，未授予浏览器访问权限。';
+  $('connect-desktop').click();
+  await until(() => $('desktop-status').dataset.error === 'true');
+  assert.equal($('desktop-consent').checked, true, '取消后保留已确认说明，允许用户主动重试');
+  assert.equal($('connect-desktop').disabled, false);
+  assert.equal($('desktop-consent').disabled, false);
+  assert.match($('desktop-status').textContent, /已取消/);
+  control.nativeError = '';
+  $('connect-desktop').click();
+  await until(() => !$('next-step').hidden && !$('connect-desktop').hasAttribute('aria-busy'));
+  assert.equal($('desktop-connect').hidden, true);
+  assert.equal($('advanced-connection').open, false, '桌面连接成功不应展开终端安装');
+  assert.equal(calls.filter(call => call.type === 'cf-connect-native').length, 2);
+  assert.equal(calls.some(call => call.type === 'cf-fetch' && (/\/(llm|agents)\/(test|models)/.test(call.path) || call.init?.method === 'POST')), false,
+    '引导、配对和读取配置不应自动测试模型或保存设置');
+  const field = $('configuration').shadowRoot.getElementById('s-model');
+  field.value = 'unsaved-draft'; field.dispatchEvent(new window.Event('input', { bubbles: true }));
+  control.config.translate.model = 'changed-on-desktop';
+  $('check-connection').click();
+  await until(() => !$('check-connection').disabled);
+  assert.equal(field.value, 'unsaved-draft', '重新检查连接不得覆盖未保存的设置草稿');
+  $('disconnect').click();
+  await until(() => !$('desktop-connect').hidden && $('connection-tools').hidden);
+  assert.equal($('desktop-consent').checked, false, '主动断开后重新确认数据说明');
+  assert.match($('desktop-status').textContent, /未删除/);
+} finally { fresh.dom.window.close(); }
+
+for (const source of ['desktop', 'companion']) {
+  const resumed = await harness({ paired: true, source, state: 'unavailable',
+    setup: { version: 1, consent: true, downloadViewedAt: 1 } });
+  try {
+    assert.equal(resumed.$('desktop-consent').checked, true, '返回扩展应续接非敏感说明勾选');
+    assert.equal(resumed.$('advanced-connection').open, source === 'companion');
+    assert.match(resumed.$('connection-next').textContent, source === 'desktop' ? /打开 ContextFlow 桌面端/ : /命令行服务/);
+    assert.equal(resumed.calls.some(call => call.type === 'cf-connect-native'), false, '重开与离线检查不能自动唤醒桌面端');
+    resumed.control.state = 'unauthorized';
+    resumed.$('check-connection').click();
+    await until(() => !resumed.$('check-connection').disabled);
+    assert.match(resumed.$('connection-state').textContent, source === 'desktop' ? /浏览器授权已失效/ : /配对码已失效/);
+    assert.equal(resumed.$('advanced-connection').open, source === 'companion');
+  } finally { resumed.dom.window.close(); }
+}
+console.log('扩展产品流程：阅读即用、官网下载主入口、兼容路径折叠、说明续接、显式授权/取消重试、离线分流与草稿保护通过');

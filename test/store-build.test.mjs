@@ -3,6 +3,7 @@ import { execFileSync } from 'node:child_process';
 import { mkdtempSync, writeFileSync, readFileSync, readdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { assertExtensionText } from '../tools/extension-text.mjs';
 
 const directory = mkdtempSync(join(tmpdir(), 'contextflow-store-test-'));
 const output = join(directory, 'extension');
@@ -14,6 +15,9 @@ try {
   });
   const files = readdirSync(output);
   for (const file of files) assert.ok(!readFileSync(join(output, file)).includes(sentinel), `${file} 泄露发布者 token`);
+  for (const file of files.filter(name => /\.(?:js|json|html|css)$/.test(name))) {
+    assertExtensionText(readFileSync(join(output, file)), file);
+  }
   const manifest = JSON.parse(readFileSync(join(output, 'manifest.json'), 'utf8'));
   const { JSDOM }=await import('jsdom');
   const policy=new JSDOM(readFileSync(join(output,'privacy.html'),'utf8')).window.document;
@@ -21,9 +25,15 @@ try {
   assert.equal(policy.body.textContent,sourcePolicy.body.textContent,'扩展与官网隐私正文必须完全一致');
   assert.ok(files.includes(policy.querySelector('link[rel=icon]').getAttribute('href')),'扩展隐私图标必须随包提供');
   const listing=readFileSync('store/LISTING.zh-CN.md','utf8');
+  const release=JSON.parse(readFileSync('product/release.json','utf8'));
   assert.equal(listing.split('## 简介\n\n')[1].split('\n')[0],manifest.description,'商店简介与实际 manifest 一致');
+  assert.equal(manifest.version,release.candidateVersion,'打包候选版本必须与中央发布状态一致');
+  assert.ok(release.publishedExtension.version,'中央发布状态保留真实公开版本，不靠营销正文判定商店审核结果');
+  assert.ok(listing.includes(`**${release.candidateVersion} 桌面连接更新**`),'桌面更新能力不能冒充已上架扩展权限');
+  assert.match(policy.body.textContent,/设置与帮助.*浏览器授权/,'隐私撤销指引必须可在真实桌面界面找到');
   policy.defaultView?.close();sourcePolicy.defaultView?.close();
   assert.equal(manifest.manifest_version, 3);
+  assert.deepEqual(manifest.permissions,['storage','nativeMessaging'],'本轮权限与公开资料保持一致，不添加历史/标签/剪贴板权限');
   assert.equal(manifest.key, undefined);
   assert.deepEqual(manifest.host_permissions, ['http://127.0.0.1:7317/*']);
   assert.equal(manifest.options_ui.page, 'options.html');
@@ -33,6 +43,8 @@ try {
   assert.equal(icon.readUInt32BE(16), 128);
   assert.equal(icon.readUInt32BE(20), 128);
   const app = readFileSync(join(output, 'app.js'), 'utf8');
+  assert.ok(app.includes('Third-party Markdown and math libraries'));
+  assert.ok(app.includes('Khan Academy and other contributors'));
   assert.ok(app.indexOf('setBrowserStorage({') < app.indexOf('migrateLegacyKeys()'));
   assert.ok(app.includes('cf-offline'));
   assert.ok(app.includes('initializePrivateStorage().then'));

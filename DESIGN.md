@@ -417,9 +417,9 @@ agent 一次几十秒，让用户守在浮层前等是最糟的交互。所以�
 读一会儿走开再回来，下一次要重新为全文付 cache 创建费 —— 比无状态调用更贵。
 所以 `translate.articleContext` 可关，面板底部显示 `cache <n>` 让这件事可观测。
 
-agent 侧不重建消息数组，直接 `--session-id` / `--resume` 让它自己维护会话；
-不可续接的 agent（dsh）改为**每次发完整对话**——只发增量会让没有记忆的它在缺上下文
-的情况下作答，那比慢更糟。
+Codex 与 DSH 在常驻进程内维护每篇文章的会话；存活会话只发新问题与缺失正文。
+每次也准备完整历史，进程失效或配置变化后用它重建新会话。Claude Full 继续使用
+`--session-id` / `--resume`；不可续接的 Agent 和旧 CLI 兼容路径每次发送完整对话。
 
 ### 分段供给正文
 
@@ -435,7 +435,7 @@ agent 侧不重建消息数组，直接 `--session-id` / `--resume` 让它自己
 
 需要几段完全由「历史各轮的选区偏移 + 本次偏移」算出，是纯函数、不引入新状态 ——
 LLM 路径每次重建消息数组都得到同一个序列。agent 侧因为会话可能被重开，
-用 `agent_session.loadedChunks` 记进度、只补差量。
+用会话状态中的 `loadedChunks` 记进度、只补差量；常驻 Agent 的状态只在内存中保留。
 
 超预算时的降级顺序是**先丢历史问答，不得已才丢最旧的段落** —— 正文才是这套设计的
 意义，历史问答的价值低得多。（第一版写成"从最旧的块开始丢"，而段落恰好排在最前，
@@ -455,7 +455,7 @@ Prompt Injection 风险后勾选确认；只有迁移来的旧配置为了兼容
 两档都保留的硬约束：
 
 - 子进程环境**不整份继承** `process.env`（服务里的 LLM key 与笔记 token 不交给 agent）
-- `--max-turns` 与进程超时，防一次查询把 agent 跑飞、把额度烧干
+- 每次查询都有超时与取消；CLI 支持时另加 `--max-turns`
 
 > **历史教训。** 早期只用 `--allowedTools Read Grep Glob` 时，`Monitor` 仍能间接执行
 > shell。现在 Safe 同时限制工具面、显式 deny 间接执行器并隔离 MCP/customization；
@@ -466,16 +466,16 @@ Prompt Injection 风险后勾选确认；只有迁移来的旧配置为了兼容
 
 | | 会话续接 | 联网 | 报缓存用量 | 备注 |
 |---|---|---|---|---|
-| **codex** | ✓ | ✓ | ✓ `cached_input_tokens` | 首选 |
+| **codex** | ✓ app-server | ✓ | ✓ | 按配置复用进程，同文章复用临时线程 |
 | claude | ✓ `--session-id`/`--resume` | ✗ | ✓ | 本机 Claude Code 指向内网网关，`WebSearch`/`WebFetch` 会挂死 |
-| dsh | ✗ 输出里没有 session id | — | ✗ | 不可续接 → 每次发完整对话 |
+| dsh | ✓ 桌面后台会话接口 | 由桌面 DSH 配置决定 | 仅显示实际返回值 | Full；优先桌面版 0.2.1-rc.2，认证 HTTP / WebSocket；兼容旧 CLI 0.1.0-rc.6 |
 | gemini | ✗ | — | ✗ | 未实测 |
 
-三个"能跑起来"的必需参数，每一个都是踩出来的：
+旧 CLI 兼容路径的参数差异：
 
 - `codex` 在非 git 目录（我们的 cwd 是 `/tmp`）不加 `--skip-git-repo-check` 会拒绝启动
 - `codex` 加了 `--ignore-user-config` 会把**认证路由**一并剥掉，直连 `api.openai.com` 拿 401
-- `dsh` 没有 stdin 契约（`--profile headless [task...]`），塞一个字面 `-` 给它，
+- `dsh` 0.1.0-rc.6 的 headless 没有 stdin 契约（`--profile headless [task...]`），塞一个字面 `-` 给它，
   它会把 `-` 当成提问内容并回一句"你的消息是空的"。所以每个 agent 显式声明
   `{argv, stdin}`，不用魔法字符
 
@@ -486,7 +486,7 @@ Prompt Injection 风险后勾选确认；只有迁移来的旧配置为了兼容
 ### 为什么异步
 
 agent 一次几十秒，同步等在 HTTP 上浏览器和浮层都会挂住。`server/jobs.mjs` 提供
-串行队列（宽度 1，防连点把机器和额度打满）+ 作业状态查询，浮层轮询显示排队与进度。
+串行队列（宽度 1，防连点把机器和额度打满）+ 作业状态查询，浮层通过事件流显示排队、进度和临时答案，断流后查询原任务。
 队列只在内存里：作业是"过程"，结果落库后没有保留价值，重启后残留的 running
 作业也无法接续。
 

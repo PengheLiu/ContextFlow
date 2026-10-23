@@ -3,6 +3,7 @@ import { readFileSync, readdirSync, lstatSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join, basename } from 'node:path';
 import { createHash } from 'node:crypto';
+import { endpointScanSource, PUBLIC_NETWORK_PATTERN } from './public-skill-policy.mjs';
 
 const file = process.argv[2] || 'release/public-skill/skill.js';
 const dir = join(file, '..'), text = readFileSync(file, 'utf8');
@@ -17,12 +18,12 @@ for (const [name, re] of [
   ['Bearer/token', /Bearer\s+[A-Za-z0-9_-]{20,}|(?:sk|sk-ant)-[A-Za-z0-9_-]{12,}/],
   ['个人绝对路径', /\/Users\/[A-Za-z0-9._-]+\//],
   ['localhost', /(?:127\.0\.0\.1|localhost)/i],
-  ['自建网络', /\bfetch\s*\(|XMLHttpRequest|new\s+WebSocket|new\s+EventSource/],
+  ['自建网络', PUBLIC_NETWORK_PATTERN],
   ['密钥配置', /API Key|apiKey|API Token/],
   ['本地服务路由', /call\(["']\/(?:translate|explain|summary|llm\/models)\b/],
   ['供应商实现', /anthropic-ai\/sdk|api\.anthropic\.com|api\.openai\.com|\/v1\/chat\/completions/],
   ['MCP/思源实现', /MCPBridge|mcpServers|SIYUAN_TOKEN|kernel API/],
-]) if (re.test(text)) hits.push(name);
+]) if (re.test(name === 'localhost' ? endpointScanSource(text) : text)) hits.push(name);
 if ((text.match(/LLMBridge\.chat\(/g) || []).length !== 1) hits.push('必须恰好一个 LLMBridge.chat(...) 直接调用');
 for (const required of ['showDirectoryPicker', 'createWritable', 'indexedDB', 'navigator.clipboard']) {
   if (!text.includes(required)) hits.push(`缺少能力：${required}`);

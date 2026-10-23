@@ -35,7 +35,7 @@ export function decodeMessage(value) {
 export async function request(message) {
   const encoded = await encodeMessage(message);
   return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error('扩展后台无响应，请刷新网页后重试')), 30000);
+    const timer = setTimeout(() => reject(new Error('扩展后台无响应，请刷新网页后重试')), message.type === 'cf-connect-native' ? 95000 : 30000);
     chrome.runtime.sendMessage(encoded, (response) => {
       clearTimeout(timer);
       const runtimeError = chrome.runtime.lastError;

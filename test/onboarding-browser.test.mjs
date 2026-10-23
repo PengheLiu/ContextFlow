@@ -96,6 +96,48 @@ try {
   options = await context.newPage();
   await options.goto(`chrome-extension://${id}/options.html#connect`);
   await options.locator('#connection-state').filter({ hasText: '尚未连接' }).waitFor();
+  assert.equal(await options.locator('#advanced-connection').getAttribute('open'), null, '首次连接不应默认展示终端命令');
+  assert.equal(await options.locator('#download-desktop').getAttribute('href'), 'https://pengheliu.github.io/ContextFlow/download.html');
+  assert.equal(await options.locator('#connect-desktop').isDisabled(), true, '未确认说明不能连接桌面端');
+  await context.route('https://pengheliu.github.io/ContextFlow/download.html', route => route.fulfill({
+    contentType: 'text/html; charset=utf-8', body: '<!doctype html><title>官网下载入口验收</title><h1>ContextFlow Desktop</h1>',
+  }));
+  const downloadOpened = context.waitForEvent('page');
+  await options.locator('#download-desktop').click();
+  const download = await downloadOpened; await download.waitForLoadState('domcontentloaded');
+  assert.equal(download.url(), 'https://pengheliu.github.io/ContextFlow/download.html', '下载页不能携带扩展编号、密钥或配对参数');
+  await download.close();
+  await options.locator('#desktop-consent').check();
+  assert.equal(await options.locator('#connect-desktop').isEnabled(), true);
+  // The isolated options page simulates a user's cancellation, so this test
+  // never launches a native application or attaches to an installed profile.
+  await options.evaluate(() => {
+    const send = chrome.runtime.sendMessage.bind(chrome.runtime);
+    window.nativeAttempts = 0;
+    chrome.runtime.sendMessage = (message, callback) => {
+      if (message.type === 'cf-connect-native') {
+        window.nativeAttempts++;
+        queueMicrotask(() => callback({ ok: false, error: '已取消连接，未授予浏览器访问权限。' })); return;
+      }
+      return send(message, callback);
+    };
+  });
+  assert.equal(await options.evaluate(() => window.nativeAttempts), 0, '勾选说明不能自动申请授权');
+  await options.locator('#connect-desktop').click();
+  await options.locator('#desktop-status[data-error=true]').filter({ hasText: '已取消连接' }).waitFor();
+  assert.equal(await options.locator('#connect-desktop').isEnabled(), true, '取消后能再次主动申请');
+  assert.equal(await options.evaluate(() => window.nativeAttempts), 1);
+  await options.reload();
+  await options.locator('#connection-state').filter({ hasText: '尚未连接' }).waitFor();
+  assert.equal(await options.locator('#desktop-consent').isChecked(), true, '安装后返回此页应保留说明确认');
+  await options.locator('#download-progress').filter({ hasText: '不代表安装已经完成' }).waitFor();
+  await options.screenshot({ path: join(screenshots, 'desktop-connect-1280x900.png'), fullPage: true });
+  await options.setViewportSize({ width: 390, height: 844 });
+  assert.equal(await options.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, '桌面连接主流程窄屏不能横向溢出');
+  await options.screenshot({ path: join(screenshots, 'desktop-connect-390x844.png'), fullPage: true });
+  await options.setViewportSize({ width: 1280, height: 900 });
+  console.log('ok 扩展→官网下载固定入口、无敏感参数、显式授权取消、安装返回续接和双尺寸布局通过；未启动个人桌面端');
+  await options.locator('#advanced-connection > summary').click();
   assert.ok((await options.locator('#download-companion').getAttribute('href')).includes(`/v${manifest.version}/contextflow-companion-${manifest.version}.zip`));
   await options.evaluate(() => { navigator.clipboard.writeText = async (text) => { window.setupClipboard = text; }; });
   await options.getByRole('button', { name: '复制启动服务命令', exact: true }).click();

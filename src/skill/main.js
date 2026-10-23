@@ -35,6 +35,7 @@ import { renderArticleMarkdown, safeMarkdownFilename } from '../core/markdown.js
 import { assetIds, inlineAssetTokens } from '../core/assets.js';
 import { urlKey } from '../core/urlkey.js';
 import { browserStorage } from '../core/browser-storage.js';
+import { randomUUID } from '../core/uuid.js';
 import {
   blockedScope, blockPage, blockSite, showUnblockChip, BlockControl,
 } from './blocklist.js';
@@ -619,7 +620,7 @@ export class App {
         + `  引文: ${JSON.stringify(norm(anchor.exact).slice(0, 80))}`);
     }
     const ev = {
-      id: crypto.randomUUID(), urlKey: this.key, url: location.href,
+      id: randomUUID(), urlKey: this.key, url: location.href,
       title: document.title, action: 'highlight', text: anchor.exact,
       value: null, color, anchor, parentId: null, createdAt: Date.now(),
     };
@@ -640,7 +641,7 @@ export class App {
     if (!c) {
       if (!body) return;
       c = {
-        id: crypto.randomUUID(), urlKey: this.key, url: location.href,
+        id: randomUUID(), urlKey: this.key, url: location.href,
         title: document.title, action: 'comment', text: parent?.text ?? null,
         value: body, color: null, anchor: parent?.anchor ?? null,
         parentId: highlightId, createdAt: Date.now(),
@@ -677,7 +678,7 @@ export class App {
     if (draft !== undefined) {
       const comment = restore.find(e => e.action === 'comment');
       if (comment) comment.value = draft;
-      else if (draft.trim()) restore.push({ ...h, id: crypto.randomUUID(), action: 'comment', parentId: id, value: draft, color: null });
+      else if (draft.trim()) restore.push({ ...h, id: randomUUID(), action: 'comment', parentId: id, value: draft, color: null });
     }
     this.items = this.items.filter((e) => e.id !== id && e.id !== c?.id);
     mSet(this.key, this.items);
@@ -999,6 +1000,9 @@ export class App {
   patchLookup(id, patch) {
     const ev = this.items.find((e) => e.id === id);
     if (!ev) return null;
+    // Answer deltas update an isolated preview; unchanged job metadata must not
+    // rewrite the whole reading mirror or rerender every record at token speed.
+    if (Object.entries(patch).every(([key, value]) => Object.is(ev.extra?.[key], value))) return ev;
     const durable = (patch.status && patch.status !== ev.extra?.status)
       || (patch.jobId && patch.jobId !== ev.extra?.jobId);
     ev.extra = { ...ev.extra, ...patch };
@@ -1030,7 +1034,11 @@ export class App {
             : (job.progress || '本地 agent 思考中');
           // 进度写进记录，面板上也能看到 —— 浮层关了照样有地方看
           this.patchLookup(id, { status: 'running', progress: note, jobId: job.id });
-          if (live()) tk?.label(note);
+          this.panel.renderLookupPreview?.(id, job.partialAnswer || '');
+          if (live()) {
+            tk?.label(note);
+            if (job.partialAnswer) pop.preview?.(job.partialAnswer, note);
+          }
         },
       });
       if (!alive()) { tk?.stop(); return; }       // 删除/abort 后，晚到结果不得复活记录
@@ -1053,6 +1061,7 @@ export class App {
       if (live()) pop.body(`解释失败：${e.message}`, 'bad').foot(this.hintFor(e));
     } finally {
       tk?.stop();
+      if (!this.lookupRuns.has(id) || this.lookupRuns.get(id) === ctl) this.panel.renderLookupPreview?.(id, '');
       if (this.lookupRuns.get(id) === ctl) {
         this.lookupRuns.delete(id);
         if (this.watching === id) this.watching = null;
@@ -1073,28 +1082,20 @@ export class App {
     const alive = () => !ctl.signal.aborted && this.items.some((e) => e.id === id);
     if (tk?.current !== false) this.watching = id;
     try {
-      for (;;) {
+      // Replacing a viewer of the same job only detaches the old subscription.
+      // Explicit Cancel/Delete actions send their own server-side cancellation.
+      const result = await api.waitForJob(jobId, { signal: ctl.signal, cancelOnAbort: false, onProgress: (job) => {
         if (!alive()) return;
-        const job = await api.getJob(jobId);
-        if (!alive()) return;
-        if (job.status === 'done') {
-          const ms = tk?.stop() ?? 0;
-          this.saveLookup('explain', {
-            text: draft.text, value: job.result.answer, anchor: draft.anchor,
-            extra: { question: draft.question || '' },
-          });
-          if (live()) pop.answer(job.result.answer).foot(this.meta({ ...job.result, ms }));
-          return;
-        }
-        if (job.status === 'error' || job.status === 'canceled') {
-          throw Object.assign(new Error(job.error?.message || '作业已取消'), { code: job.status === 'canceled' ? 'ABORTED' : job.error?.code, status: 502 });
-        }
-        const note = job.queuedAhead ? `排队中（前面 ${job.queuedAhead} 个）`
-          : (job.progress || '本地 agent 思考中');
+        const note = job.queuedAhead ? `排队中（前面 ${job.queuedAhead} 个）` : (job.progress || '本地 agent 思考中');
         this.patchLookup(id, { status: 'running', progress: note, jobId });
-        if (live()) tk?.label(note);
-        await new Promise((r) => setTimeout(r, 1200));
-      }
+        this.panel.renderLookupPreview?.(id, job.partialAnswer || '');
+        if (live()) { tk?.label(note); if (job.partialAnswer) pop.preview?.(job.partialAnswer, note); }
+      } });
+      if (!alive()) return;
+      const ms = tk?.stop() ?? 0;
+      this.saveLookup('explain', { text: draft.text, value: result.answer, anchor: draft.anchor,
+        extra: { question: draft.question || '' } });
+      if (live()) pop.answer(result.answer).foot(this.meta({ ...result, ms }));
     } catch (e) {
       tk?.stop();
       if (ctl.signal.aborted || !this.items.some((x) => x.id === id)) return;
@@ -1104,6 +1105,7 @@ export class App {
       if (live()) pop.body(`解释失败：${e.message}`, 'bad').foot(this.hintFor(e));
     } finally {
       tk?.stop();
+      if (!this.lookupRuns.has(id) || this.lookupRuns.get(id) === ctl) this.panel.renderLookupPreview?.(id, '');
       if (this.lookupRuns.get(id) === ctl) {
         this.lookupRuns.delete(id);
         if (this.watching === id) this.watching = null;
@@ -1174,6 +1176,7 @@ export class App {
           state: 'run',
           text: job.queuedAhead ? `排队中（前面 ${job.queuedAhead} 个）`
             : (job.progress || '正在生成速览…'),
+          partialAnswer: job.partialAnswer,
         }); } },
       });
       if (controller.signal.aborted || this.stopped) return;

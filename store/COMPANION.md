@@ -1,5 +1,9 @@
 # ContextFlow 本地配套服务
 
+这是熟悉终端用户的高级兼容包，不是桌面客户端，也不是普通用户桌面安装流程。商店已公开 1.0.0 的固定说明见 [1.0 安装指南](https://github.com/PengheLiu/ContextFlow/blob/v1.0.0/docs/GETTING_STARTED.md)。当前源码生成的 1.1.0 包仍是候选；配套包版本及公开下载须与实际扩展核对。桌面安装包的状态统一见 [官网下载页](https://pengheliu.github.io/ContextFlow/download.html)。
+
+如果已改由桌面端管理服务并加密保存配置，请继续从桌面端启动，不要另外执行本包或恢复旧登录项；没有桌面密钥的 CLI 不能解密该配置。回退前先备份并按迁移说明核对，不删除配置或重新生成配对码。
+
 本包负责 AI、笔记同步和本地 agent，不是加载进 Chrome 的扩展。基础批注与 Markdown 导出无需运行本服务。
 
 [完整安装与排障](https://github.com/PengheLiu/ContextFlow/blob/main/docs/GETTING_STARTED.md) · [Chrome 商店](https://chromewebstore.google.com/detail/contextflow/aemncphfnlpbhlddifhohpgegejjejfm)

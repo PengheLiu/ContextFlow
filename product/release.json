@@ -1,0 +1,37 @@
+{
+  "schemaVersion": 1,
+  "candidateVersion": "1.1.0",
+  "channel": "preview",
+  "publishedExtension": {
+    "version": "1.0.0",
+    "status": "published",
+    "checkedAt": "2026-10-23",
+    "storeId": "aemncphfnlpbhlddifhohpgegejjejfm"
+  },
+  "publishedGithub": {
+    "version": "1.0.0",
+    "tag": "v1.0.0",
+    "commit": "a1d9393c0eab68c2c23b08839b8a0edae4fcb36d",
+    "checkedAt": "2026-10-23"
+  },
+  "desktop": {
+    "updateMode": "manual",
+    "platforms": {
+      "darwin-arm64": {
+        "status": "available-unsigned",
+        "validation": "local-package-verified",
+        "version": "1.1.0",
+        "releaseTag": "v1.1.0",
+        "artifact": "ContextFlow-1.1.0-mac-arm64.dmg",
+        "sha256": "120157ccb31a257c731bfa847e6dfa8ce6612f5d3bb2b936bd4660f3f3db98ef",
+        "checkedAt": "2026-10-23",
+        "signing": "unsigned-unnotarized",
+        "downloadUrl": "https://github.com/PengheLiu/ContextFlow/releases/download/v1.1.0/ContextFlow-1.1.0-mac-arm64.dmg",
+        "checksumUrl": "https://github.com/PengheLiu/ContextFlow/releases/download/v1.1.0/ContextFlow-1.1.0-mac-arm64.dmg.sha256"
+      },
+      "darwin-x64": { "status": "unpublished", "validation": "not-verified" },
+      "win32-x64": { "status": "unpublished", "validation": "not-verified" },
+      "win32-arm64": { "status": "unpublished", "validation": "not-verified" }
+    }
+  }
+}

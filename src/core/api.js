@@ -7,6 +7,7 @@ import {
 } from './offline-store.js';
 import { browserStorage } from './browser-storage.js';
 import { companionInfo } from './companion-info.js';
+import { readJobStream } from './job-stream.js';
 
 const BASE = 'http://127.0.0.1:7317';
 const OUTBOX = 'contextflow:outbox';
@@ -52,7 +53,25 @@ let transport = async (path, init = {}) => {
   return { status: res.status, body: await res.json().catch(() => ({})) };
 };
 
-export function setTransport(fn) { transport = fn; }
+let streamTransport = async (id, onJob, signal) => {
+  const controller = new AbortController();
+  const abort = () => controller.abort();
+  signal?.addEventListener('abort', abort, { once: true });
+  const timer = setTimeout(abort, 15000);
+  try {
+    if (signal?.aborted) abort();
+    const response = await fetch(`${BASE}/jobs/${encodeURIComponent(id)}/stream`, {
+      headers: HEADERS, signal: controller.signal, redirect: 'error',
+    });
+    clearTimeout(timer);
+    await readJobStream(response, onJob, { signal: controller.signal });
+  } finally { clearTimeout(timer); signal?.removeEventListener('abort', abort); controller.abort(); }
+};
+
+// A replacement transport must opt into streaming separately: never leak a
+// fallback request or compiled credential into the page's fetch implementation.
+export function setTransport(fn) { transport = fn; streamTransport = null; }
+export function setStreamTransport(fn) { streamTransport = fn; }
 
 const readOutbox = () => {
   try { return JSON.parse(browserStorage().getItem(OUTBOX) || '[]'); } catch { return []; }
@@ -254,6 +273,48 @@ export async function cancelJob(id) {
   catch { return false; }
 }
 
+/** Watch an existing task. A disconnected stream only changes transport; it never resubmits work. */
+export async function waitForJob(id, { onProgress, signal, initial, cancelOnAbort = true } = {}) {
+  const aborted = () => Object.assign(new Error('已取消'), { code: 'ABORTED' });
+  const finish = (job) => {
+    if (job.status === 'done') return { result: job.result };
+    if (job.status === 'error') throw Object.assign(new Error(job.error?.message || '作业失败'), { code: job.error?.code, status: 502 });
+    if (job.status === 'canceled') throw aborted();
+    onProgress?.(job); return null;
+  };
+  const cancel = () => { if (cancelOnAbort) void cancelJob(id); };
+  signal?.addEventListener('abort', cancel, { once: true });
+  try {
+    if (signal?.aborted) { cancel(); throw aborted(); }
+    if (initial) { const done = finish(initial); if (done) return done.result; }
+    if (streamTransport) {
+      let terminal, latestRevision = -1;
+      try {
+        await streamTransport(id, (job) => {
+          if (signal?.aborted || terminal || job.id !== id) return;
+          if (Number.isFinite(job.revision) && job.revision <= latestRevision) return;
+          latestRevision = job.revision ?? latestRevision;
+          if (['done', 'error', 'canceled'].includes(job.status)) terminal = job;
+          else onProgress?.(job);
+        }, signal);
+      } catch { /* Old service, worker reload, or interrupted stream: read the authoritative job. */ }
+      if (signal?.aborted) throw aborted();
+      if (terminal) return finish(terminal).result;
+    }
+    for (;;) {
+      if (signal?.aborted) throw aborted();
+      const job = await getJob(id);
+      if (signal?.aborted) throw aborted();
+      const done = finish(job); if (done) return done.result;
+      await new Promise(resolve => {
+        const timer = setTimeout(end, 1200);
+        function end() { clearTimeout(timer); signal?.removeEventListener('abort', end); resolve(); }
+        signal?.addEventListener('abort', end, { once: true });
+      });
+    }
+  } finally { signal?.removeEventListener('abort', cancel); }
+}
+
 /** @param {boolean} [fresh] 手动点「检测」时绕过服务端缓存 */
 /**
  * 速览：全文概述。与解释同一条对话，所以之后提问能接上。
@@ -269,28 +330,20 @@ export async function summarize({ urlKey, fresh, onProgress, signal } = {}) {
   }
   if (first.mode !== 'job') return first;
 
-  const id = first.job.id;
-  onProgress?.(first.job);
-  for (;;) {
-    if (signal?.aborted) { cancelJob(id); throw Object.assign(new Error('已取消'), { code: 'ABORTED' }); }
-    const job = await getJob(id);
-    if (job.status === 'done') return job.result;
-    if (job.status === 'error') throw Object.assign(new Error(job.error?.message || '作业失败'), { code: job.error?.code, status: 502 });
-    if (job.status === 'canceled') throw Object.assign(new Error('作业已取消'), { code: 'ABORTED' });
-    onProgress?.(job);
-    await new Promise((r) => setTimeout(r, 1200));
-  }
+  return waitForJob(first.job.id, { onProgress, signal, initial: first.job });
 }
 
 export async function detectAgents(fresh = false) {
   return call(`/agents/detect${fresh ? '?fresh=1' : ''}`);
 }
 
-export async function testAgent(id, { signal, onProgress } = {}) {
+export async function testAgent(id, { draft, signal, onProgress } = {}) {
   const service = companionInfo(await health());
   if (!service.agentTestSupported) throw Object.assign(new Error('本地服务暂不支持 Agent 连接测试，请更新并重启配套服务；无需重新配对。'), { code:'COMPANION_UPDATE_REQUIRED', status:409 });
+  if (draft && !service.agentDraftTestSupported) throw Object.assign(new Error('本地服务暂不支持 Agent 草稿测试，请更新并重启配套服务后重试；原有配置保留。'), { code:'COMPANION_UPDATE_REQUIRED', status:409 });
+  if (draft && (typeof draft !== 'object' || Array.isArray(draft) || Object.keys(draft).some(key => !['executable', 'profile'].includes(key)))) throw Object.assign(new Error('Agent 测试草稿只能包含程序路径和权限档'), { code:'BAD_INPUT' });
   if (signal?.aborted) throw Object.assign(new Error('已取消测试'), { code:'ABORTED' });
-  const first = await call('/agents/test', { method:'POST', body:JSON.stringify({id}) });
+  const first = await call('/agents/test', { method:'POST', body:JSON.stringify({ id, ...draft }) });
   if (first.mode !== 'job' || !first.job?.id) throw new Error('Agent 测试响应无效，请更新配套服务');
   const jobId = first.job.id;
   const cancel = () => { cancelJob(jobId); };
@@ -325,15 +378,5 @@ export async function explain({ text, question, urlKey, offset, fresh, onProgres
   }
   if (first.mode !== 'job') return first;          // LLM 路径，直接就是答案
 
-  let id = first.job.id;
-  onProgress?.(first.job);
-  for (;;) {
-    if (signal?.aborted) { cancelJob(id); throw Object.assign(new Error('已取消'), { code: 'ABORTED' }); }
-    const job = await getJob(id);
-    if (job.status === 'done') return job.result;
-    if (job.status === 'error') throw Object.assign(new Error(job.error?.message || '作业失败'), { code: job.error?.code, status: 502 });
-    if (job.status === 'canceled') throw Object.assign(new Error('作业已取消'), { code: 'ABORTED' });
-    onProgress?.(job);
-    await new Promise((r) => setTimeout(r, 1200));
-  }
+  return waitForJob(first.job.id, { onProgress, signal, initial: first.job });
 }

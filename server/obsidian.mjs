@@ -26,7 +26,7 @@ export function detectVaults() {
     return Object.values(d.vaults || {})
       .map((v) => ({
         path: v.path,
-        name: String(v.path).split('/').filter(Boolean).pop() || v.path,
+        name: String(v.path).split(/[\\/]/).filter(Boolean).pop() || v.path,
         open: !!v.open,
         exists: existsSync(v.path),
       }))

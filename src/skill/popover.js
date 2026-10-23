@@ -371,6 +371,18 @@ export class Popover {
     }
     return this;
   }
+  /** Incomplete output stays plain text and is never a saved answer. */
+  preview(text, label = '正在生成回答') {
+    if (!this.progressNodes) this.progress(label, '');
+    let preview = this.progressNodes.preview;
+    if (!preview) {
+      preview = document.createElement('div'); preview.className = 'stream-preview';
+      preview.style.cssText = 'margin-top:12px;white-space:pre-wrap;overflow-wrap:anywhere;color:var(--cf-ink,inherit)';
+      this.$('b').append(preview); this.progressNodes.preview = preview;
+    }
+    if (preview.textContent !== text) preview.textContent = text;
+    return this.reposition();
+  }
   /** 只有成功答案走安全 Markdown 预览；原始字符串仍由调用方原样持久化。 */
   answer(text) {
     releaseTicker(this);

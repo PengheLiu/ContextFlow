@@ -1,0 +1,18 @@
+# ContextFlow owns this worker; desktop background tasks remain in the desktop app.
+- id: schedule
+  disabled: true
+- id: desktop-product-telemetry
+  disabled: true
+- id: product-analytics
+  disabled: true
+# Keep session logs and whole-document workspace metadata out of the desktop store.
+- id: storage-json
+  config:
+    root: !!js "process.env.CONTEXTFLOW_DSH_STATE_DIR + '/storage'"
+- id: session-persistence-jsonl
+  config:
+    root: !!js "process.env.CONTEXTFLOW_DSH_STATE_DIR + '/sessions'"
+- id: session-query-sqlite
+  config:
+    path: ':memory:'
+    openAt: never

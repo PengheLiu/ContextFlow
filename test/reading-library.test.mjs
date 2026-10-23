@@ -105,4 +105,13 @@ await t('备份先等待所有编辑保存；保存失败不生成文件且不�
   ui.download=()=>downloads++;await ui.action(()=>ui.backup());assert.equal(downloads,0);
   assert.match(ui.$('library-notice').textContent,/尚未保存/);assert.equal(ui.$('library-backup').disabled,false);
 });
+await t('阅读库预览共用公式与 GFM 渲染，下载不改写 LaTeX 原文',async()=>{
+  const value=String.raw`公式 \[L_{\text{Brier}}=(q-c)^2\]，其中 $q$ 是概率。`+'\n\n- [x] 已理解';
+  const ui=make({snapshot:async()=>({events:[ev('math',{action:'explain',value})],assets:[]})});await ui.refresh();
+  assert.equal(ui.$('library-preview-body').querySelectorAll('math').length,2);
+  assert.ok(ui.$('library-preview-body').querySelector('.md-task-checkbox:checked'));
+  let downloaded;ui.download=source=>{downloaded=source;};await ui.downloadArticle(ui.articles[0]);
+  assert.ok(downloaded.includes(String.raw`\[L_{\text{Brier}}=(q-c)^2\]`));
+  assert.ok(!downloaded.includes('<math'));
+});
 console.log(`\n${pass} 项通过`);

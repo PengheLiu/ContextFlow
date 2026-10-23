@@ -1,0 +1,47 @@
+name: Product consistency and core tests
+
+on:
+  workflow_dispatch:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: product-quality-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  product:
+    runs-on: macos-15
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - run: npm run check:product
+      - run: npm run test:product
+      - run: npm test
+      - run: npm run test:store-support
+      - run: npm run build:store
+      - run: npm run build:store-support
+      - run: npm run build:website
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: contextflow-preview-${{ github.sha }}
+          path: |
+            release/contextflow-chrome-*.zip
+            release/contextflow-chrome-*.zip.sha256
+            release/contextflow-companion-*.zip
+            release/contextflow-companion-*.zip.sha256
+            release/contextflow-store-site-*.zip
+            release/contextflow-store-site-*.zip.sha256
+          if-no-files-found: error
+          retention-days: 14

@@ -37,6 +37,42 @@ const make = () => {
 
 console.log('设置页 Agent 权限\n');
 
+await t('DSH 安装状态显示当前使用的桌面版及其版本', () => {
+  const s = make();
+  Object.assign(s.agents.find(agent => agent.id === 'dsh'), { source: 'desktop', version: '0.2.1-rc.2' });
+  s.wantAgent = 'dsh'; s.syncAgentSel();
+  assert.equal(s.$('s-agent').value, 'dsh');
+  assert.match(s.$('s-agent').selectedOptions[0].textContent, /DeepSeek Harness · 桌面版 · 已安装/);
+  assert.equal(s.$('s-agentInstalled').textContent, '已找到桌面版');
+  assert.equal(s.$('s-agentVersion').textContent, '版本：0.2.1-rc.2');
+  assert.equal(s.$('s-testAgent').disabled, true, 'desktop discovery must not lift the Safe restriction');
+});
+
+await t('DSH 旧命令行与自定义入口显示实际来源', () => {
+  const s = make(); s.wantAgent = 'dsh';
+  for (const [source, label] of [['cli', '命令行兼容版'], ['explicit', '自定义入口']]) {
+    Object.assign(s.agents.find(agent => agent.id === 'dsh'), { source, version: 'fixture' });
+    s.syncAgentSel();
+    assert.ok(s.$('s-agent').selectedOptions[0].textContent.includes(label));
+    assert.equal(s.$('s-agentInstalled').textContent, `已找到${label}`);
+  }
+});
+
+await t('桌面 DSH 可单独支持禁用工具的连接测试，普通 Safe 权限仍未开放', () => {
+  const s = make();
+  Object.assign(s.agents.find(agent => agent.id === 'dsh'), {
+    source: 'desktop', version: '0.2.1-rc.2', connectionTestSupported: true,
+  });
+  s.wantAgent = 'dsh'; s.syncAgentSel();
+  assert.equal(s.$('s-testAgent').disabled, false);
+  assert.match(s.$('s-agentTestStatus').textContent, /独立会话.*禁用全部工具/);
+  assert.equal(s.agents.find(agent => agent.id === 'dsh').safeSupport, 'unsupported');
+  assert.throws(() => s.patch(), /安全权限边界未验证|完整权限/);
+  s.agents.find(agent => agent.id === 'dsh').connectionTestSupported = false;
+  s.renderAgentState();
+  assert.equal(s.$('s-testAgent').disabled, true);
+});
+
 await t('默认安全档可直接保存且不生成完整权限确认', () => {
   const s = make();
   const p = s.patch();
@@ -506,6 +542,69 @@ await t('简洁回答方式旁的问号可点击展开，Esc 收起并返回焦�
   s.$('s-exBackend').dispatchEvent(new dom.window.KeyboardEvent('keydown',{key:'Escape',bubbles:true,cancelable:true}));
   assert.equal(help.hidden,true);assert.equal(trigger.getAttribute('aria-expanded'),'false');assert.equal(s.sh.activeElement,trigger);
   trigger.click();trigger.click();assert.equal(help.hidden,true);
+});
+
+await t('新 Agent 路径可直接测试草稿；通过前不能保存，通过后一次保存全部明确更改',async()=>{
+  const s=make(),states=[];let writes=0,tests=0,savedState;
+  s.cfg={...s.cfg,explain:{backend:'llm'},translate:{apiKeySet:false},siyuan:{tokenSet:false}};
+  s.service={agentTestSupported:true,agentDraftTestSupported:true};
+  s.onStateChange=state=>states.push({...state});s.onSaved=()=>{savedState={dirty:s.dirty,saving:s.saving};};
+  s.$('s-exBackend').value='agent';s.$('s-exBackend').dispatchEvent(new Event('change',{bubbles:true}));
+  s.$('s-agentExecutable').value='/fixture/new-claude';s.$('s-agentExecutable').dispatchEvent(new Event('input',{bubbles:true}));
+  assert.equal(s.$('s-testAgent').disabled,false);assert.equal(s.$('s-save').disabled,true);
+  assert.throws(()=>s.patch(),e=>e.code==='AGENT_TEST_REQUIRED');
+  s.api.testAgent=async(id,{draft})=>{tests++;assert.deepEqual(draft,{executable:'/fixture/new-claude',profile:'safe'});return {ok:true,agent:id,path:'/fixture/new-claude',executable:draft.executable,version:'new',configuredProfile:draft.profile,scope:'connection-only',checkedAt:3000};};
+  s.api.putConfig=async patch=>{writes++;return {...s.cfg,...patch,translate:{...patch.translate,apiKeySet:false},siyuan:{...patch.siyuan,tokenSet:false},connectionChecks:{agents:{claude:{ok:true,path:'/fixture/new-claude',version:'new',profile:'safe',checkedAt:3000}}}};};
+  await s.testAgent();assert.equal(tests,1);assert.equal(writes,0);assert.equal(s.$('s-save').disabled,false);
+  assert.match(s.$('s-agentTestStatus').textContent,/可以保存/);await s.save();
+  assert.equal(writes,1);assert.equal(s.dirty,false);assert.equal(s.saving,false);assert.equal(s.$('s-save').disabled,false);
+  assert.equal(savedState.dirty,false);assert.equal(states.at(-1).saving,false);assert.equal(states.at(-1).dirty,false);
+  assert.ok(states.some(state=>state.agentWorking));assert.ok(states.some(state=>state.saving));
+});
+
+await t('Agent id、路径、版本或权限档变化即失效，测试不授予Full与笔记权限',async()=>{
+  const s=make();s.cfg.explain={backend:'llm'};s.$('s-exBackend').value='agent';
+  s.api.testAgent=async(id,{draft})=>({ok:true,agent:id,path:'/fixture/claude',version:'v1',configuredProfile:draft.profile,scope:'connection-only',checkedAt:4000});
+  await s.testAgent();assert.equal(s.agentResult().ok,true);
+  s.agents.find(row=>row.id==='claude').version='v2';s.renderAgentState();assert.equal(s.agentResult(),null);assert.equal(s.$('s-save').disabled,true);
+  s.agents.find(row=>row.id==='claude').version='v1';
+  s.$('s-agentExecutable').value='/fixture/changed';s.$('s-agentExecutable').dispatchEvent(new Event('input',{bubbles:true}));assert.equal(s.agentResult(),null);
+  s.$('s-agentExecutable').value='';s.$('s-profileFull').checked=true;s.$('s-profileFull').dispatchEvent(new Event('change',{bubbles:true}));assert.equal(s.agentResult(),null);
+  await s.testAgent();assert.equal(s.agentResult().ok,true);assert.throws(()=>s.patch(),e=>e.code==='AGENT_FULL_ACK','connection success cannot acknowledge Full permissions');
+  assert.equal(s.$('s-notesDir').value,'');s.$('s-profileSafe').checked=true;s.$('s-agent').value='codex';s.$('s-agent').dispatchEvent(new Event('change',{bubbles:true}));assert.equal(s.agentResult(),null);
+});
+
+await t('既有已保存Agent不因只改语言或笔记等无关设置被测试门槛锁住',async()=>{
+  const s=make();let writes=0;s.cfg={...s.cfg,explain:{backend:'agent'},translate:{apiKeySet:false},siyuan:{tokenSet:false}};
+  s.$('s-exBackend').value='agent';s.$('s-target').value='English';s.$('s-target').dispatchEvent(new Event('input',{bubbles:true}));
+  assert.equal(s.needsAgentTest(),false);assert.equal(s.$('s-save').disabled,false);
+  s.api.putConfig=async patch=>{writes++;return {...s.cfg,...patch,translate:{...patch.translate,apiKeySet:false},siyuan:{...patch.siyuan,tokenSet:false}};};
+  await s.save();assert.equal(writes,1);assert.equal(s.saving,false);
+});
+
+await t('测试中再改草稿不能让旧结果变绿或放开保存，失败重试不触碰配置',async()=>{
+  const s=make();s.cfg.explain={backend:'llm'};s.$('s-exBackend').value='agent';let finish,writes=0;
+  s.api.putConfig=async()=>writes++;s.api.testAgent=()=>new Promise(resolve=>{finish=resolve;});
+  const checking=s.testAgent();s.$('s-agentExecutable').value='/fixture/newer';s.$('s-agentExecutable').dispatchEvent(new Event('input',{bubbles:true}));
+  finish({ok:true,agent:'claude',path:'/fixture/old',version:'v1',configuredProfile:'safe',scope:'connection-only'});await checking;
+  assert.equal(s.agentResult(),null);assert.equal(s.$('s-save').disabled,true);assert.match(s.$('s-toastText').textContent,/当前选择已变化/);assert.equal(writes,0);
+  s.api.testAgent=async()=>{throw Object.assign(new Error('请登录后重试'),{code:'AGENT_AUTH'});};await s.testAgent();
+  assert.equal(s.$('s-testAgent').disabled,false);assert.equal(s.$('s-save').disabled,true);assert.equal(writes,0);
+});
+
+await t('自定义路径允许未检测到的已选Agent测试；旧服务只保留未更改配置的ID测试',async()=>{
+  const s=make();s.$('s-agent').value='codex';s.agents.find(row=>row.id==='codex').available=false;
+  s.$('s-agentExecutable').value='/fixture/codex';s.renderAgentState();assert.equal(s.$('s-testAgent').disabled,false);
+  s.service={agentTestSupported:true,agentDraftTestSupported:false};s.renderAgentState();assert.equal(s.$('s-testAgent').disabled,true);assert.match(s.$('s-agentTestStatus').textContent,/草稿.*更新/);
+  s.$('s-agent').value='claude';s.$('s-agentExecutable').value='';s.renderAgentState();assert.equal(s.$('s-testAgent').disabled,false);
+});
+
+await t('DSH新路径可以请求重新核实受限测试，但连接成功不会解锁普通Safe',async()=>{
+  const s=make();s.cfg.explain={backend:'llm'};s.$('s-exBackend').value='agent';
+  s.$('s-agent').value='dsh';s.$('s-agentExecutable').value='/fixture/new-dsh';s.renderAgentState();assert.equal(s.$('s-testAgent').disabled,false);
+  s.api.testAgent=async()=>({ok:true,agent:'dsh',label:'DeepSeek Harness',path:'/fixture/new-dsh',version:'fixture',configuredProfile:'safe',safeSupport:'unsupported',connectionTestSupported:true,scope:'connection-only'});
+  await s.testAgent();assert.equal(s.agentResult().ok,true);assert.throws(()=>s.patch(),e=>e.code==='AGENT_SAFE_UNSUPPORTED');
+  assert.equal(s.$('s-profileFull').checked,false);assert.equal(s.$('s-notesDir').value,'');
 });
 
 console.log(`\n${pass} 项通过`);

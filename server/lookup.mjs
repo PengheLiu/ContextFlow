@@ -209,7 +209,7 @@ export async function explainViaLLM({ text, question, urlKey, offset, fresh = fa
  * @param {string} o.system  首轮附的系统提示（续接时不重复发）
  * @param {(s:string)=>void} [o.onProgress]
  */
-async function askAgent({ urlKey, draft, system, cfg, onProgress, signal }) {
+async function askAgent({ urlKey, draft, system, cfg, onProgress, onEvent, signal }) {
   const a = cfg.agent || {};
   const id = a.id;
   if (!agent.AGENT_IDS.includes(id)) {
@@ -219,9 +219,26 @@ async function askAgent({ urlKey, draft, system, cfg, onProgress, signal }) {
   const chunkChars = cfg.translate?.chunkChars ?? 5000;
   const tailChars = cfg.translate?.tailChars ?? 1000;
   const article = chunkChars > 0 && urlKey ? articleOf(urlKey) : null;
-  const sess = urlKey ? db.getAgentSession(urlKey, id) : null;
   const profile = a.profile || 'safe';
-  const canResume = profile === 'full' && agent.AGENTS[id].resumable && !!sess;
+  const managed = id === 'codex' || id === 'dsh';
+  const contextKey = managed && urlKey ? sha1(JSON.stringify([
+    'reading-v1', urlKey, article?.hash || '', chunkChars, tailChars,
+    cfg.translate?.contextBudget || 60000,
+  ])) : undefined;
+  const sess = managed
+    ? agent.session({ agent: id, contextKey, env: a.env || {}, profile, notesDir: a.notesDir || '', bin: a.executable || undefined })
+    : (urlKey ? db.getAgentSession(urlKey, id) : null);
+  const canResume = !!sess && (managed || (profile === 'full' && agent.AGENTS[id].resumable));
+
+  // 常驻进程可能在排队、初始化或提交前退出。始终准备完整历史，运行时确认同一
+  // thread 仍可用后才选择增量，绝不拿增量提示去启动一个没有历史的新会话。
+  let rebuilt, historyCount = 0;
+  if (managed || !canResume) {
+    const history = urlKey ? db.lookupHistory(urlKey, convoActions(true, true)) : [];
+    historyCount = history.length;
+    rebuilt = buildMessages({ article, history, current: draft,
+      budget: cfg.translate?.contextBudget || 60000, chunkChars, tailChars });
+  }
 
   let prompt, chunks, note, turnsIncluded = sess?.turns || 0;
   if (canResume) {
@@ -235,22 +252,29 @@ async function askAgent({ urlKey, draft, system, cfg, onProgress, signal }) {
   } else {
     // 不能续接（agent 不支持，或还没有会话）→ 发完整对话。
     // 只发增量会让没有记忆的 agent 在缺上下文的情况下作答。
-    const history = urlKey ? db.lookupHistory(urlKey, convoActions(true, true)) : [];
-    const built = buildMessages({
-      article, history, current: draft,
-      budget: cfg.translate?.contextBudget || 60000, chunkChars, tailChars,
-    });
-    prompt = flatten(built.messages);
-    chunks = built.chunks;
-    turnsIncluded = Math.max(0, history.length - built.dropped);
+    prompt = flatten(rebuilt.messages);
+    chunks = rebuilt.chunks;
+    turnsIncluded = Math.max(0, historyCount - rebuilt.dropped);
     note = '正在准备上下文…';
   }
   prompt = `${canResume ? '' : `${system}\n\n---\n\n`}${prompt}`;
   onProgress?.(note);
+  // 速览与解释共用文章线程，但每一轮都需带本轮要求，避免首轮的速览要求沿用到解释。
+  const continuationPrompt = managed && canResume ? `${system}\n\n---\n\n${prompt}` : undefined;
+  if (managed) prompt = `${system}\n\n---\n\n${flatten(rebuilt.messages)}`;
+  const freshState = rebuilt ? {
+    // 预算裁剪可能删除正文前缀；宁可再次补正文，也不将未发送的段落标为已加载。
+    loadedChunks: rebuilt.dropped ? 0 : rebuilt.chunks,
+    turns: Math.max(0, historyCount - rebuilt.dropped) + 1,
+  } : undefined;
 
   const r = await agent.run({
     agent: id,
+    bin: a.executable || undefined,
     prompt,
+    contextKey, continuationPrompt, expectedSessionId: managed ? sess?.sessionId : undefined,
+    contextState: managed ? { fresh: freshState,
+      resumed: { loadedChunks: chunks, turns: (sess?.turns || 0) + 1 } } : undefined,
     sessionId: sess?.sessionId,
     resume: canResume,
     notesDir: a.notesDir || '',
@@ -261,23 +285,31 @@ async function askAgent({ urlKey, draft, system, cfg, onProgress, signal }) {
     // Agent stderr 只进服务端日志/错误诊断，不再直接透传到用户界面。
     // 各 CLI 的 warning、工具日志和调试输出不具备稳定的用户语义。
     onProgress: null,
+    onEvent,
     signal,
   });
 
-  if (urlKey && r.sessionId) {
+  if (!managed && profile === 'full' && urlKey && r.sessionId && agent.AGENTS[id].resumable) {
     db.putAgentSession(urlKey, id, r.sessionId, (sess?.turns || 0) + 1, chunks);
   }
   // 只在真有数字时才给 usage —— 之前硬编 {in:0,out:0}，面板上就显示成
   // "0→0 tok"，看起来像"一个 token 都没用"，是在撒谎。dsh 这类不报用量的
   // agent 应该干脆不显示这一项。
-  const usage = (r.cacheRead || r.cacheWrite)
+  const usage = r.usage || ((r.cacheRead || r.cacheWrite)
     ? { in: 0, out: 0, cacheRead: r.cacheRead ?? 0, cacheWrite: r.cacheWrite ?? 0 }
-    : undefined;
+    : undefined);
+  const resumed = managed ? !!r.resumed : canResume;
+  if (managed && !resumed) {
+    chunks = rebuilt.chunks;
+    turnsIncluded = Math.max(0, historyCount - rebuilt.dropped);
+  }
   return {
     answer: r.answer, via: `agent:${id}`, model: agent.AGENTS[id].label,
     ...(usage ? { usage } : {}),
     agentMeta: {
-      turns: r.turns, ms: r.ms, costUsd: r.costUsd, denials: r.denials, resumed: canResume,
+      turns: r.turns, ms: r.ms, costUsd: r.costUsd, denials: r.denials, resumed,
+      ...(r.transport ? { transport: r.transport } : {}),
+      ...(r.timings ? { timings: r.timings } : {}),
     },
     ctx: {
       hasArticle: !!article, turns: turnsIncluded, dropped: 0, tokens: 0,
@@ -288,7 +320,7 @@ async function askAgent({ urlKey, draft, system, cfg, onProgress, signal }) {
 }
 
 /** 解释走本地 agent。 */
-export async function explainViaAgent({ text, question, urlKey, offset, fresh = false, cfg, onProgress, signal }) {
+export async function explainViaAgent({ text, question, urlKey, offset, fresh = false, cfg, onProgress, onEvent, signal }) {
   const src = checkText(text);
   const q = String(question ?? '').trim().slice(0, MAX_QUESTION);
 
@@ -305,7 +337,7 @@ export async function explainViaAgent({ text, question, urlKey, offset, fresh = 
   }
 
   const r = await askAgent({
-    urlKey, cfg, onProgress, signal, system: AGENT_SYSTEM,
+    urlKey, cfg, onProgress, onEvent, signal, system: AGENT_SYSTEM,
     draft: { action: 'explain', text: src, offset, extra: { question: q } },
   });
   return { ...r, question: q, cached: false };
@@ -359,7 +391,7 @@ function clampSummary(raw) {
  * 首段刻意是「开头 5k + 结尾 1k」（见 convo.articleMessage）：只看开头往往抓不到
  * 结论，而全塞进去就回到"第一次查询要等整篇 prefill"的老问题。
  */
-export async function summarize({ urlKey, cfg, fresh = false, onProgress, signal }) {
+export async function summarize({ urlKey, cfg, fresh = false, onProgress, onEvent, signal }) {
   if (!urlKey) throw err('缺少 urlKey', 'BAD_INPUT');
 
   const prior = fresh ? null : db.findLookup(urlKey, { action: 'summary', text: '', extra: {} });
@@ -377,7 +409,7 @@ export async function summarize({ urlKey, cfg, fresh = false, onProgress, signal
   const { viaAgent } = await plan(cfg);
 
   if (viaAgent) {
-    const r = await askAgent({ urlKey, draft, cfg, onProgress, signal, system: SUMMARY_AGENT_SYSTEM });
+    const r = await askAgent({ urlKey, draft, cfg, onProgress, onEvent, signal, system: SUMMARY_AGENT_SYSTEM });
     const { text, trimmed } = clampSummary(r.answer);
     return { summary: text, cached: false, via: r.via, model: r.model,
       usage: r.usage, agentMeta: r.agentMeta, ctx: { ...r.ctx, trimmed } };

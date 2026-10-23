@@ -10,6 +10,7 @@
 // 服务重启后残留的 running 作业没有任何办法接续，持久化只会留下一堆僵尸。
 
 const jobs = new Map();          // id → job
+const listeners = new Map();     // transient subscribers; never part of saved reading records
 const queue = [];                // 待跑的 job id
 // 用 Set 而不是计数器：计数器会被"陈旧完成"打成负数（_reset 归零后，先前还在飞的
 // 任务完成时仍会 running--），一旦为负就允许并发超限。删一个不在集合里的 id 是
@@ -20,6 +21,22 @@ let seq = 0;
 const MAX_CONCURRENT = 1;
 // 完成后保留一会儿供前端取结果，之后清掉，避免内存里越积越多
 const KEEP_MS = 10 * 60 * 1000;
+const MAX_PREVIEW = 200000;
+
+function changed(job) {
+  job.revision++;
+  for (const notify of listeners.get(job.id) || []) {
+    try { notify(view(job)); } catch { /* A disconnected view must not fail the task. */ }
+  }
+}
+
+export function subscribe(id, notify) {
+  if (!jobs.has(id)) return null;
+  let group = listeners.get(id);
+  if (!group) listeners.set(id, group = new Set());
+  group.add(notify);
+  return () => { group.delete(notify); if (!group.size) listeners.delete(id); };
+}
 
 /**
  * @param {object} o
@@ -34,6 +51,9 @@ export function submit({ kind, label, task }) {
     id, kind, label,
     status: 'queued',            // queued | running | done | error | canceled
     progress: '',
+    revision: 0,
+    partialAnswer: '',
+    usage: null,
     result: null,
     error: null,
     at: Date.now(),
@@ -57,11 +77,24 @@ function pump() {
     inFlight.add(id);
     job.status = 'running';
     job.startedAt = Date.now();
+    changed(job);
 
     const api = {
       id: job.id,
       signal: job._controller.signal,
-      progress: (text) => { if (!job._canceled) job.progress = String(text ?? '').slice(0, 400); },
+      progress: (text) => {
+        if (job._canceled) return;
+        const next = String(text ?? '').slice(0, 400);
+        if (next !== job.progress) { job.progress = next; changed(job); }
+      },
+      event: (event) => {
+        if (job._canceled || job.status !== 'running') return;
+        if (event?.type === 'status') return api.progress(event.text);
+        if (event?.type === 'answer') job.partialAnswer = String(event.text ?? '').slice(0, MAX_PREVIEW);
+        else if (event?.type === 'usage') job.usage = event.usage;
+        else return;
+        changed(job);
+      },
       get canceled() { return job._canceled; },
     };
 
@@ -70,17 +103,19 @@ function pump() {
       .then((r) => {
         if (job._canceled) return;
         job.status = 'done'; job.result = r;
+        job.partialAnswer = ''; changed(job);
       })
       .catch((e) => {
         if (job._canceled) return;
         job.status = 'error';
         job.error = { message: e?.message || String(e), code: e?.code || 'ERROR' };
+        job.partialAnswer = ''; changed(job);
       })
       .finally(() => {
         inFlight.delete(job.id);
         job.endedAt = Date.now();
         job._task = null;                       // 别把闭包（含全文）留在内存里
-        setTimeout(() => jobs.delete(job.id), KEEP_MS).unref?.();
+        setTimeout(() => { jobs.delete(job.id); listeners.delete(job.id); }, KEEP_MS).unref?.();
         pump();
       });
   }
@@ -94,6 +129,7 @@ function view(job) {
   return {
     id: job.id, kind: job.kind, label: job.label,
     status: job.status, progress: job.progress,
+    revision: job.revision, partialAnswer: job.partialAnswer, usage: job.usage,
     queuedAhead: Math.max(0, queuedAhead),
     ms: (job.endedAt ?? Date.now()) - (job.startedAt ?? job.at),
     result: job.status === 'done' ? job.result : null,
@@ -111,12 +147,14 @@ export function cancel(id) {
   if (!j || ['done', 'error', 'canceled'].includes(j.status)) return false;
   j._canceled = true;
   j.status = 'canceled';
+  j.partialAnswer = '';
   j._controller.abort();
   j.endedAt = Date.now();
+  changed(j);
   const i = queue.indexOf(id);
   if (i >= 0) {
     queue.splice(i, 1); j._task = null;
-    setTimeout(() => jobs.delete(j.id), KEEP_MS).unref?.();
+    setTimeout(() => { jobs.delete(j.id); listeners.delete(j.id); }, KEEP_MS).unref?.();
   }
   return true;
 }
@@ -132,6 +170,11 @@ export function stats() {
 
 /** 测试用：清空状态 */
 export function _reset() {
-  for (const j of jobs.values()) { j._canceled = true; j._controller.abort(); }
+  shutdown();
   jobs.clear(); queue.length = 0; inFlight.clear(); seq = 0;
+}
+
+export function shutdown() {
+  for (const id of jobs.keys()) cancel(id);
+  listeners.clear();
 }
