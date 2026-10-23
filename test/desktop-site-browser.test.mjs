@@ -85,6 +85,8 @@ try {
     assert.doesNotMatch(await page.locator('body').textContent(), /预览|候选/);
     assert.equal(await page.locator('.release-notice').getAttribute('data-desktop-version'), desktopRelease.version);
     assert.equal(await page.locator('.release-notice').getAttribute('data-published-version'), release.publishedExtension.version);
+    assert.match(await page.locator('#desktop-extension-requirement').textContent(), /ContextFlow Chrome 扩展 1\.1\.0 或更高版本/);
+    assert.match(await page.locator('#desktop-extension-requirement').textContent(), /下载前.*「连接桌面端」入口.*商店可安装版本以实际页面为准/);
     await layout(`首页 ${size}`);
     await page.screenshot({ path: join(evidence, `website-home-${size}.png`) });
     await page.locator('.site-header .nav-links a[href="download.html"]').click();
@@ -98,6 +100,12 @@ try {
     assert.match(await page.locator('.release-status').textContent(), /不要关闭系统保护/);
     assert.equal(await page.locator('.release-status').getAttribute('data-desktop-version'), desktopRelease.version);
     assert.equal(await page.locator('.release-status').getAttribute('data-published-version'), release.publishedExtension.version);
+    const connectionRequirement = page.locator('#desktop-extension-requirement');
+    assert.equal(await connectionRequirement.isVisible(), true, '下载前直接展示一键连接要求，不折叠到帮助中');
+    assert.match(await connectionRequirement.textContent(), /ContextFlow Chrome 扩展 1\.1\.0 或更高版本/);
+    assert.match(await connectionRequirement.textContent(), /下载前.*「连接与设置」.*「连接桌面端」入口/);
+    assert.match(await connectionRequirement.textContent(), /商店可安装版本以实际页面为准/);
+    assert.match(await connectionRequirement.textContent(), /没有入口.*继续高亮、批注与 Markdown 导出.*不要卸载扩展/);
     assert.equal(await page.locator('.download-option').count(), 4);
     const platforms = await page.locator('.download-option').evaluateAll(cards => cards.map(card => ({
       platform: card.dataset.platform,

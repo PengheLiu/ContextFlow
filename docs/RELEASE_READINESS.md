@@ -1,20 +1,20 @@
 # 1.1 独立桌面分发与当前状态
 
-核查日期：2026-10-23。本页区分源码候选、公开产品和待验证条件，不把本机可用写成已正式发布。
+核查日期：2026-10-24。本页区分源码候选、公开产品和待验证条件，不把本机可用写成 Chrome 已审核通过。
 
 ## 当前可用的版本
 
 | 入口 | 核实状态 |
 | --- | --- |
 | Chrome 商店 | 1.0.0 已上线，公开页更新日期为 2026-10-21 |
-| GitHub Release | v1.0.0 已公开；原 tag 和三个 ZIP / SHA 不覆盖 |
+| GitHub Release | v1.1.0 已独立公开（prerelease、非 latest）；v1.0.0 原 tag 和附件不覆盖 |
 | 当前源码 | 1.1.0，preview；桌面连接及新增 nativeMessaging 尚未随商店版本发布 |
 | 新桌面端 | Mac ARM64 1.1.0 通过官网独立分发；无 Developer ID 签名 / Apple 公证；其他架构未开放下载 |
-| 本机验证 | Apple Silicon 预览；不是 Intel / Windows 干净实机、签名或公证证明 |
+| 本机验证 | Apple Silicon 冻结 DMG 覆盖安装、真实原生授权 / 撤销重连通过；不是 Intel / Windows 干净实机、签名或公证证明 |
 
 唯一机器可读状态为 [product/release.json](../product/release.json)。README、官网安装提示、下载状态、根目录 / 桌面版本与锁文件都必须与它一致。公开状态带核查日期，离线检查不冒充实时验证。
 
-2026-10-23 初次审查时线上 `download.html` 为 404，官网仍显示旧的 1.0 待审核状态。本轮获准更新 GitHub、部署官网并独立分发安装包；实际部署仍须检查 Pages 构建和公开下载。GitHub main、独立桌面 Release 与 Pages 分开发布，不能把本地文件修改当成线上已更新。
+2026-10-23 初次审查时线上 `download.html` 为 404。本轮 GitHub main / tag、独立 Release 与 Pages 已实际更新，8 个下载文件及 8 个官网文件均通过无登录 HTTPS 字节核验。官网在下载前明确一键连接需要扩展 1.1.0+ 及相应入口，商店可安装版本以实际页面为准；不通过卸载解决缺少入口。三条发布链仍独立，官网 / Release 不代表 Chrome 已送审或上线。
 
 ## 独立分发的边界
 
@@ -40,9 +40,9 @@
 
 ## 本轮验证记录
 
-2026-10-23 本地已通过核心完整测试、配套服务全新隔离安装、产品门禁 / 公开入口单元测试、桌面专项测试、独立视觉检查及原生生命周期 smoke。官网在桌面与窄屏尺寸检查过布局、链接、控制台和自动外部请求。以上均不等于远端 CI 或真实商店审核通过。
+2026-10-23 至 24 日，本地完整 `test:release`、最终 ZIP 浏览器回归、视觉与生命周期 smoke 通过；实际 Mac 覆盖安装及用户两次原生允许、刷新、撤销 / 重连 / 清理通过。`f71f3dc` 的核心 CI 和 Windows x64 / Mac ARM / Intel 桌面矩阵全部 success，包含真实内置服务启动。官网桌面 / 窄屏、公开资源与无外部自动请求验收通过。证据及边界见[完整审计](./RELEASE_AUDIT_1_1.md)，这些仍不等于 Google 审核通过。
 
-1.1.0 的 Chrome、companion、静态官网 ZIP 以及 Mac ARM64 DMG、Windows x64 EXE 已生成。两份桌面包均附 SHA-256；Mac 包验证过脱离源码目录运行内置服务，Windows 包仅通过构建及结构检查。Mac 没有 Developer ID 签名 / 公证，Windows 安装器也没有 Authenticode 签名，不宣称为受系统信任的签名发行。跨平台构建后已将本地开发运行时恢复为 Mac ARM64，未替换已安装的应用或启停用户现用服务。
+1.1.0 的 Chrome、companion、静态官网 ZIP 和 Mac ARM64 DMG 已公开并附 SHA-256；Windows / Intel 包通过 CI 构建、隔离生命周期和包校验，但没有人工干净安装 / Chrome 注册验收，不提供官网下载。Mac 没有 Developer ID 签名 / 公证，Windows 安装器没有 Authenticode 签名，不宣称受系统信任。经用户明确允许，已备份并正常退出旧应用，从冻结 DMG 覆盖安装本机 1.1；配置、密钥和旧授权保留，测试授权已清理。
 
 独立分发检查必须核对真实 DMG、SHA 与记录一致，以及公开下载与官网返回成功。严格的签名发行门禁仍因 preview 源码渠道及缺少签名证据拒绝通过；不修改门禁来伪造签名、公证或实机报告。
 
@@ -61,6 +61,8 @@ npm run test:desktop:smoke
 ```
 
 已安装桌面开发依赖后，可用 `npm run test:release` 顺序重跑核心、产品、桌面和服务包测试。构建待上传 ZIP 与官网后，以已有 Playwright 运行目录设置 `CONTEXTFLOW_PLAYWRIGHT_DIR`，运行 `npm run test:release:browser`；其中产物验收直接解压最终 ZIP，不重建或改写 `sw.js` / `app.js`，只为固定商店 ID 在隔离副本添加公开公钥。它验证真实浏览器与临时 core，但 Native Messaging 的 OS 传输用窄模拟替代，不冒充系统注册 / 用户桌面授权的实机证明。
+
+真实 Mac 原生联调另用显式 opt-in 的 `test/store-native-live-browser.test.mjs`，需要用户现场允许临时浏览器并在桌面仅撤销该测试实例。它不调用模型、不改配置、不同步笔记；不要加入无人值守的默认测试，也不能因省略 opt-in 而宣称该联调通过。
 
 真实网页与扩展验收使用已有的隔离 Playwright / Chromium 环境；命令及范围见[开发指南](./DEVELOPMENT.md)。不能把模拟模型、native callback 或本机截图当作付费模型、OS 指针命中或其他系统的完整验收。GitHub 已配置只读权限的核心质量及跨平台预览构建工作流，但本地通过不代表远端 CI 已执行；推送后须核对实际运行结果，不放置伪造的“已通过”徽章。
 

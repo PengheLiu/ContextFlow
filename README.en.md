@@ -72,11 +72,13 @@ ContextFlow connects the web, AI, and your existing knowledge rather than creati
 
 The [desktop download page](https://pengheliu.github.io/ContextFlow/download.html) provides Desktop 1.1.0 for Apple Silicon as a DMG with a SHA-256 checksum; macOS 13.5+ is required. The package includes its runtime, so end users do not need Node.js, Git, or npm. Intel Mac and Windows installers are not open for download; do not substitute a different architecture.
 
+Desktop one-click connection requires **ContextFlow Chrome extension 1.1.0 or later**. Before downloading, open the extension's **连接与设置** and confirm that **连接桌面端** (Connect desktop) is available. The actual store page determines which version can be installed. If the entry is absent, continue highlighting, annotating, and exporting Markdown; do not uninstall the extension.
+
 Open the desktop app → choose **连接桌面端** (Connect desktop) in the extension's **连接与设置** → verify the request and choose **允许连接** (Allow) in the desktop dialog → optionally test and save a model or agent → save and confirm a note destination → return to an article for a real answer or click **同步** (Sync). No terminal or manual pairing-code generation/copying is required. Chrome profiles authorize separately and can be revoked individually. AI and note sync are independent; sync does not require a model.
 
 Discovery lists candidates, not verified logins or permissions. Connection tests are explicit, may incur charges, and do not validate note access or writing. Confirming a destination does not sync anything automatically.
 
-One-click connection needs a matching extension with the required permission. Check actual store availability in the [installation guide](./docs/GETTING_STARTED.md#版本与发行记录). Do not uninstall to update: that can erase browser records. The interface is primarily in Chinese.
+Review Chrome's required permissions before connecting, then refresh open articles after updating. See [version and connection requirements](./docs/GETTING_STARTED.md#版本与连接要求). The interface is primarily in Chinese.
 
 **Safety and scope:** this Mac package is not Developer ID-signed or Apple-notarized. A checksum does not replace those checks. If macOS blocks it, review [Apple's safety guidance](https://support.apple.com/en-us/102445); do not disable Gatekeeper or remove quarantine protection in bulk. Validation covers the maintainer's Apple Silicon setup and isolated tests, not every Mac. Other environments can continue with basic reading or explicitly choose the [advanced CLI route](./docs/GETTING_STARTED.md#高级兼容路径命令行服务). [Desktop scope and validation →](./docs/DESKTOP.md)
 

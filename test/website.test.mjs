@@ -47,6 +47,19 @@ try {
         targetDOM.window.close();
       }
     }
+    if (file === 'index.html' || file === 'download.html') {
+      const requirement = document.querySelector('#desktop-extension-requirement');
+      assert.ok(requirement, '下载前应明确一键连接所需扩展版本，而不是让用户安装后猜测入口');
+      assert.match(requirement.textContent, /ContextFlow Chrome 扩展 1\.1\.0 或更高版本/);
+      assert.match(requirement.textContent, /下载前.*「连接与设置」.*「连接桌面端」入口/);
+      assert.match(requirement.textContent, /商店可安装版本以实际页面为准/);
+      assert.match(requirement.textContent, /没有入口.*继续高亮、批注与 Markdown 导出.*不要卸载扩展/);
+      const downloadAction = file === 'index.html'
+        ? document.querySelector('.setup-intro > a[href="download.html"]')
+        : document.querySelector('.download-hero .actions a[href="#platforms"]');
+      assert.ok(requirement.compareDocumentPosition(downloadAction) & dom.window.Node.DOCUMENT_POSITION_FOLLOWING,
+        '连接要求必须在对应桌面下载行动之前可读');
+    }
     if (file === 'index.html') {
       assert.equal(document.querySelector('link[rel="canonical"]').href, base);
       assert.equal(document.querySelector('meta[property="og:url"]').content, base);
@@ -149,6 +162,21 @@ try {
     const source = readFileSync(file, 'utf8');
     assert.match(source, /https:\/\/pengheliu.github.io\/ContextFlow\/download.html/, `${file} 的桌面入口应统一到官网`);
   }
+  for (const file of ['README.md', 'docs/GETTING_STARTED.md']) {
+    const source = readFileSync(file, 'utf8');
+    assert.match(source, /ContextFlow Chrome 扩展 1\.1\.0 或更高版本/, `${file} 应明确扩展最低版本`);
+    assert.match(source, /下载前.*「连接与设置」.*「连接桌面端」入口/);
+    assert.match(source, /商店可安装版本以实际页面为准/);
+    assert.match(source, /没有入口.*继续高亮、批注与 Markdown 导出.*不要卸载扩展/);
+  }
+  const gettingStarted = readFileSync('docs/GETTING_STARTED.md', 'utf8');
+  assert.doesNotMatch(gettingStarted, /prerelease|v0\.3\.|商店公开记录为扩展 1\.0|等待 1\.1 审核/,
+    '用户入门指南说明当前连接要求，不承载历史迁移或审核等待叙事');
+  const englishReadme = readFileSync('README.en.md', 'utf8');
+  assert.match(englishReadme, /ContextFlow Chrome extension 1\.1\.0 or later/);
+  assert.match(englishReadme, /Before downloading.*连接桌面端/);
+  assert.match(englishReadme, /do not uninstall the extension/);
+  assert.doesNotMatch(englishReadme, /#版本与发行记录/, '英文入口也应使用指南当前锚点');
   console.log('官网：扩展优先、桌面下载状态、系统架构、无假下载、站内链接/资源、SEO、无遥测与兼容路径检查通过');
 } finally {
   rmSync(directory, { recursive: true, force: true });
