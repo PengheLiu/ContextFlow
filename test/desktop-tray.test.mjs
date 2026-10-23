@@ -58,9 +58,10 @@ function nativeFixture({ failBuffer = false, failPath = false, omitRetina = fals
   } };
 }
 const readTemplate = path => renderTrayTemplate(path.endsWith('@2x.png') ? 32 : 16);
+const assertTemplateSource = source => assert.equal(source.replace(/\r\n?/g, '\n'), TRAY_TEMPLATE_SVG);
 
 test('dedicated template assets are deterministic black/alpha masks at 72dpi and 144dpi', () => {
-  assert.equal(readFileSync(new URL('../assets/trayTemplate.svg', import.meta.url), 'utf8'), TRAY_TEMPLATE_SVG);
+  assertTemplateSource(readFileSync(new URL('../assets/trayTemplate.svg', import.meta.url), 'utf8'));
   for (const [name, size, dpi] of [['trayTemplate.png', 16, 72], ['trayTemplate@2x.png', 32, 144]]) {
     const png = readFileSync(new URL(`../assets/${name}`, import.meta.url)), generated = renderTrayTemplate(size);
     // zlib versions may encode identical RGBA rows as different valid IDAT
@@ -74,6 +75,11 @@ test('dedicated template assets are deterministic black/alpha masks at 72dpi and
     assert.ok(result.pixels.some(pixel => pixel[3] === 255)); assert.ok(result.pixels.some(pixel => pixel[3] > 0 && pixel[3] < 255)); assert.equal(result.pixels[0][3], 0);
   }
   assert.throws(() => renderTrayTemplate(128), /16px or 32px/);
+});
+test('template SVG source permits checkout line endings but rejects any drawing or whitespace change', () => {
+  for (const newline of ['\n', '\r\n']) assertTemplateSource(TRAY_TEMPLATE_SVG.replace(/\n/g, newline));
+  assert.throws(() => assertTemplateSource(TRAY_TEMPLATE_SVG.replace('stroke-width="1.8"', 'stroke-width="2"')), { code: 'ERR_ASSERTION' });
+  assert.throws(() => assertTemplateSource(` ${TRAY_TEMPLATE_SVG}`), { code: 'ERR_ASSERTION' });
 });
 test('template identity follows exact pixels and density across legal PNG compression streams', () => {
   for (const size of [16, 32]) {
