@@ -1,4 +1,4 @@
-# 1.1.0 送审前验收记录
+# 1.1.0 验收与送审记录
 
 日期：2026-10-23 至 2026-10-24（北京时间）。本记录区分自动化、真实浏览器、原生系统和公开发布；测试通过不是“绝无 bug”的承诺。
 
@@ -59,3 +59,12 @@ Chrome 上传、最终提交确认、公开 Release / 官网校验属于独立�
 - 远端矩阵曾暴露 Windows 文档 / SVG 的 CRLF、Mac zlib 字节比较及 Windows ASAR 分隔符误报；保留完整像素 / CRC / 必需文件和缺失拒绝检查，仅修验收可移植性。最终 `f71f3dc` 的[核心 CI](https://github.com/PengheLiu/ContextFlow/actions/runs/39982748464)及[三平台桌面 CI](https://github.com/PengheLiu/ContextFlow/actions/runs/39982751306)均 success，含实际隔离生命周期、构建、包校验与内置 SQLite 服务启动。本地最新 `npm run test:release` 也完整 exit 0。
 - 官网 Pages 提交 `0c28cb6d3fb72e2d658cfcc50caf17b42d1b1a01` 已 built。8 个公开官网文件逐字节匹配验收源码；公开首页 / 下载 / 隐私 / 练习页、1.0 兼容包和 1.1 下载检查均通过，线上 1440 / 390 导航、图片与无溢出 / 无 console 错误通过。网站补充一键连接需扩展 1.1.0+ 的系统要求，不用预览标签、不承诺缺少的入口可用；该文档级部署不覆盖冻结 site ZIP。
 - **本节记录时仍未点击 Chrome 最终提交。** 必须读取后台成功确认与待审核状态，才能在下节记为已送审；不能把 Release / Pages 或所有测试通过当成 Google 已审核通过。
+
+## 实际送审确认（2026-10-24 00:12 北京时间）
+
+- 在原条目 `aemncphfnlpbhlddifhohpgegejjejfm` 点击「提请审核」，确认框中「通过审核后自动发布」保持选中，再点击「提交审核」。Google 明确返回「已将您的扩展程序提交送审」。
+- 关闭成功提示、进入状态页并重新加载后，实际显示「状态：待审核」「该草稿尚待审核」。这不是获批或公开上线，原已发布版本仍为 1.0.0。
+- 沿用前述冻结 1.1.0 ZIP 与 SHA，没有重打包、更换附件、切换扩展 ID、增加数据披露之外的遥测或提交私人凭据。
+- 送审前复核产品说明、两张真实阅读截图、官网 / 支持 / 隐私链接、nativeMessaging 理由、无远程代码声明、数据三类及用途三项承诺；490 字测试说明和空用户名 / 密码均已保存。
+- 分发继续免费、公开，155 个地区选项全部选中。未改网站所有权、发布者主体或广告统计设置。
+- [官网](https://pengheliu.github.io/ContextFlow/)、[下载页](https://pengheliu.github.io/ContextFlow/download.html)、[GitHub 1.1.0](https://github.com/PengheLiu/ContextFlow/releases/tag/v1.1.0)已实际可访问；商店页面何时切换为 1.1.0 仍须另行观察，不预填审核结果。
