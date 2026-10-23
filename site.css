@@ -151,3 +151,54 @@ details[open] summary>span{transform:rotate(45deg)}
 @media(max-width:350px){h1{font-size:39px}.hero-copy .actions{gap:14px}.hero-copy .text-link{font-size:10px}.context-sources{gap:7px;font-size:9px}.context-example{padding:21px}.question-example{font-size:21px}.start-bottom .actions{gap:15px}.capability-tag{display:none}}
 @media(max-width:760px){.faq-answer{font-size:13px}summary{font-size:13px}.feature-copy p{font-size:14px}.feature-copy .feature-note{font-size:12px}}
 @media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}*,*:before,*:after{transition:none!important;animation:none!important}}
+
+/* The desktop download is a continuation of extension setup, not a second homepage. */
+@media(max-width:760px){.hero h1{font-size:clamp(36px,10.5vw,46px)}}
+.desktop-journey{padding-bottom:100px}
+.journey-heading{max-width:650px;margin-bottom:34px}
+.journey-heading h2{font-size:34px;margin-top:13px}
+.journey-heading>p:last-child{font-size:12px;color:var(--muted);margin-top:14px}
+.journey-steps{list-style:none;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:28px;margin:0;padding:28px 0;border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
+.journey-steps li{min-width:0}
+.journey-steps li>span{font:12px ui-monospace,SFMono-Regular,Consolas,monospace;color:var(--accent)}
+.journey-steps h3{font-size:15px;font-weight:600;margin:15px 0 9px}
+.journey-steps p{font-size:12px;line-height:1.9;color:var(--muted)}
+.nav a[aria-current=page]{color:var(--accent);text-decoration:underline;text-underline-offset:7px}
+.download-hero{padding-top:38px;padding-bottom:66px}
+.download-breadcrumb{list-style:none;display:flex;flex-wrap:wrap;gap:12px;margin:0 0 48px;padding:0;color:var(--muted);font-size:11px}
+.download-breadcrumb li+li:before{content:"/";margin-right:12px;color:#b9b4a6}
+.download-breadcrumb [aria-current=step]{color:var(--accent);font-weight:600}
+.download-hero h1{max-width:900px;font-size:clamp(39px,4.6vw,61px);line-height:1.35;margin-top:17px}
+.download-lead{font-size:17px;color:#62645b;line-height:1.95;margin-top:22px}
+.release-status{display:flex;align-items:flex-start;gap:20px;max-width:900px;margin:32px 0 25px;padding:22px 24px;border:1px solid #d9c9aa;border-left:3px solid var(--accent);background:#f1eadc;border-radius:5px}
+.release-pill{display:inline-block;flex:none;padding:3px 8px;border:1px solid #c9b38f;border-radius:4px;color:#795324;font-size:11px;white-space:nowrap}
+.release-status h2{font:600 16px/1.6 var(--sans);letter-spacing:0;margin-bottom:7px}
+.release-status p{color:#7b705e;font-size:13px;line-height:1.9}
+.download-section-heading{display:flex;justify-content:space-between;align-items:flex-end;gap:45px;margin-bottom:30px}
+.download-section-heading .eyebrow{margin-bottom:10px}
+.download-section-heading h2{font-size:34px}
+.download-section-heading>p{max-width:355px;color:var(--muted);font-size:12px;padding-bottom:5px}
+.platform-section{padding-top:45px;padding-bottom:70px;border-top:1px solid var(--line)}
+.download-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px}
+.download-option{padding:27px 29px 23px;border:1px solid var(--line);background:var(--card);border-radius:8px;min-width:0}
+.platform-heading{display:flex;gap:20px;align-items:center;justify-content:space-between}
+.platform-heading h3{font-size:23px;font-weight:600;letter-spacing:-.5px}
+.platform-heading>span{font-size:11px;color:var(--muted);text-align:right}
+.platform-detail{font-size:13px;color:var(--muted);margin-top:16px;min-height:47px}
+.availability{display:inline-block;margin:21px 0 15px;padding:7px 10px;font-size:12px;color:#756d60;border-radius:4px;background:#f0ece3;border:1px solid #e1d9c9}
+.platform-note{font-size:11px;line-height:1.9;color:var(--muted)}
+.architecture-help{margin-top:20px}
+.architecture-help .faq-answer{max-width:800px;font-size:13px}
+.connect-section{padding-bottom:75px}
+.connection-caveat{font-size:12px;color:var(--muted);max-width:850px;line-height:1.9;margin:20px 0 24px}
+.download-boundaries{padding:34px 0;border-top:1px solid var(--line);border-bottom:1px solid var(--line);display:grid;grid-template-columns:.9fr 1.1fr;gap:65px}
+.download-boundaries h2{font-size:27px}
+.download-boundaries p{font-size:13px;color:var(--muted)}
+.download-boundaries p+p{margin-top:12px}
+.download-support{padding-top:55px;padding-bottom:72px}
+.download-support h2{font-size:27px;margin-bottom:15px}
+.download-support>p{font-size:13px;max-width:900px;color:var(--muted);margin-bottom:20px}
+.download-support .faq-answer{font-size:13px}
+@media(max-width:1050px){.journey-steps{gap:20px}.journey-steps h3{font-size:13px}.download-boundaries{gap:35px}.platform-heading{align-items:flex-start;gap:12px}.platform-heading>span{max-width:160px}}
+@media(max-width:760px){.desktop-journey{padding-bottom:60px}.journey-heading h2{font-size:28px}.journey-steps{grid-template-columns:1fr 1fr;gap:26px 22px;padding:25px 0}.journey-steps h3{font-size:14px;margin-top:11px}.journey-steps p{font-size:12px}.download-hero{padding-top:23px;padding-bottom:43px}.download-breadcrumb{gap:9px;font-size:10px;margin-bottom:33px}.download-breadcrumb li+li:before{margin-right:9px}.download-hero h1{font-size:38px;line-height:1.4}.download-lead{font-size:14px;margin-top:18px}.release-status{display:block;padding:18px 19px;margin:25px 0 21px}.release-status h2{font-size:15px;margin:12px 0 7px}.release-status p{font-size:12px}.download-hero .actions{gap:17px 24px}.download-hero .text-link{font-size:12px}.download-section-heading{display:block;margin-bottom:23px}.download-section-heading h2{font-size:29px}.download-section-heading>p{margin-top:13px;font-size:12px;max-width:none}.platform-section{padding-top:34px;padding-bottom:45px}.download-grid{grid-template-columns:1fr;gap:13px}.download-option{padding:23px 22px}.platform-heading h3{font-size:22px}.platform-heading>span{max-width:none}.platform-detail{min-height:0;margin-top:13px}.availability{margin-top:18px}.architecture-help .faq-answer{font-size:12px}.connect-section{padding-bottom:48px}.connection-caveat{font-size:12px}.connect-section .actions{gap:20px}.connect-section .text-link{font-size:12px}.download-boundaries{display:block;padding-top:27px;padding-bottom:27px}.download-boundaries h2{font-size:26px;margin-bottom:17px}.download-boundaries p{font-size:12px}.download-support{padding-top:37px;padding-bottom:45px}.download-support h2{font-size:25px}.download-support>p,.download-support .faq-answer{font-size:12px}}
+@media(max-width:350px){.download-hero h1{font-size:32px}.journey-steps{grid-template-columns:1fr}.platform-heading{display:block}.platform-heading>span{display:block;text-align:left;margin-top:7px}}
