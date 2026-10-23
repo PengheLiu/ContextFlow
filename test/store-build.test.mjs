@@ -5,6 +5,14 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { assertExtensionText } from '../tools/extension-text.mjs';
 
+const extractListingSummary=source=>{
+  const sections=source.replace(/\r\n?/g,'\n').split('## 简介\n\n');
+  assert.equal(sections.length,2,'商店资料必须有且仅有一个「简介」段落');
+  const summary=sections[1].split('\n')[0];
+  assert.ok(summary.trim(),'商店简介不可为空');
+  return summary;
+};
+
 const directory = mkdtempSync(join(tmpdir(), 'contextflow-store-test-'));
 const output = join(directory, 'extension');
 const sentinel = 'cf-test-token-publisher-secret-must-never-ship';
@@ -26,7 +34,15 @@ try {
   assert.ok(files.includes(policy.querySelector('link[rel=icon]').getAttribute('href')),'扩展隐私图标必须随包提供');
   const listing=readFileSync('store/LISTING.zh-CN.md','utf8');
   const release=JSON.parse(readFileSync('product/release.json','utf8'));
-  assert.equal(listing.split('## 简介\n\n')[1].split('\n')[0],manifest.description,'商店简介与实际 manifest 一致');
+  const listingSummary=extractListingSummary(listing);
+  assert.equal(listingSummary,manifest.description,'商店简介与实际 manifest 一致');
+  for(const newline of ['\n','\r\n']) {
+    assert.equal(extractListingSummary(listing.replace(/\r\n?/g,'\n').replace(/\n/g,newline)),manifest.description,'LF / CRLF 商店简介均须与实际 manifest 一致');
+    assert.throws(()=>extractListingSummary('## 其他\n\n内容'.replace(/\n/g,newline)),/必须有且仅有一个/);
+    assert.throws(()=>extractListingSummary('## 简介\n\n重复\n\n## 简介\n\n重复'.replace(/\n/g,newline)),/必须有且仅有一个/);
+    assert.throws(()=>extractListingSummary('## 简介\n\n\n\n## 其他'.replace(/\n/g,newline)),/商店简介不可为空/);
+    assert.throws(()=>assert.equal(extractListingSummary('## 简介\n\n错误的简介\n\n## 其他'.replace(/\n/g,newline)),manifest.description),assert.AssertionError,'换行兼容不可掩盖简介与 manifest 的真实差异');
+  }
   assert.equal(manifest.version,release.candidateVersion,'打包候选版本必须与中央发布状态一致');
   assert.ok(release.publishedExtension.version,'中央发布状态保留真实公开版本，不靠营销正文判定商店审核结果');
   assert.ok(listing.includes(`**${release.candidateVersion} 桌面连接更新**`),'桌面更新能力不能冒充已上架扩展权限');

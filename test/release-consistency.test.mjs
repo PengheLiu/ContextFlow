@@ -41,6 +41,24 @@ for(const path of ['assets/readme/inline-annotation.png','assets/readme/reading-
   const png=readFileSync(path);assert.ok(png.readUInt32BE(16)>=1280);assert.ok(png.readUInt32BE(20)>=800);
 }
 website.defaultView?.close();
-const review=read('store/REVIEW_INSTRUCTIONS.zh-CN.md').split('## 可粘贴说明\n\n')[1].split('\n\n##')[0];
-assert.ok(review.length<=500,'审核指引必须能放入商店说明字段');
+const extractReviewCopy=source=>{
+  // Git checkouts may use CRLF; count the actual copy, not Windows line endings.
+  const sections=source.replace(/\r\n?/g,'\n').split('## 可粘贴说明\n\n');
+  assert.equal(sections.length,2,'审核指引必须有且仅有一个「可粘贴说明」段落');
+  const review=sections[1].split('\n\n##')[0];
+  assert.ok(review.trim(),'审核指引不可为空');
+  assert.ok(review.length<=500,'审核指引必须能放入商店说明字段');
+  return review;
+};
+const reviewSource=read('store/REVIEW_INSTRUCTIONS.zh-CN.md');
+const review=extractReviewCopy(reviewSource);
+for(const newline of ['\n','\r\n']) {
+  assert.equal(extractReviewCopy(reviewSource.replace(/\r\n?/g,'\n').replace(/\n/g,newline)),review,'LF / CRLF 必须提取相同审核指引');
+  const fixture=`# 审核\n\n## 可粘贴说明\n\n${'测'.repeat(500)}\n\n## 核对\n\n不得复制此段`;
+  assert.equal(extractReviewCopy(fixture.replace(/\n/g,newline)),'测'.repeat(500));
+  assert.throws(()=>extractReviewCopy(fixture.replace('测'.repeat(500),'测'.repeat(501)).replace(/\n/g,newline)),/审核指引必须能放入商店说明字段/);
+  assert.throws(()=>extractReviewCopy('## 其他\n\n内容'.replace(/\n/g,newline)),/必须有且仅有一个/);
+  assert.throws(()=>extractReviewCopy((fixture+'\n\n## 可粘贴说明\n\n重复').replace(/\n/g,newline)),/必须有且仅有一个/);
+  assert.throws(()=>extractReviewCopy('## 可粘贴说明\n\n\n\n## 核对'.replace(/\n/g,newline)),/审核指引不可为空/);
+}
 console.log('跨入口一致性：版本、商店 ID、真实安装命令、GitHub 本地链接、阅读库、翻译前提、备份边界、Markdown 顺序与截图检查通过');
