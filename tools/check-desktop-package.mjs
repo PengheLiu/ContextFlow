@@ -10,6 +10,7 @@ import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { ServiceManager } from '../desktop/service.mjs';
 import { terminateTree } from '../server/platform.mjs';
+import { assertDesktopArchiveFiles } from './desktop-package-files.mjs';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 const defaultTarget = process.platform === 'win32' ? 'release/.desktop-build.noindex/win-unpacked'
@@ -19,9 +20,7 @@ const mac = target.endsWith('.app'), resources = join(target, mac ? 'Contents/Re
 const metadata = JSON.parse(readFileSync(join(resources, 'desktop-build.json'), 'utf8'));
 const require = createRequire(new URL('../desktop/package.json', import.meta.url));
 const asar = require('@electron/asar');
-const files = asar.listPackage(join(resources, 'app.asar'));
-for (const file of ['main.mjs', 'preload.cjs', 'service.mjs', 'native-host.mjs', 'pairing-approval.mjs', 'recovery.mjs', 'discovery.mjs', 'journey.mjs', 'browser.mjs', 'visibility.mjs', 'instance.mjs', 'tray-icon.mjs', 'menu-bar.mjs', 'tray-menu.mjs', 'ui/trayTemplate.png', 'ui/trayTemplate@2x.png', 'ui/app.js', 'ui/index.html']) assert.ok(files.includes('/' + file), `Missing ${file}`);
-assert.ok(!files.includes('/smoke.mjs')); assert.ok(!files.includes('/build-guard.cjs'));
+assertDesktopArchiveFiles(asar.listPackage(join(resources, 'app.asar')));
 const runtime = join(resources, 'runtime', metadata.platform === 'win32' ? 'node.exe' : 'node');
 for (const file of [runtime, join(resources, 'runtime/NODE-LICENSE'), join(resources, 'core/server/platform.mjs'), join(resources, 'core/server/secrets.mjs'), join(resources, 'core/server/sync-status.mjs'), join(resources, 'core/server/reading-status.mjs'), join(resources, 'core/src/core/destination.js')]) assert.ok(existsSync(file), `Missing ${file}`);
 for (const name of ['@anthropic-ai/sdk', 'ws']) assert.ok(existsSync(join(resources, 'core/node_modules', name, 'package.json')), `Missing shipped production dependency: ${name}`);

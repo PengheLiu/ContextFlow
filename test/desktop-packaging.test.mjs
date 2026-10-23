@@ -2,11 +2,55 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, readdirSync, rmSync, symlinkSync, cpSync, lstatSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, basename } from 'node:path';
+import { join, basename, posix, win32 } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
 import { execFileSync } from 'node:child_process';
 import { desktopBuildPaths, parseDesktopBuildArgs, stageDesktopArtifacts, packageDesktop } from '../tools/package-desktop.mjs';
+import { assertDesktopArchiveFiles, REQUIRED_DESKTOP_ARCHIVE_FILES } from '../tools/desktop-package-files.mjs';
+
+test('ASAR package validation accepts Windows and POSIX listings of the same real archive, retaining exact required files', async () => {
+  const requireDesktop = createRequire(new URL('../desktop/package.json', import.meta.url)), asar = requireDesktop('@electron/asar');
+  const temporary = mkdtempSync(join(tmpdir(), 'contextflow-asar-paths-'));
+  try {
+    const source = join(temporary, 'source'), archive = join(temporary, 'app.asar');
+    for (const file of REQUIRED_DESKTOP_ARCHIVE_FILES) {
+      const parts = file.split('/'); mkdirSync(join(source, ...parts.slice(0, -1)), { recursive: true });
+      writeFileSync(join(source, ...parts), `packaged fixture: ${file}`);
+    }
+    await asar.createPackage(source, archive);
+    assert.ok(asar.getRawHeader(archive).header.files['main.mjs'], 'Actual archive header must contain its entrypoint');
+    assert.equal(asar.extractFile(archive, 'main.mjs').toString(), 'packaged fixture: main.mjs');
+    assertDesktopArchiveFiles(asar.listPackage(archive));
+    // This is the upstream listFiles traversal: its path.join is platform
+    // dependent even though the actual ASAR header and payload are unchanged.
+    const listWith = path => {
+      const files = [];
+      const visit = (base, node) => { for (const [child, metadata] of Object.entries(node.files || {})) {
+        const full = path.join(base, child); files.push(full); visit(full, metadata);
+      } };
+      visit('/', asar.getRawHeader(archive).header); return files;
+    };
+    const windows = listWith(win32), unix = listWith(posix);
+    assert.ok(windows.includes('\\main.mjs')); assert.ok(!windows.includes('/main.mjs'), 'Reproduce the old Windows false Missing main.mjs');
+    assert.deepEqual([...assertDesktopArchiveFiles(windows)].sort(), [...assertDesktopArchiveFiles(unix)].sort());
+    for (const file of REQUIRED_DESKTOP_ARCHIVE_FILES) {
+      assert.throws(() => assertDesktopArchiveFiles(unix.filter(entry => entry !== `/${file}`)), new RegExp(`Missing ${file.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`));
+      assert.throws(() => assertDesktopArchiveFiles(windows.filter(entry => entry !== `\\${file.replace(/\//g, '\\')}`)), /Missing /);
+    }
+    for (const file of ['smoke.mjs', 'build-guard.cjs']) {
+      assert.throws(() => assertDesktopArchiveFiles([...unix, `/${file}`]), /Unexpected /);
+      assert.throws(() => assertDesktopArchiveFiles([...windows, `\\${file}`]), /Unexpected /);
+    }
+    for (const path of ['../main.mjs', '/ui/../main.mjs', '\\ui\\..\\main.mjs', 'C:\\main.mjs', '//main.mjs', '/ui//app.js']) {
+      assert.throws(() => assertDesktopArchiveFiles([...unix, path]), /Invalid ASAR path/);
+    }
+    assert.throws(() => assertDesktopArchiveFiles([...unix, '\\main.mjs']), /Duplicate ASAR path/);
+    assert.throws(() => assertDesktopArchiveFiles(unix.map(entry => entry === '/main.mjs' ? '/Main.mjs' : entry)), /Missing main.mjs/);
+    const checker = readFileSync(new URL('../tools/check-desktop-package.mjs', import.meta.url), 'utf8');
+    assert.match(checker, /assertDesktopArchiveFiles\(asar\.listPackage\(join\(resources, 'app\.asar'\)\)\)/);
+  } finally { rmSync(temporary, { recursive: true, force: true }); }
+});
 
 function fixture() {
   const root = mkdtempSync(join(tmpdir(), 'contextflow-build-paths-'));

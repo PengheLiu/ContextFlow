@@ -18,6 +18,7 @@ on:
       - 'test/node-license.test.mjs'
       - 'test/native-*.test.mjs'
       - 'tools/check-desktop-package.mjs'
+      - 'tools/desktop-package-files.mjs'
       - 'tools/check-product-release.mjs'
       - 'product/**'
       - 'package*.json'
