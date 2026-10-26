@@ -6,7 +6,7 @@
 
 - 源码已推送 `main`；发行 tag `v1.1.1` 固定到 `b1744ff4816abe116617e8103f9ff314c7b8df6a`，不覆盖旧 tag。
 - [GitHub Release v1.1.1](https://github.com/PengheLiu/ContextFlow/releases/tag/v1.1.1) 已公开为 latest；8 个附件的服务端摘要及大小与本地文件完全一致。
-- [官网下载页](https://pengheliu.github.io/ContextFlow/download.html) 已部署 1.1.1，Pages 提交为 `10131a3d1f7cb535a3cd0180a4bf78da3a34e9ff`，构建完成；8 个公开站点文件逐字节核对一致。下载和 SHA 地址均可访问。
+- [官网下载页](https://pengheliu.github.io/ContextFlow/download.html) 已部署 1.1.1，最新 Pages 提交为 `670bb1e72d1934819c826518d8c344cafb661285`，构建完成；8 个公开站点文件逐字节核对一致。下载和 SHA 地址均可访问。
 - 公开 DMG 使用 `direct` 渠道，只允许正式商店扩展 ID。此前本地验证包允许开发插件连接，保留在独立目录，不作为官网安装包上传。
 - 桌面仍采用手动更新，仅开放 Mac ARM64；未使用 Developer ID 签名或 Apple 公证。Windows / Intel 构建通过不等于人工干净安装验收，因此不开放下载。
 
@@ -33,6 +33,6 @@
 
 ## Chrome 商店状态
 
-商店权限与条目保持原范围及同一 ID：`aemncphfnlpbhlddifhohpgegejjejfm`。已准备上述精确 ZIP。
+商店权限与条目沿用已发布 1.1.0 的范围及同一 ID：`aemncphfnlpbhlddifhohpgegejjejfm`。2026-10-26 已通过 Chrome 原生界面核实「已发布」版本为 1.1.0，并上传上述精确 1.1.1 ZIP。
 
-浏览器控制工具明确禁止脚本操作扩展商店，因此本轮上传与提交需由维护者在后台完成。维护者报告看到“已发布”，仍待确认对应版本号；不能把旧版状态、GitHub 发布或 ZIP 上传当作 1.1.1 已通过审核的证明。确认前保留原有公开版本的历史核查记录。
+2026-10-26 10:16（北京时间），后台显示「已将您的扩展程序提交送审」，确认 1.1.1 已提交，保留审核通过后自动发布。提交后再次核对，文件包显示草稿 1.1.1、已发布 1.1.0，状态页显示「该草稿尚待审核」。当前为待审核，不代表 1.1.1 已获批或上线；公开版本记录仍为已核实的 1.1.0。GitHub 发布、ZIP 上传与 Chrome 审核是独立步骤。
