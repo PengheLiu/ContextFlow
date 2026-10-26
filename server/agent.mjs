@@ -21,11 +21,12 @@
 import { execFile, spawn } from 'node:child_process';
 import { promisify } from 'node:util';
 import { createHash, randomUUID } from 'node:crypto';
-import { runCodex, getCodexSession, closeCodexServers, resolveCodexExecutable } from './codex-app-server.mjs';
+import { runCodex, getCodexSession, closeCodexServers, resolveCodexExecutable, codexConfigurationIdentity } from './codex-app-server.mjs';
 import { runDsh, getDshSession, closeDshServers } from './dsh-runtime.mjs';
 import { resolveDshInstallation } from './dsh-installation.mjs';
-import { findExecutable, agentEnvironment, execAgent, spawnAgent, terminateTree } from './platform.mjs';
+import { findExecutable, agentEnvironment, execAgent, spawnAgent, terminateTree, invocation } from './platform.mjs';
 import { tmpdir } from 'node:os';
+import { realpathSync, statSync } from 'node:fs';
 
 const execFileAsync = promisify(execAgent);
 const err = (msg, code) => Object.assign(new Error(msg), { code });
@@ -85,6 +86,45 @@ const probeCache = new Map();
 const TTL = 10 * 60 * 1000;
 const pendingProbes = new Map();
 
+function executableIdentity(path,env) {
+  try {
+    // Standard Windows npm shims execute Node + a package entrypoint. Bind all
+    // three files, not just a stable .cmd wrapper that survives package updates.
+    const call=invocation(path,[],{env});
+    const stamps=[...new Set([path,call.file,...call.args])].map(file=>{
+      const actual=realpathSync(file),s=statSync(actual);
+      if(!s.isFile())throw new Error('not a file');
+      return [actual,s.dev,s.ino,s.size,s.mtimeMs,s.ctimeMs];
+    });
+    return createHash('sha256').update(JSON.stringify(stamps)).digest('hex');
+  } catch { return ''; }
+}
+export function currentExecutionIdentity({ id, path, env = {} }) {
+  const effective = childEnv(env), program = executableIdentity(path, effective);
+  if (!program || id !== 'codex') return program;
+  return createHash('sha256').update(JSON.stringify([program, codexConfigurationIdentity(effective)])).digest('hex');
+}
+function resolveInstallation(id,baseEnv,configuredAgent) {
+  const a=AGENTS[id],env=id===configuredAgent.id ? {...baseEnv,...configuredAgent.env} : baseEnv;
+  const row={id,label:a.label,verified:!!a.verified,safeSupport:a.safeSupport,
+    connectionTestSupported:a.safeSupport!=='unsupported',available:false,path:'',identity:'',version:''};
+  try {
+    if(id==='dsh') {
+      const installation=resolveDshInstallation({env,bin:id===configuredAgent.id ? configuredAgent.executable : undefined});
+      row.source=installation.source;row.appPath=installation.appPath || '';
+      if(!installation.available)return row;
+      row.path=installation.bin;
+    } else {
+      const requested=id===configuredAgent.id ? configuredAgent.executable : '';
+      const found=id==='codex' ? resolveCodexExecutable(env,requested) : requested || a.bin;
+      row.path=findExecutable(found,{env}) || '';
+    }
+    row.identity=row.path ? currentExecutionIdentity({id,path:row.path,env}) : '';
+    row.available=!!row.identity;
+  } catch { /* Missing or changed installation is not ready. */ }
+  return row;
+}
+
 /**
  * @param {boolean} [fresh] 用户手动点「检测」时绕过缓存 —— 他刚装了新 agent 就指望这个
  */
@@ -93,7 +133,10 @@ export async function detect(fresh = false, configuredAgent = {}) {
   const key = createHash('sha256').update(JSON.stringify([configuredAgent.id, configuredAgent.executable,
     Object.entries({ ...env, ...configuredAgent.env }).sort(([a], [b]) => a.localeCompare(b))])).digest('hex');
   const cached = probeCache.get(key);
-  if (!fresh && cached && Date.now() - cached.at < TTL) return cached.rows;
+  if (!fresh && cached && Date.now() - cached.at < TTL && cached.rows.every(row=>{
+    const current=resolveInstallation(row.id,env,configuredAgent);
+    return current.available===row.available && current.path===row.path && current.identity===row.identity;
+  })) return cached.rows;
   if (pendingProbes.has(key)) return pendingProbes.get(key);
   const pending = probe(env, configuredAgent).then(r => {
     probeCache.delete(key); probeCache.set(key, { at: Date.now(), rows: r });
@@ -110,28 +153,8 @@ async function probe(baseEnv, configuredAgent) {
   return Promise.all(Object.entries(AGENTS).map(async ([id, a]) => {
     // Credentials and executable overrides belong only to the selected agent.
     const env = id === configuredAgent.id ? { ...baseEnv, ...configuredAgent.env } : baseEnv;
-    const row = {
-      id, label: a.label, verified: !!a.verified, safeSupport: a.safeSupport,
-      connectionTestSupported: a.safeSupport !== 'unsupported',
-      available: false, path: '', version: '',
-    };
-    try {
-      if (id === 'dsh') {
-        const installation = resolveDshInstallation({ env, bin: id === configuredAgent.id ? configuredAgent.executable : undefined });
-        row.source = installation.source;
-        row.appPath = installation.appPath || '';
-        if (!installation.available) throw new Error('not found');
-        row.path = installation.bin;
-      } else {
-        const requested = id === configuredAgent.id ? configuredAgent.executable : '';
-        const found = id === 'codex' ? resolveCodexExecutable(env, requested) : requested || a.bin;
-        row.path = findExecutable(found, { env }) || '';
-      }
-      if (!row.path) throw new Error('not found');
-      row.available = true;
-    } catch {
-      return row;
-    }
+    const row = resolveInstallation(id,baseEnv,configuredAgent);
+    if(!row.available)return row;
     try {
       const { stdout } = await execFileAsync(row.path, a.versionArgs,
         { timeout: 5000, env, windowsHide: true });

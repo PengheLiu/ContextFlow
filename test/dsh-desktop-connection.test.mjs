@@ -147,6 +147,19 @@ appendFileSync(${JSON.stringify(guardMarker)}, String(process.pid) + '\\n');
   // allowed to reload user plugins, whereas the connection probe is not.
   await [...runtime.servers.values()][0].destroy();
 
+  // The official Desktop profile adds voice input as a third bundle. Its
+  // !!js speech configuration must not be evaluated or loaded by this carrier;
+  // it also must not prevent the separately configured model from being tested.
+  profilePackage.dsh.profile.bundles.push('@deepseek-ai/dsh-experimental-voice-input-bundle');
+  await writeFile(join(desktopProfile, 'package.json'), JSON.stringify(profilePackage));
+  const beforeVoice = calls.length;
+  const voiceResult = await testAgentConnection(prepared, { run: probeRun });
+  assert.equal(voiceResult.ok, true);
+  assert.equal(voiceResult.scope, 'connection-only');
+  assert.equal(calls.length, beforeVoice + 1);
+  assert.ok(!calls.at(-1).body.tools?.length);
+  assert.equal(calls.at(-1).body.model, 'deepseek-flash');
+
   // Untrusted profile extensions may contain import-time code. A probe must read
   // only permitted model settings, without booting these bundles or plugins.
   const evil = join(desktopProfile, 'node_modules/evil-connection-fixture');

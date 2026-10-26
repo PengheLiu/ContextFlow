@@ -6,6 +6,7 @@ export function companionInfo(service) {
     modelDraftSupported: Array.isArray(service?.capabilities) && service.capabilities.includes(MODEL_DRAFT_CAPABILITY),
     agentTestSupported: Array.isArray(service?.capabilities) && service.capabilities.includes('agent.test'),
     agentDraftTestSupported: Array.isArray(service?.capabilities) && service.capabilities.includes('agent.test.draft'),
+    codexHomeSupported: Array.isArray(service?.capabilities) && service.capabilities.includes('agent.codex-home.draft'),
     connectionChecksSupported: Array.isArray(service?.capabilities) && service.capabilities.includes('connection.checks'),
     llmConfigured: service?.llmConfigured === true,
     explainConfigured: service?.explainConfigured === true,

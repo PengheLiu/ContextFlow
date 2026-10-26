@@ -1,15 +1,15 @@
 # 1.1 独立桌面分发与当前状态
 
-核查日期：2026-10-24。本页区分源码候选、公开产品和待验证条件，不把本机可用写成 Chrome 已审核通过。
+核查日期：2026-10-26。本页区分源码候选、公开产品和待验证条件，不把本机可用写成 Chrome 已审核通过。
 
 ## 当前可用的版本
 
 | 入口 | 核实状态 |
 | --- | --- |
 | Chrome 商店 | 1.0.0 已上线；1.1.0 于 2026-10-24 00:12 提交，刷新后台确认为待审核，保留通过后自动发布 |
-| GitHub Release | v1.1.0 已独立公开（prerelease、非 latest）；v1.0.0 原 tag 和附件不覆盖 |
-| 当前源码 | 1.1.0，preview；桌面连接及新增 nativeMessaging 尚未随商店版本发布 |
-| 新桌面端 | Mac ARM64 1.1.0 通过官网独立分发；无 Developer ID 签名 / Apple 公证；其他架构未开放下载 |
+| GitHub Release | 本轮发布目标 v1.1.1；旧 v1.1.0 / v1.0.0 的 tag 和附件均保留；完成后按公开回执更新状态 |
+| 当前源码 | 1.1.1，preview；本轮配置状态、恢复与发布保护修正版，不覆盖已冻结的 1.1.0 |
+| 新桌面端 | 本轮独立分发目标 Mac ARM64 1.1.1（direct）；无 Developer ID 签名 / Apple 公证；其他架构未开放下载 |
 | 本机验证 | Apple Silicon 冻结 DMG 覆盖安装、真实原生授权 / 撤销重连通过；不是 Intel / Windows 干净实机、签名或公证证明 |
 
 唯一机器可读状态为 [product/release.json](../product/release.json)。README、官网安装提示、下载状态、根目录 / 桌面版本与锁文件都必须与它一致。公开状态带核查日期，离线检查不冒充实时验证。
@@ -20,7 +20,7 @@
 
 用户选择暂不购买签名证书、直接提供官网下载。这不要求进入 Mac App Store；但不进商店并不消除 Gatekeeper 对下载应用的检查。官网不使用“预览版”标签，直接称“桌面客户端”，同时如实说明未签名、未公证及仅 Apple Silicon 本机验证的范围。参见 [Apple 的安全打开说明](https://support.apple.com/102445)。不提供关闭系统保护的命令，也不承诺未签名应用在其他 Mac 上必然顺利打开。
 
-桌面、companion、Chrome 和网站 ZIP 统一使用 tag `v1.1.0`，GitHub 此次标为 prerelease、非 latest，不覆盖 `v1.0.0`，也不伪装成 Chrome 扩展 1.1 已上线。发布记录用 `available-unsigned` 单独表示“可下载但未签名”，不等于签名发行的 `published`。官网 DMG 与 SHA 必须先实际可访问；Windows x64 只有构建验证，不开放主要下载入口。今后签名与目标系统验收完成后，必须使用更高版本进入严格签名发行，不覆盖此 tag。
+上一轮桌面、companion、Chrome 和网站 ZIP 统一使用 tag `v1.1.0`，GitHub 标为 prerelease、非 latest，不覆盖 `v1.0.0`，也不伪装成 Chrome 扩展 1.1 已上线。本轮源码候选已递增至 1.1.1；不能用新代码覆盖任何 1.1.0 包或校验和。发布记录用 `available-unsigned` 单独表示“可下载但未签名”，不等于签名发行的 `published`。官网 DMG 与 SHA 必须先实际可访问；Windows x64 只有构建验证，不开放主要下载入口。今后签名与目标系统验收完成后，必须使用更高版本进入严格签名发行，不覆盖此 tag。
 
 官网独立包使用 `desktop:prepare -- --direct`，原生桥接只允许正式商店 ID，不沿用开发构建的额外扩展 ID。Mac 采用匿名 ad-hoc 内容完整性封装并要求整包 `codesign --verify --deep --strict` 通过；这不是 Developer ID 身份认证，也不是 Apple 公证。该渠道不降低未来 `--release` 对证书与验收的要求。
 
@@ -39,6 +39,8 @@
 - 旧审核与发行记录明确标记为历史，不复用“无新增权限 / 待审核”等过时结论。
 
 ## 本轮验证记录
+
+2026-10-25 的 1.1.1 本地修正版完成四端复核：`test:release`、Chromium 全流程、独立 Electron 布局 / 生命周期、已安装 Codex 与 DeepSeek Harness 的隔离协议测试通过。最终 1.1.1 商店 ZIP 直接解压回归通过，新 DMG 经只读挂载验证版本、整包完整性及包内运行时启动。Personal 配置的受限真实连接测试约 12 秒通过，原账号与配置未改变。新增回归覆盖同目录 Codex 模型 / 登录文件变化使旧测试失效、测试中配置变化拒绝沿用结果、授权记录损坏时仍可诊断和恢复，以及同名不同内容产物拒绝覆盖。本轮没有替换个人已安装客户端、更新线上资源或重新提交审核；未将这些本地结果视作新的 Windows 实机或人工原生授权证明。
 
 2026-10-23 至 24 日，本地完整 `test:release`、最终 ZIP 浏览器回归、视觉与生命周期 smoke 通过；实际 Mac 覆盖安装及用户两次原生允许、刷新、撤销 / 重连 / 清理通过。`f71f3dc` 的核心 CI 和 Windows x64 / Mac ARM / Intel 桌面矩阵全部 success，包含真实内置服务启动。官网桌面 / 窄屏、公开资源与无外部自动请求验收通过。证据及边界见[完整审计](./RELEASE_AUDIT_1_1.md)，这些仍不等于 Google 审核通过。
 
@@ -72,11 +74,11 @@ npm run test:desktop:smoke
 npm run build:store
 npm run build:store-support
 npm run build:website
-npm --prefix desktop run dist -- --mac dmg --arm64 --artifact-subdir candidate-1-1-0
+npm --prefix desktop run dist -- --mac dmg --arm64 --artifact-subdir candidate-1-1-1
 node tools/check-desktop-package.mjs
 ```
 
-Win x64 必须先 `npm run desktop:prepare -- --platform win32 --arch x64`，再以 `--win nsis --x64 --artifact-subdir candidate-1-1-0` 构建并检查相应 `win-unpacked`。不要并行改写不同平台的 prepare 目录。Mac 生成 EXE 只证明构建 / 结构，不等于 Windows 安装通过。
+Win x64 必须先 `npm run desktop:prepare -- --platform win32 --arch x64`，再以 `--win nsis --x64 --artifact-subdir candidate-1-1-1` 构建并检查相应 `win-unpacked`。不要并行改写不同平台的 prepare 目录。Mac 生成 EXE 只证明构建 / 结构，不等于 Windows 安装通过。
 
 ## 签名正式发行前仍须完成
 
@@ -85,7 +87,7 @@ Win x64 必须先 `npm run desktop:prepare -- --platform win32 --arch x64`，再
 3. **Windows。** 受信任发布者签名；对应架构标准用户安装、路径含空格 / 中文、Chrome Native Messaging、Agent 子进程 / 取消、同步、关闭重开、升级和卸载保留数据的实机验收。x64 不能替代 ARM64。
 4. **下载与证据一致。** 签名发行必须提供已验证的系统 / 架构、版本和校验；独立未签名渠道单独披露限制。其他目标继续标未开放，不放假的按钮，不引导关闭系统保护。
 5. **公开入口。** 更新 GitHub 文档及 Pages 后执行 `npm run check:public-surface`；它检查已公开 companion / SHA、桌面 DMG / SHA、首页、下载页、隐私与练习页。再以浏览器检查版本、窄屏、FAQ、CTA 和实际资源。
-6. **Chrome 候选。** 检查商店 ZIP 没有私人凭据，新增 nativeMessaging 的用途与数据披露匹配；先让匹配桌面 / 兼容服务可下载，再在原条目上传 1.1.0 并提交审核。没有后台确认不写“已提交”；没有公开版本证据不写“已上线”。
+6. **Chrome 候选。** 检查商店 ZIP 没有私人凭据，新增 nativeMessaging 的用途与数据披露匹配；先让匹配桌面 / 兼容服务可下载，再在原条目上传尚未使用的候选版本（本轮源码为 1.1.1）并提交审核。1.1.0 已上传，不用新内容覆盖或重复冒用该版本。没有后台确认不写“已提交”；没有公开版本证据不写“已上线”。
 
 正式门禁用法：
 

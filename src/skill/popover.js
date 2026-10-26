@@ -7,7 +7,8 @@
 //    "点了外面"立刻关掉，表现为"必须一直按住才能看到浮层"。
 // 2. 外部点击判定要放行**所有** [data-contextflow] 宿主，而不只是自己。
 //    工具条是另一个 shadow host，只放行自己同样会误关。
-import { T, FLOAT, shadowHost } from './theme.js';
+import { T, FLOAT, shadowHost, releaseThemeHost } from './theme.js';
+import { EventScope } from './event-scope.js';
 import { brandMark, icon } from './icons.js';
 import { MARKDOWN_CSS, renderMarkdownInto } from './markdown-view.js';
 import { RichComposer, RICH_COMPOSER_CSS } from './rich-composer.js';
@@ -75,8 +76,8 @@ const CSS = `${FLOAT}
   .ask textarea:hover{border-color:${T.lineStrong}}
   .ask textarea:focus{border-color:${T.focusLine};background:${T.paper};box-shadow:0 0 0 3px ${T.focusRing}}
   .ask button{min-height:38px;display:inline-flex;align-items:center;gap:6px;border:1px solid ${T.accent};
-      border-radius:6px;background:${T.accent};color:${T.paperRaised};padding:7px 12px;font-size:13px;font-weight:680;white-space:nowrap}
-  .ask button:hover{background:${T.accent};border-color:${T.accent};color:${T.paperRaised};filter:saturate(1.08) brightness(.94)}
+      border-radius:var(--cf-radius-control);background:${T.accent};color:${T.onAccent};padding:7px 12px;font-size:13px;font-weight:680;white-space:nowrap}
+  .ask button:hover:not(:disabled){background:${T.accentHover};border-color:${T.accentHover};color:${T.onAccent}}
   .ask button:disabled{cursor:wait;opacity:.65;filter:none}
   .ask button .ico{width:14px;height:14px}
 
@@ -128,6 +129,7 @@ export class Popover {
    */
   constructor(o) {
     this.o = o;
+    this.events = new EventScope();
     const sh = shadowHost(o.name, CSS, 2147483647);
     const modeIcon = o.name.includes('translate') ? 'translate' : 'explain';
     const sourceSection = o.showSource === false ? '' : `<section class="source">
@@ -137,7 +139,7 @@ export class Popover {
     sh.innerHTML += `<div class="card${o.input ? ' has-input' : ''}" id="c">
       <div class="hd" id="hd" tabindex="0" role="group" aria-label="移动面板：方向键移动，Shift 加速" title="拖动或聚焦后按方向键移动面板">
         <span class="hd-lock"><span class="hd-seal">${brandMark()}</span>
-          <span class="hd-copy"><b>${o.title}</b><small>CONTEXT NOTE</small></span></span>
+          <span class="hd-copy"><b>${o.title}</b><small>ContextFlow</small></span></span>
         <span class="r"><button class="x" id="x" type="button" title="关闭" aria-label="关闭">${icon('close')}</button></span>
       </div>
       ${sourceSection}
@@ -198,7 +200,7 @@ export class Popover {
       });
     }
 
-    document.addEventListener('click', (e) => {
+    this.events.listen(document, 'click', (e) => {
       if (performance.now() - (this.openedAt ?? 0) < 400) return;   // 同一手势的收尾 click
       if (!e.target?.closest?.('[data-contextflow]')) this.close();
     });
@@ -206,6 +208,7 @@ export class Popover {
 
   /** @param {DOMRect} rect 选区位置  @param {string} [source] 顶部灰色引文 */
   open(rect, source = '') {
+    if (this.disposed) return this;
     if (!this.open$) {
       let active = document.activeElement;
       while (active?.shadowRoot?.activeElement) active = active.shadowRoot.activeElement;
@@ -237,6 +240,7 @@ export class Popover {
 
   /** 答案或图文补充改变高度后，重新把浮层夹回视口。 */
   reposition() {
+    if (this.disposed) return this;
     clearTimeout(this.placeTimer);
     this.placeTimer = setTimeout(() => {
       if (this.open$) this.place(this.anchorRect);
@@ -296,8 +300,10 @@ export class Popover {
       this.place(this.anchorRect);saveUI(this.ui);
     });
     hd.addEventListener('mousedown', (e) => {
+      if (this.disposed) return;
       if (e.target.closest('button')) return;      // 标题栏上的按钮不触发拖动
       e.preventDefault();
+      this.gestureScope?.dispose(); const gesture = this.gestureScope = new EventScope();
       const r = this.el.getBoundingClientRect();
       const dx = e.clientX - r.left, dy = e.clientY - r.top;
       const move = (ev) => {
@@ -308,10 +314,10 @@ export class Popover {
         this.ui = { ...this.ui, x, y };
       };
       const up = () => {
-        removeEventListener('mousemove', move); removeEventListener('mouseup', up);
-        saveUI(this.ui);
+        gesture.dispose(); if (this.gestureScope === gesture) this.gestureScope = null;
+        if (!this.disposed) saveUI(this.ui);
       };
-      addEventListener('mousemove', move); addEventListener('mouseup', up);
+      gesture.listen(window, 'mousemove', move); gesture.listen(window, 'mouseup', up);
     });
   }
 
@@ -329,7 +335,9 @@ export class Popover {
       this.place(this.anchorRect);saveUI(this.ui);
     });
     this.$('rz').addEventListener('mousedown', (e) => {
+      if (this.disposed) return;
       e.preventDefault(); e.stopPropagation();
+      this.gestureScope?.dispose(); const gesture = this.gestureScope = new EventScope();
       const r = this.el.getBoundingClientRect();
       const move = (ev) => {
         const w = Math.max(MIN_W, Math.min(ev.clientX - r.left, innerWidth - r.left - 8));
@@ -339,10 +347,10 @@ export class Popover {
         this.ui = { ...this.ui, w, h };
       };
       const up = () => {
-        removeEventListener('mousemove', move); removeEventListener('mouseup', up);
-        saveUI(this.ui);
+        gesture.dispose(); if (this.gestureScope === gesture) this.gestureScope = null;
+        if (!this.disposed) saveUI(this.ui);
       };
-      addEventListener('mousemove', move); addEventListener('mouseup', up);
+      gesture.listen(window, 'mousemove', move); gesture.listen(window, 'mouseup', up);
     });
   }
 
@@ -403,6 +411,7 @@ export class Popover {
   }
   /** 解释记录存在后才显示补充区；记录 id 用来与右侧栏绑定同一份内容。 */
   supplement(id, value = '') {
+    if (this.disposed) return this;
     if (!this.supplementComposer) return this;
     if (this.supplementId && this.supplementId !== id) this.supplementComposer.commit();
     this.supplementId = id || null;
@@ -412,6 +421,7 @@ export class Popover {
   }
   /** 右侧栏输入时只镜像内容，不触发本侧 onInput，避免回环。 */
   setSupplementValue(id, value) {
+    if (this.disposed) return this;
     if (this.supplementId === id) this.supplementComposer?.setValue(String(value ?? ''));
     return this.reposition();
   }
@@ -431,23 +441,34 @@ export class Popover {
   }
 
   focus(value = '') {
+    if (this.disposed) return this;
     if (!this.o.input) return this;
     const q = this.$('q');
     q.value = String(value ?? '');
     q.style.height = 'auto';
     this.growInput();
-    setTimeout(() => q.focus(), 0);
+    clearTimeout(this.focusTimer);
+    this.focusTimer = setTimeout(() => { if (!this.disposed && this.open$) q.focus(); }, 0);
     return this;
   }
 
-  close() {
+  close({ restoreFocus = true, commit = true } = {}) {
+    clearTimeout(this.focusTimer); clearTimeout(this.placeTimer); this.gestureScope?.dispose(); this.gestureScope = null;
     releaseTicker(this);
-    if (this.open$ && this.supplementId) this.supplementComposer?.commit();
-    const restoreFocus = !!this.sh?.activeElement;
+    if (commit && this.open$ && this.supplementId) this.supplementComposer?.commit();
+    const shouldRestore = restoreFocus && !!this.sh?.activeElement;
     this.el?.classList.remove('on');
-    if (restoreFocus && this.returnFocus?.isConnected) this.returnFocus.focus({ preventScroll: true });
+    if (shouldRestore && this.returnFocus?.isConnected) this.returnFocus.focus({ preventScroll: true });
   }
   get open$() { return !!this.el?.classList.contains('on'); }
+
+  dispose() {
+    if (this.disposed) return;
+    this.disposed = true; this.events.dispose();
+    this.close({ restoreFocus: false, commit: false }); clearTimeout(this.supplementComposer?.saveTimer);
+    this.returnFocus = null;
+    releaseThemeHost(this.sh.host); this.sh.host.remove();
+  }
 }
 
 /**

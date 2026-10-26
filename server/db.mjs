@@ -4,8 +4,21 @@ import { DatabaseSync } from 'node:sqlite';
 import { join } from 'node:path';
 import { DIR } from './config.mjs';
 import { lookupKey } from '../src/core/lookupkey.js';
+import { canonicalEventIdentity, eventIdentityKey, planArticleIdentityMigration } from '../src/core/urlkey.js';
 
 let db;
+
+/** Normal shutdown checkpoints committed WAL, then releases the connection.
+ * Recovery still preserves WAL separately: a crashed/older core may not run
+ * this path, and a legitimate external reader can keep a checkpoint busy. */
+export function close() {
+  if (!db) return { checkpointed: true };
+  const current = db;
+  let result;
+  try { result = current.prepare('PRAGMA wal_checkpoint(TRUNCATE)').get(); }
+  finally { current.close(); if (db === current) db = undefined; }
+  return { checkpointed: Number(result?.busy || 0) === 0, busy: Number(result?.busy || 0) };
+}
 
 export function open() {
   if (db) return db;
@@ -182,7 +195,75 @@ export function open() {
     for (const r of rows) ins.run(r.id, 'siyuan', r.siyuanBlockId, r.syncedAt);
     if (rows.length) console.log(`[db] 已回填 ${rows.length} 条思源同步记录到 synced 表`);
   }
+  migrateArticleIdentities(db);
   return db;
+}
+
+/**
+ * Transactional URL-key repair. Existing external note files/blocks are never
+ * edited here. A mixed legacy bucket cannot donate its document/session maps
+ * to one arbitrarily chosen article: archive those maps and let the next
+ * deliberate sync create separate destinations. Proven single aliases keep
+ * their established destination unless a current mapping already exists.
+ */
+export function migrateArticleIdentities(database = open()) {
+  const d = database;
+  d.exec(`CREATE TABLE IF NOT EXISTS url_identity_archive (
+    id INTEGER PRIMARY KEY, kind TEXT NOT NULL, legacyKey TEXT NOT NULL,
+    payload TEXT NOT NULL, at INTEGER NOT NULL,
+    UNIQUE(kind,legacyKey,payload)
+  )`);
+  const events = d.prepare('SELECT * FROM events').all();
+  const plan = planArticleIdentityMigration(events);
+  if (!plan.moves.length) return { moved: 0, ambiguous: plan.ambiguous.length, split: 0 };
+  const movedSources = new Set(plan.moves.map(move => move.from)), bySource = new Map(), byId = new Map();
+  for (const event of events) { const rows = bySource.get(event.urlKey) || []; rows.push(event); bySource.set(event.urlKey, rows); byId.set(event.id, event); }
+  const archive = d.prepare('INSERT OR IGNORE INTO url_identity_archive(kind,legacyKey,payload,at) VALUES(?,?,?,?)');
+  const save = (kind, key, row) => archive.run(kind, key, JSON.stringify(row), Date.now());
+  let split = 0;
+  d.exec('BEGIN IMMEDIATE');
+  try {
+    const reset = new Set();
+    for (const group of plan.groups) {
+      if (!movedSources.has(group.key)) continue;
+      const mixed = group.ambiguous || group.targets.length !== 1;
+      const to = group.targets[0];
+      if (mixed) split++;
+      let conflictingDestination = false;
+      for (const table of ['artdoc', 'heads', 'sections', 'agent_session']) {
+        const rows = d.prepare(`SELECT * FROM ${table} WHERE urlKey = ?`).all(group.key);
+        for (const row of rows) {
+          save(table, group.key, row);
+          if (mixed) continue;
+          const next = { ...row, urlKey: to }, columns = Object.keys(next);
+          const inserted = d.prepare(`INSERT OR IGNORE INTO ${table} (${columns.join(',')}) VALUES (${columns.map(() => '?').join(',')})`).run(...Object.values(next));
+          if (!inserted.changes && table !== 'agent_session') conflictingDestination = true;
+        }
+        d.prepare(`DELETE FROM ${table} WHERE urlKey = ?`).run(group.key);
+      }
+      if (mixed || conflictingDestination) for (const event of bySource.get(group.key) || []) reset.add(event.id);
+    }
+    // The cached article text has its own original URL evidence. Never overwrite
+    // an already-populated canonical cache or resume a mixed Agent session.
+    for (const row of d.prepare('SELECT * FROM article_text').all()) {
+      const next = canonicalEventIdentity(row);
+      if (next.urlKey === row.urlKey) continue;
+      save('article_text', row.urlKey, row);
+      const columns = Object.keys(next);
+      d.prepare(`INSERT OR IGNORE INTO article_text (${columns.join(',')}) VALUES (${columns.map(() => '?').join(',')})`).run(...Object.values(next));
+      d.prepare('DELETE FROM article_text WHERE urlKey = ?').run(row.urlKey);
+    }
+    for (const move of plan.moves) d.prepare('UPDATE events SET urlKey = ? WHERE id = ?').run(move.to, move.event.id);
+    for (const id of reset) {
+      const event = byId.get(id);
+      for (const row of d.prepare('SELECT * FROM synced WHERE eventId = ?').all(id)) save('synced', event.urlKey, row);
+      save('event-sync', event.urlKey, { id, syncedAt: event.syncedAt, siyuanBlockId: event.siyuanBlockId });
+      d.prepare('DELETE FROM synced WHERE eventId = ?').run(id);
+      d.prepare('UPDATE events SET dirty = 1, syncedAt = NULL, siyuanBlockId = NULL WHERE id = ?').run(id);
+    }
+    d.exec('COMMIT');
+    return { moved: plan.moves.length, ambiguous: plan.ambiguous.length, split };
+  } catch (error) { d.exec('ROLLBACK'); throw error; }
 }
 
 const COLS = ['id', 'urlKey', 'url', 'title', 'action', 'text', 'value', 'color',
@@ -206,6 +287,9 @@ export function upsertEvents(events) {
     INSERT INTO events (${COLS.join(',')})
     VALUES (${COLS.map(() => '?').join(',')})
     ON CONFLICT(id) DO UPDATE SET
+      urlKey = excluded.urlKey,
+      url = excluded.url,
+      text = excluded.text,
       value = excluded.value,
       color = excluded.color,
       anchor = excluded.anchor,
@@ -234,8 +318,13 @@ export function upsertEvents(events) {
        OR (excluded.mutationId = '' AND events.mutationId = '')
   `);
   const n = [];
-  for (const e of events) {
+  for (const raw of events) {
+    const e = canonicalEventIdentity(raw);
     if (!e?.id || !e?.action || !e?.urlKey) continue;
+    const old = d.prepare('SELECT id,urlKey,url FROM events WHERE id = ?').get(e.id);
+    if (old && eventIdentityKey(old) !== e.urlKey) {
+      throw Object.assign(new Error('记录标识与另一篇文章身份冲突，原记录已保留。'), { code: 'ARTICLE_IDENTITY_CONFLICT' });
+    }
     const createdAt = e.createdAt ?? Date.now();
     stmt.run(
       e.id, e.urlKey, e.url ?? '', e.title ?? '', e.action,
@@ -491,8 +580,21 @@ export function putArtDoc(urlKey, backend, docRef) {
 }
 /** 该后端已占用的文档名集合，用于 docName 的同名冲突判定 */
 export function docRefsOfBackend(backend) {
-  return new Map(open().prepare('SELECT urlKey, docRef FROM artdoc WHERE backend = ?')
+  const d = open();
+  const refs = new Map(d.prepare('SELECT urlKey, docRef FROM artdoc WHERE backend = ?')
     .all(backend).map((r) => [r.docRef, r.urlKey]));
+  // Detached legacy files still exist on disk. Reserve their names so a later
+  // sync cannot accidentally reopen/overwrite the mixed document by title.
+  for (const row of d.prepare("SELECT id,payload FROM url_identity_archive WHERE kind = 'artdoc'").all()) {
+    const previous = JSON.parse(row.payload);
+    if (previous.backend === backend && previous.docRef && !refs.has(previous.docRef)) refs.set(previous.docRef, `legacy-reserved:${row.id}`);
+  }
+  return refs;
+}
+
+export function isArchivedArticleDoc(docRef, backend) {
+  return open().prepare("SELECT payload FROM url_identity_archive WHERE kind = 'artdoc'").all()
+    .some(row => { const previous = JSON.parse(row.payload); return previous.backend === backend && previous.docRef === docRef; });
 }
 
 // ---- heads：文章内四个分类标题 ----

@@ -11,6 +11,7 @@ import { request } from './rpc.js';
 import { setTransport, setStreamTransport } from '../core/api.js';
 import { boot } from '../skill/main.js';
 import { blockedScope, showUnblockChip } from '../skill/blocklist.js';
+import { createContentStartup, startupFailureNotice } from './startup.js';
 
 /**
  * 把请求转给 service worker。
@@ -75,16 +76,22 @@ setStreamTransport((id, onJob, signal) => new Promise((resolve, reject) => {
 }));
 
 let app;
-initializePrivateStorage().then(() => {
+const notice=startupFailureNotice({retry:()=>startup.retry(),help:()=>request({type:'cf-open-settings',view:'support'})});
+const startup=createContentStartup({
+  initialize:initializePrivateStorage,
+  supported:()=>/^https?:$/.test(location.protocol) && window===window.top,
+  blocked:blockedScope,showBlocked:showUnblockChip,showError:notice.show,clearError:notice.clear,
+  start:()=>{
   app = boot();
   if (app) {
     app.openConnectionSettings = () => request({ type: 'cf-open-settings' });
     app.openReadingLibrary = () => request({type:'cf-open-library'});
     app.panel?.renderStatus();
   }
-}).catch((error) => {
-  console.error('[ContextFlow] 私有存储初始化失败，未启动：', error.message);
+  return app;
+  },
 });
+void startup.start();
 
 // 点扩展图标切换面板。userscript 路径没有这个入口（只能点右缘把手），
 // 扩展有图标就顺手接上。
@@ -92,7 +99,11 @@ initializePrivateStorage().then(() => {
 // userscript那种"重复执行"的手势，用户主动点图标是唯一明确的敲门信号。
 chrome.runtime.onMessage.addListener((msg, sender, reply) => {
   if(msg?.type==='cf-flush-edits') {
-    Promise.resolve().then(()=>app?.panel?.flushEdits()).then(()=>reply({contextflow:true,ok:true}),()=>reply({contextflow:true,ok:false}));
+    if(!app){reply({contextflow:true,ok:startup.ready});return;}
+    Promise.resolve(app.ready).then(ready=>{
+      if(ready===false)throw new Error('本地阅读记录尚未准备好');
+      return app.flushForNavigation();
+    }).then(()=>reply({contextflow:true,ok:true}),()=>reply({contextflow:true,ok:false}));
     return true;
   }
   if (msg?.type === 'cf-connection-changed') {
@@ -100,9 +111,10 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
     return;
   }
   if (msg?.type !== 'cf-toggle') return;
-  if (app) app.panel?.toggle();
+  if (app) app.togglePanel();
   else {
     const scope = blockedScope();
     if (scope) showUnblockChip(scope);
+    else startup.show();
   }
 });

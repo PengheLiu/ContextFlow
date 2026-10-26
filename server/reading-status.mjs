@@ -4,6 +4,7 @@ import { createHmac } from 'node:crypto';
 import { mkdirSync, readFileSync, writeFileSync, renameSync } from 'node:fs';
 import { join } from 'node:path';
 import { destinationIdentity } from '../src/core/destination.js';
+import { AGENT_EXECUTION_IDENTITY, AGENT_READINESS_FAILURES, agentConnectionIdentity } from './connection-checks.mjs';
 
 export class ReadingStatus {
   constructor(directory, secret, { now = Date.now } = {}) {
@@ -11,18 +12,19 @@ export class ReadingStatus {
     this.file = join(directory, 'reading-status.json'); this.entries = new Map();
     try {
       for (const [key, value] of Object.entries(JSON.parse(readFileSync(this.file, 'utf8')))) {
-        if (/^[a-f0-9]{64}$/.test(key) && Number.isSafeInteger(value?.at) && value.at > 0 && ['answer', 'written', 'unchanged'].includes(value.outcome)) this.entries.set(key, value);
+        if (/^[a-f0-9]{64}$/.test(key) && Number.isSafeInteger(value?.at) && value.at > 0 && ['answer', 'failed', 'written', 'unchanged'].includes(value.outcome)) this.entries.set(key, value);
       }
       while (this.entries.size > 32) this.entries.delete(this.entries.keys().next().value);
     } catch { /* No receipt is not a successful operation. */ }
   }
-  key(kind, cfg) {
+  key(kind, cfg, installed = []) {
     let identity;
     if (kind === 'sync') identity = destinationIdentity(cfg);
     else if (kind === 'agent') {
       const a = cfg.agent || {};
-      if (!a.id) return '';
-      identity = [a.id, a.executable || '', a.profile || 'safe', a.notesDir || '', Object.entries(a.env || {}).sort(([a], [b]) => a.localeCompare(b))];
+      const resolved = installed.find(row => row.id === a.id && row.available && row.path && (row.identity || row.version));
+      if (!resolved) return '';
+      identity = [agentConnectionIdentity({ ...resolved, profile: a.profile || 'safe', env: a.env || {} }), a.executable || '', a.notesDir || ''];
     } else {
       const t = cfg.translate || {};
       identity = [t.provider || '', (t.baseUrl || '').replace(/\/+$/, ''), t.model || '', t.apiKey || ''];
@@ -43,7 +45,13 @@ export class ReadingStatus {
   answer(cfg, result, { translation = false } = {}) {
     if (!result || result.cached || !String(result.answer || result.summary || result.translation || '').trim()) return false;
     const kind = translation || result.via === 'llm' ? 'model' : result.via === `agent:${cfg.agent?.id}` ? 'agent' : '';
-    return !!kind && this.save(this.key(kind, cfg), 'answer');
+    return !!kind && this.save(this.key(kind, cfg, result[AGENT_EXECUTION_IDENTITY] ? [result[AGENT_EXECUTION_IDENTITY]] : []), 'answer');
+  }
+  agentFailure(cfg, error) {
+    // Cancellation or a rejected user input is not evidence of lost login.
+    if(!AGENT_READINESS_FAILURES.has(error?.code))return false;
+    const resolved=error[AGENT_EXECUTION_IDENTITY];
+    return !!resolved && this.save(this.key('agent',cfg,[resolved]),'failed');
   }
   sync(cfg, result) {
     if (!result || result.backend !== cfg.sync?.backend || !Number.isSafeInteger(result.articles) || result.articles < 0) return false;
@@ -51,10 +59,13 @@ export class ReadingStatus {
     if (!Array.isArray(writes)) return false;
     return this.save(this.key('sync', cfg), writes.some(value => typeof value === 'string' && value) ? 'written' : 'unchanged');
   }
-  view(cfg) {
-    const ai = this.entries.get(this.key(cfg.explain?.backend === 'agent' ? 'agent' : 'model', cfg));
+  view(cfg, installed = [], checks = {}) {
+    const usesAgent = cfg.explain?.backend === 'agent';
+    const ai = this.entries.get(this.key(usesAgent ? 'agent' : 'model', cfg, installed));
+    const check = usesAgent ? checks.agents?.[cfg.agent?.id] : checks.model;
+    const verified = ai?.outcome === 'answer' && !(check?.ok === false && check.checkedAt >= ai.at);
     const sync = this.entries.get(this.key('sync', cfg));
-    return { ai: { verified: ai?.outcome === 'answer', lastAnswerAt: ai?.outcome === 'answer' ? ai.at : null },
+    return { ai: { verified, lastAnswerAt: verified ? ai.at : null, ...(ai?.outcome==='failed' ? {failedAt:ai.at} : {}) },
       sync: { completed: !!sync, changed: sync?.outcome === 'written', at: sync?.at || null } };
   }
 }

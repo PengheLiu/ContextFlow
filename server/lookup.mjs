@@ -22,6 +22,7 @@ import { chat, err } from './llm.mjs';
 import * as db from './db.mjs';
 import * as agent from './agent.mjs';
 import { buildMessages, agentPrompt, flatten } from './convo.mjs';
+import { AGENT_EXECUTION_IDENTITY } from './connection-checks.mjs';
 
 const MAX_INPUT = 5000;        // 防误选全文烧钱
 const MAX_QUESTION = 1000;
@@ -215,6 +216,8 @@ async function askAgent({ urlKey, draft, system, cfg, onProgress, onEvent, signa
   if (!agent.AGENT_IDS.includes(id)) {
     throw err('未选择本地 agent（在面板「配置」里选一个并点检测）', 'NO_AGENT');
   }
+  const resolved=(await agent.detect(false,a)).find(row=>row.id===id && row.available);
+  if(!resolved?.path)throw err('所选 Agent 程序已不可用，请重新检测安装后重试', 'NO_AGENT');
 
   const chunkChars = cfg.translate?.chunkChars ?? 5000;
   const tailChars = cfg.translate?.tailChars ?? 1000;
@@ -226,7 +229,7 @@ async function askAgent({ urlKey, draft, system, cfg, onProgress, onEvent, signa
     cfg.translate?.contextBudget || 60000,
   ])) : undefined;
   const sess = managed
-    ? agent.session({ agent: id, contextKey, env: a.env || {}, profile, notesDir: a.notesDir || '', bin: a.executable || undefined })
+    ? agent.session({ agent: id, contextKey, env: a.env || {}, profile, notesDir: a.notesDir || '', bin: resolved.path })
     : (urlKey ? db.getAgentSession(urlKey, id) : null);
   const canResume = !!sess && (managed || (profile === 'full' && agent.AGENTS[id].resumable));
 
@@ -268,9 +271,10 @@ async function askAgent({ urlKey, draft, system, cfg, onProgress, onEvent, signa
     turns: Math.max(0, historyCount - rebuilt.dropped) + 1,
   } : undefined;
 
-  const r = await agent.run({
+  let r;
+  try { r = await agent.run({
     agent: id,
-    bin: a.executable || undefined,
+    bin: resolved.path,
     prompt,
     contextKey, continuationPrompt, expectedSessionId: managed ? sess?.sessionId : undefined,
     contextState: managed ? { fresh: freshState,
@@ -287,7 +291,10 @@ async function askAgent({ urlKey, draft, system, cfg, onProgress, onEvent, signa
     onProgress: null,
     onEvent,
     signal,
-  });
+  }); } catch(error) {
+    if(error && typeof error==='object')error[AGENT_EXECUTION_IDENTITY]=resolved;
+    throw error;
+  }
 
   if (!managed && profile === 'full' && urlKey && r.sessionId && agent.AGENTS[id].resumable) {
     db.putAgentSession(urlKey, id, r.sessionId, (sess?.turns || 0) + 1, chunks);
@@ -304,6 +311,7 @@ async function askAgent({ urlKey, draft, system, cfg, onProgress, onEvent, signa
     turnsIncluded = Math.max(0, historyCount - rebuilt.dropped);
   }
   return {
+    [AGENT_EXECUTION_IDENTITY]: resolved,
     answer: r.answer, via: `agent:${id}`, model: agent.AGENTS[id].label,
     ...(usage ? { usage } : {}),
     agentMeta: {
@@ -411,7 +419,7 @@ export async function summarize({ urlKey, cfg, fresh = false, onProgress, onEven
   if (viaAgent) {
     const r = await askAgent({ urlKey, draft, cfg, onProgress, onEvent, signal, system: SUMMARY_AGENT_SYSTEM });
     const { text, trimmed } = clampSummary(r.answer);
-    return { summary: text, cached: false, via: r.via, model: r.model,
+    return { [AGENT_EXECUTION_IDENTITY]:r[AGENT_EXECUTION_IDENTITY], summary: text, cached: false, via: r.via, model: r.model,
       usage: r.usage, agentMeta: r.agentMeta, ctx: { ...r.ctx, trimmed } };
   }
 
@@ -464,7 +472,7 @@ export async function plan(cfg) {
   if (!agent.AGENT_IDS.includes(id)) {
     return { mode: 'sync', viaAgent: false, degraded: '未选择本地 agent，已改用 LLM' };
   }
-  const found = (await agent.detect()).find((a) => a.id === id);
+  const found = (await agent.detect(false,cfg.agent)).find((a) => a.id === id);
   if (!found?.available) {
     return {
       mode: 'sync', viaAgent: false,

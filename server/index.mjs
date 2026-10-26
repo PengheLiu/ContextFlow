@@ -7,7 +7,7 @@
 //      少了这条，Content-Type: text/plain 的「简单请求」POST 能绕过 CORS 往库里写垃圾。
 import { createServer } from 'node:http';
 import { readFileSync } from 'node:fs';
-import { loadConfig, saveConfig, publicView, setupStatus, CONFIG_PATH, DIR } from './config.mjs';
+import { loadConfig, saveConfig, publicView, setupStatus, CONFIG_PATH, DIR, migrateLegacyDir } from './config.mjs';
 import * as db from './db.mjs';
 import * as lookup from './lookup.mjs';
 import { listModels, testConnection, modelDraft } from './llm.mjs';
@@ -23,13 +23,18 @@ import { ConnectionChecks } from './connection-checks.mjs';
 import { detectVaults, listFolders } from './obsidian.mjs';
 import { getAsset, saveAsset } from './assets.mjs';
 import { pairedOrigin, extensionAuthorized } from './extension-pairing.mjs';
+import { acquireDataOwner } from '../src/core/data-owner.mjs';
 
+migrateLegacyDir();
+const dataOwner = acquireDataOwner(DIR, { kind: 'core' });
+process.once('exit', () => dataOwner.release());
 let cfg = loadConfig();   // POST /config 会热替换
 const connectionChecks = new ConnectionChecks(DIR, cfg.token);
 const syncStatus = new SyncStatus(DIR);
 const readingStatus = new ReadingStatus(DIR, cfg.token);
-const settingsView = async (current = cfg) => {
-  const installed = current.agent?.id ? await detectAgents(false, current.agent) : [];
+const installedAgents = current => current.agent?.id ? detectAgents(false, current.agent) : Promise.resolve([]);
+const settingsView = async (current = cfg, installed = null) => {
+  installed ??= await installedAgents(current);
   return { ...publicView(current), connectionChecks: connectionChecks.view(current, installed) };
 };
 // 在进程启动时捕获，不能因为磁盘源码已更新就把旧进程误报成新版。
@@ -47,13 +52,20 @@ function answered(configuration, result, options) {
   if (options?.signal?.aborted) return result;
   readingStatus.answer(configuration, result, options); stateChanged(); return result;
 }
-function healthView(current, extensionPaired = false) {
+async function answerOperation(configuration,work,options={}) {
+  try { return answered(configuration,await work(),options); }
+  catch(error) {
+    if(!options.signal?.aborted && readingStatus.agentFailure(configuration,error))stateChanged();
+    throw error;
+  }
+}
+function healthView(current, extensionPaired = false, installed = []) {
   return { ok: true, stats: db.stats(current.sync.backend),
     serviceVersion, startedAt, stateRevision,
-    capabilities: ['llm.models', 'llm.test', 'llm.draft', 'jobs.abort', 'jobs.stream', 'agent.test', 'agent.test.draft', 'connection.checks', 'reading.status'], jobs: jobs.stats(),
+    capabilities: ['llm.models', 'llm.test', 'llm.draft', 'jobs.abort', 'jobs.stream', 'agent.test', 'agent.test.draft', 'agent.codex-home.draft', 'connection.checks', 'reading.status'], jobs: jobs.stats(),
     extensionPaired,
     ...(desktopToken ? { desktopManaged: true, protocolVersion: 1 } : {}),
-    syncStatus: syncStatus.view(current), readingStatus: readingStatus.view(current),
+    syncStatus: syncStatus.view(current), readingStatus: readingStatus.view(current, installed, connectionChecks.view(current, installed)),
     hasApiKey: !!current.translate.apiKey, backend: current.sync.backend, backends: BACKENDS, ...setupStatus(current) };
 }
 const MAX_BODY = 2 * 1024 * 1024;
@@ -136,15 +148,17 @@ const server = createServer(async (req, res) => {
     }
 
     if (path === '/health') {
-      return json(res, 200, healthView(cfg, extensionAuth === true));
+      const current=cfg,installed=await installedAgents(current);
+      return json(res, 200, healthView(current, extensionAuth === true, installed));
     }
     if (path === '/desktop/state' && req.method === 'GET') {
       if (!desktopToken || tok !== desktopToken || req.headers.origin || extensionId) return json(res, 403, { error: '此状态接口仅供桌面端使用' });
       const current = cfg;
-      const configuration = await settingsView(current);
+      const installed=await installedAgents(current);
+      const configuration = await settingsView(current,installed);
       // The immutable config reference binds every receipt in this response,
       // even when a browser saves another config while detection is awaiting.
-      return json(res, 200, { configuration, health: healthView(current, extensionAuth === true) });
+      return json(res, 200, { configuration, health: healthView(current, extensionAuth === true,installed) });
     }
 
     if (path === '/events' && req.method === 'GET') {
@@ -209,10 +223,10 @@ const server = createServer(async (req, res) => {
       const job = jobs.submit({
         kind: 'explain',
         label: String(text ?? '').slice(0, 40),
-        task: async (api) => answered(requestConfig, { ...await (mode === 'sync' ? lookup.explainViaLLM : lookup.explainViaAgent)({
+        task: async (api) => answerOperation(requestConfig, async()=>({ ...await (mode === 'sync' ? lookup.explainViaLLM : lookup.explainViaAgent)({
           text, question, urlKey, offset, fresh, cfg: requestConfig, onProgress: api.progress, onEvent: api.event, signal: api.signal,
         }), ...(degraded ? { degraded } : {})
-        }, { signal: api.signal }),
+        }), { signal: api.signal }),
       });
       return json(res, 202, { job, mode: 'job' });
     }
@@ -229,7 +243,7 @@ const server = createServer(async (req, res) => {
       const job = jobs.submit({
         kind: 'summary',
         label: '速览',
-        task: async (api) => answered(requestConfig, await lookup.summarize({ urlKey, fresh, cfg: requestConfig, onProgress: api.progress, onEvent: api.event, signal: api.signal }), { signal: api.signal }),
+        task: async (api) => answerOperation(requestConfig,()=>lookup.summarize({ urlKey, fresh, cfg: requestConfig, onProgress: api.progress, onEvent: api.event, signal: api.signal }), { signal: api.signal }),
       });
       return json(res, 202, { job, mode: 'job' });
     }
@@ -279,8 +293,8 @@ const server = createServer(async (req, res) => {
     if (path === '/agents/detect' && req.method === 'GET') {
       // fresh=1：手动点「检测」时绕过缓存
       const fresh = new URL(req.url, 'http://x').searchParams.get('fresh') === '1';
-      const agents = await detectAgents(fresh, cfg.agent);
-      return json(res, 200, { agents, jobs: jobs.stats(), connectionChecks: connectionChecks.view(cfg, agents) });
+      const current=cfg,agents = await detectAgents(fresh, current.agent);
+      return json(res, 200, { agents, jobs: jobs.stats(), connectionChecks: connectionChecks.view(current, agents) });
     }
     if (path === '/agents/test' && req.method === 'POST') {
       const body = await readBody(req);
@@ -420,6 +434,8 @@ const shutdown = async (signal) => {
       closeAgents(),
       new Promise(resolve => server.close(resolve)),
     ]);
+    const closed = db.close();
+    if (!closed.checkpointed) console.warn('[server] 数据库仍有必要 WAL；恢复点会同时保存它。');
     clearTimeout(force);
     process.exit(0);
   } catch (error) {

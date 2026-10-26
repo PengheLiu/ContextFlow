@@ -25,18 +25,18 @@ const warningHash = () => createHash('sha256').update(FULL_WARNING).digest('hex'
  * 里面有 config.json（含密钥）和 context.db（阅读记录），不能丢。
  * 只在新目录尚不存在时执行，避免覆盖已有数据。
  */
-function migrateLegacyDir() {
-  if (existsSync(DIR) || !existsSync(LEGACY_DIR)) return;
+export function migrateLegacyDir(directory = DIR, legacyDirectory = LEGACY_DIR) {
+  if (existsSync(directory) || !existsSync(legacyDirectory)) return;
   try {
-    renameSync(LEGACY_DIR, DIR);
-    console.log(`[config] 已迁移 ${LEGACY_DIR} → ${DIR}`);
+    renameSync(legacyDirectory, directory);
+    console.log(`[config] 已迁移 ${legacyDirectory} → ${directory}`);
   } catch (e) {
     // 跨卷等情况下 rename 会失败：退而逐个拷贝
-    mkdirSync(DIR, { recursive: true });
-    for (const f of readdirSync(LEGACY_DIR)) {
-      try { writeFileSync(join(DIR, f), readFileSync(join(LEGACY_DIR, f))); } catch { /* 跳过 */ }
+    mkdirSync(directory, { recursive: true });
+    for (const f of readdirSync(legacyDirectory)) {
+      try { writeFileSync(join(directory, f), readFileSync(join(legacyDirectory, f))); } catch { /* 跳过 */ }
     }
-    console.log(`[config] 已拷贝 ${LEGACY_DIR} → ${DIR}（旧目录保留，确认无误后可自行删除）`);
+    console.log(`[config] 已拷贝 ${legacyDirectory} → ${directory}（旧目录保留，确认无误后可自行删除）`);
   }
 }
 
@@ -206,6 +206,21 @@ export function saveConfig(patch) {
     if (!Object.hasOwn(patch.agent, 'env')) next.agent.env = {};
     if (!Object.hasOwn(patch.agent, 'executable')) next.agent.executable = '';
   }
+  if (patch?.agent && Object.hasOwn(patch.agent, 'codexHome')) {
+    const value = patch.agent.codexHome;
+    const invalidHome = () => Object.assign(new Error('Codex 配置目录请填写绝对路径，或使用 ~/ 开头的用户目录'), { code: 'BAD_AGENT_HOME' });
+    if (typeof value !== 'string' || value.length > 4096 || /[\u0000-\u001f\u007f]/.test(value)) throw invalidHome();
+    let home;
+    try { home = normalizeRoot(value); } catch { throw invalidHome(); }
+    if (home && next.agent.id !== 'codex') throw invalidHome();
+    if (next.agent.id === 'codex') {
+      next.agent.env = { ...next.agent.env };
+      if (home) next.agent.env.CODEX_HOME = home;
+      else delete next.agent.env.CODEX_HOME;
+    }
+  }
+  // This public form field is an adapter, never a second persisted setting.
+  delete next.agent.codexHome;
   next.markdown.dir = normalizeRoot(next.markdown.dir);
   next.obsidian.vaultPath = normalizeRoot(next.obsidian.vaultPath);
   next.agent.notesDir = normalizeRoot(next.agent.notesDir);
@@ -244,6 +259,8 @@ export function publicView(cfg) {
     agent: {
       id: cfg.agent?.id || '',
       executable: cfg.agent?.executable || '',
+      codexHome: cfg.agent?.id === 'codex' && typeof cfg.agent?.env?.CODEX_HOME === 'string' ? cfg.agent.env.CODEX_HOME : '',
+      codexDefaultHome: process.env.CODEX_HOME || join(homedir(), '.codex'),
       notesDir: cfg.agent?.notesDir || '',
       maxTurns: cfg.agent?.maxTurns ?? 12,
       timeoutMs: cfg.agent?.timeoutMs ?? 240000,

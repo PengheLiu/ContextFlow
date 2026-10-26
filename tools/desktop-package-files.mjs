@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 
 export const REQUIRED_DESKTOP_ARCHIVE_FILES = Object.freeze([
-  'main.mjs', 'preload.cjs', 'service.mjs', 'native-host.mjs', 'pairing-approval.mjs',
+  'main.mjs', 'preload.cjs', 'service.mjs', 'native-host.mjs', 'pairing-approval.mjs', 'pairing-state.mjs',
   'recovery.mjs', 'discovery.mjs', 'journey.mjs', 'browser.mjs', 'visibility.mjs',
   'instance.mjs', 'tray-icon.mjs', 'menu-bar.mjs', 'tray-menu.mjs',
   'ui/trayTemplate.png', 'ui/trayTemplate@2x.png', 'ui/app.js', 'ui/index.html',

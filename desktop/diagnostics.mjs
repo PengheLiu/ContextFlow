@@ -13,7 +13,8 @@ export function diagnosticReport(snapshot = {}) {
       trayPlacement: ['clear', 'obscured', 'offscreen', 'unknown', 'unavailable'].includes(snapshot.systemIntegration?.trayPlacement) ? snapshot.systemIntegration.trayPlacement : 'unknown',
       dockVisible: snapshot.platform === 'darwin' ? snapshot.systemIntegration?.dockVisible === true : null,
       windowVisible: snapshot.systemIntegration?.windowVisible === true },
-    browserConnections: count(snapshot.pairings?.length),
+    pairingStorage: snapshot.pairingError ? 'unreadable' : 'ready',
+    browserConnections: snapshot.pairingError ? null : count(snapshot.pairings?.length),
     capabilities: ['llm.models', 'llm.test', 'llm.draft', 'jobs.abort', 'jobs.stream', 'agent.test', 'connection.checks']
       .filter(capability => health.capabilities?.includes(capability)),
     tasks: { running: count(health.jobs?.running), queued: count(health.jobs?.queued) },

@@ -186,4 +186,19 @@ await t('Agent 草稿只发送当前程序路径与权限档，测试从不保�
   await assert.rejects(()=>api.testAgent('codex',{draft:{executable:'/fixture/codex',profile:'safe'}}),e=>e.code==='COMPANION_UPDATE_REQUIRED');
 });
 
+await t('Codex 配置目录仅在服务声明支持时作为草稿发送，旧服务不接受此新字段',async()=>{
+  const seen=[];
+  api.setTransport(async(path,init={})=>{seen.push({path,init});
+    if(path==='/health')return {status:200,body:{capabilities:['agent.test','agent.test.draft','agent.codex-home.draft']}};
+    if(path==='/agents/test')return {status:202,body:{mode:'job',job:{id:'codex-home',status:'running'}}};
+    return {status:200,body:{job:{status:'done',result:{ok:true,agent:'codex',scope:'connection-only'}}}};
+  });
+  await api.testAgent('codex',{draft:{executable:'',profile:'safe',codexHome:'/fixture/Personal'}});
+  assert.deepEqual(JSON.parse(seen.find(row=>row.path==='/agents/test').init.body),{id:'codex',executable:'',profile:'safe',codexHome:'/fixture/Personal'});
+  assert.equal(seen.some(row=>row.path==='/config'),false);
+  await assert.rejects(()=>api.testAgent('dsh',{draft:{codexHome:'/fixture/Personal'}}),error=>error.code==='BAD_INPUT');
+  api.setTransport(async path=>{assert.equal(path,'/health');return {status:200,body:{capabilities:['agent.test','agent.test.draft']}};});
+  await assert.rejects(()=>api.testAgent('codex',{draft:{codexHome:''}}),error=>error.code==='COMPANION_UPDATE_REQUIRED');
+});
+
 console.log(`\n${pass} 项通过`);

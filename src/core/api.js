@@ -341,7 +341,9 @@ export async function testAgent(id, { draft, signal, onProgress } = {}) {
   const service = companionInfo(await health());
   if (!service.agentTestSupported) throw Object.assign(new Error('本地服务暂不支持 Agent 连接测试，请更新并重启配套服务；无需重新配对。'), { code:'COMPANION_UPDATE_REQUIRED', status:409 });
   if (draft && !service.agentDraftTestSupported) throw Object.assign(new Error('本地服务暂不支持 Agent 草稿测试，请更新并重启配套服务后重试；原有配置保留。'), { code:'COMPANION_UPDATE_REQUIRED', status:409 });
-  if (draft && (typeof draft !== 'object' || Array.isArray(draft) || Object.keys(draft).some(key => !['executable', 'profile'].includes(key)))) throw Object.assign(new Error('Agent 测试草稿只能包含程序路径和权限档'), { code:'BAD_INPUT' });
+  if (draft && Object.hasOwn(draft, 'codexHome') && !service.codexHomeSupported) throw Object.assign(new Error('本地服务暂不支持选择 Codex 配置目录，请更新并重启配套服务后重试；原有配置保留。'), { code:'COMPANION_UPDATE_REQUIRED', status:409 });
+  if (draft && (typeof draft !== 'object' || Array.isArray(draft) || Object.keys(draft).some(key => !['executable', 'profile', 'codexHome'].includes(key)))) throw Object.assign(new Error('Agent 测试草稿只能包含程序路径、Codex 配置目录和权限档'), { code:'BAD_INPUT' });
+  if (draft && Object.hasOwn(draft, 'codexHome') && (id !== 'codex' || typeof draft.codexHome !== 'string')) throw Object.assign(new Error('Codex 配置目录仅适用于 Codex CLI'), { code:'BAD_INPUT' });
   if (signal?.aborted) throw Object.assign(new Error('已取消测试'), { code:'ABORTED' });
   const first = await call('/agents/test', { method:'POST', body:JSON.stringify({ id, ...draft }) });
   if (first.mode !== 'job' || !first.job?.id) throw new Error('Agent 测试响应无效，请更新配套服务');

@@ -13,18 +13,22 @@
 // 或扩展载体点工具栏图标 —— 都会弹出「已停用」小卡片，带「恢复」按钮。
 // 页面加载时绝不弹任何东西，否则停用本身就成了新的打扰。
 
-import { urlKey } from '../core/urlkey.js';
-import { T, FLOAT, shadowHost } from './theme.js';
+import { urlKey, legacyUrlKey } from '../core/urlkey.js';
+import { T, FLOAT, shadowHost, releaseThemeHost } from './theme.js';
 import { icon } from './icons.js';
+import { EventScope } from './event-scope.js';
 
 import { browserStorage } from '../core/browser-storage.js';
 
 const KEY = 'contextflow:blocklist';
 
 const read = () => {
-  try { return JSON.parse(browserStorage().getItem(KEY)) || {}; } catch { return {}; }
+  try { const value = JSON.parse(browserStorage().getItem(KEY)); return value && typeof value === 'object' && !Array.isArray(value) ? value : {}; } catch { return {}; }
 };
 const write = (list) => { try { browserStorage().setItem(KEY, JSON.stringify(list)); } catch { /* 配额 */ } };
+const pageRules = list => list.pages && typeof list.pages === 'object' && !Array.isArray(list.pages) ? list.pages : {};
+const ruleTime = value => typeof value === 'number' ? value : value?.identityVersion === 2 && Number.isFinite(value.at) ? value.at : 0;
+const legacyRule = value => typeof value === 'number' && Number.isFinite(value) && value > 0;
 
 /** 站点显示名：去掉协议前缀，比裸 origin 亲切一点 */
 export function siteLabel(href = location.href) {
@@ -38,12 +42,16 @@ export function siteLabel(href = location.href) {
 export function blockedScope(href = location.href) {
   const list = read();
   if (list.site) return 'site';
-  return list.pages && list.pages[urlKey(href)] ? 'page' : null;
+  const pages = pageRules(list), key = urlKey(href), legacyKey = legacyUrlKey(href);
+  // Numeric v1 rules already covered case/hash aliases. Preserve that user's
+  // suppression until they explicitly restore it; new v2 rules are exact.
+  return ruleTime(pages[key]) || legacyRule(pages[legacyKey]) ? 'page' : null;
 }
 
 export function blockPage(href = location.href) {
   const list = read();
-  list.pages = { ...list.pages, [urlKey(href)]: Date.now() };
+  list.identityVersion = 2;
+  list.pages = { ...pageRules(list), [urlKey(href)]: { at: Date.now(), identityVersion: 2 } };
   write(list);
 }
 
@@ -53,15 +61,18 @@ export function blockSite() {
 
 export function unblockPage(href = location.href) {
   const list = read();
-  if (!list.pages) return;
+  list.pages = { ...pageRules(list) };
   delete list.pages[urlKey(href)];
+  const alias = legacyUrlKey(href);
+  if (legacyRule(list.pages[alias])) delete list.pages[alias];
   write(list);
 }
 
 /** 设置页用：按名单里存的 key 直接移除（那是归一化后的 urlKey，不是原始 URL） */
 export function unblockPageKey(key) {
   const list = read();
-  if (!list.pages || !(key in list.pages)) return;
+  list.pages = { ...pageRules(list) };
+  if (!(key in list.pages)) return;
   delete list.pages[key];
   write(list);
 }
@@ -81,7 +92,7 @@ export function blocklistEntries() {
   const list = read();
   return {
     site: !!list.site,
-    pages: Object.entries(list.pages || {}).map(([key, at]) => ({ key, at })),
+    pages: Object.entries(pageRules(list)).filter(([, value]) => ruleTime(value)).map(([key, value]) => ({ key, at: ruleTime(value) })),
   };
 }
 
@@ -108,7 +119,8 @@ let chipTimer = null;
  * @param {'site'|'page'} scope
  */
 export function showUnblockChip(scope = blockedScope() || 'page') {
-  document.querySelector(`[data-contextflow="${CHIP_HOST}"]`)?.remove();
+  const previous = document.querySelector(`[data-contextflow="${CHIP_HOST}"]`);
+  if (previous) { releaseThemeHost(previous); previous.remove(); }
   const sh = shadowHost(CHIP_HOST, CHIP_CSS, 2147483647);
   sh.innerHTML += `<div class="chip card" role="status">
     <div class="txt">
@@ -127,7 +139,7 @@ export function showUnblockChip(scope = blockedScope() || 'page') {
     // 插件没有原地重启的能力，刷新是最诚实的恢复方式
     location.reload();
   };
-  const dismiss = () => { clearTimeout(chipTimer); host.remove(); };
+  const dismiss = () => { clearTimeout(chipTimer); releaseThemeHost(host); host.remove(); };
   sh.querySelector('.close').onclick = dismiss;
   clearTimeout(chipTimer);
   chipTimer = setTimeout(dismiss, 8000);
@@ -154,6 +166,7 @@ const MENU_CSS = `${FLOAT}
 export class BlockControl {
   /** @param {(scope:'page'|'site')=>void} onBlock 用户选定停用范围后回调 */
   constructor(onBlock) {
+    this.events = new EventScope();
     const sh = shadowHost('block-menu', MENU_CSS, 2147483647);
     sh.innerHTML += `<div class="menu card" id="m" role="menu" aria-label="停用 ContextFlow">
       <button type="button" role="menuitem" data-scope="page">
@@ -162,7 +175,7 @@ export class BlockControl {
       <button type="button" role="menuitem" data-scope="site">
         <b>在整个站点停用</b><span>${siteLabel()} 下的页面都不再启动（www 与裸域各算一站）</span></button>
     </div>`;
-    this.el = sh.getElementById('m');
+    this.sh = sh; this.el = sh.getElementById('m');
     this.openedAt = 0;
     this.el.addEventListener('mousedown', (e) => {
       const b = e.target.closest?.('button[data-scope]');
@@ -172,18 +185,19 @@ export class BlockControl {
       this.hide();
       onBlock?.(b.dataset.scope);
     });
-    document.addEventListener('click', (e) => {
+    this.events.listen(document, 'click', (e) => {
       if (!this.visible) return;
       if (performance.now() - this.openedAt < 400) return;   // 打开它的同一次 click
       if (e.target?.closest?.('[data-contextflow]')) return;
       this.hide();
     });
-    document.addEventListener('keydown', (e) => { if (e.key === 'Escape') this.hide(); });
-    addEventListener('scroll', () => this.hide(), { passive: true });
+    this.events.listen(document, 'keydown', (e) => { if (e.key === 'Escape') this.hide(); });
+    this.events.listen(window, 'scroll', () => this.hide(), { passive: true });
   }
 
   /** 摆到触发按钮下方；下方放不下再翻到上方 */
   show(rect) {
+    if (this.disposed) return;
     if (!rect) return;
     this.openedAt = performance.now();
     this.el.classList.add('on');
@@ -199,4 +213,10 @@ export class BlockControl {
   hide() { this.el?.classList.remove('on'); }
 
   get visible() { return !!this.el?.classList.contains('on'); }
+
+  dispose() {
+    if (this.disposed) return;
+    this.disposed = true; this.events.dispose(); this.hide();
+    releaseThemeHost(this.sh.host); this.sh.host.remove();
+  }
 }

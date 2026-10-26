@@ -6,14 +6,33 @@ import { homedir } from 'node:os';
 const idPattern = /^[a-p]{32}$/;
 const instancePattern = /^[A-Za-z0-9_-]{16,80}$/;
 const digest = (token) => createHash('sha256').update(token).digest('hex');
+const object = value => value !== null && typeof value === 'object' && !Array.isArray(value);
+const grant = (value, instance = false) => object(value)
+  && (value.tokenHash === undefined || typeof value.tokenHash === 'string' && /^[a-f0-9]{64}$/.test(value.tokenHash))
+  && (value.revoked === undefined || typeof value.revoked === 'boolean')
+  && (value.updatedAt === undefined || Number.isFinite(value.updatedAt) && value.updatedAt >= 0)
+  && (value.label === undefined || typeof value.label === 'string')
+  && (!instance || !!value.tokenHash || value.revoked === true);
+function validPairings(value) {
+  // v1 legacy grants and v2 per-installation grants can coexist. Preserve
+  // unknown metadata, but never reinterpret an invalid grant as an empty list.
+  return object(value) && Object.entries(value).every(([id, entry]) => idPattern.test(id) && grant(entry)
+    && (!!entry.tokenHash || entry.revoked === true || object(entry.instances))
+    && (entry.instances === undefined || object(entry.instances) && Object.entries(entry.instances)
+      .every(([instanceId, row]) => instancePattern.test(instanceId) && grant(row, true))));
+}
 
 const defaultDirectory = () => process.env.CONTEXTFLOW_DIR || join(homedir(), '.contextflow');
 function readPairings(directory = defaultDirectory()) {
   const file = join(directory, 'extension-pairings.json');
-  try { return JSON.parse(readFileSync(file, 'utf8')); }
+  try {
+    const value = JSON.parse(readFileSync(file, 'utf8'));
+    if (!validPairings(value)) throw new Error('Invalid authorization data');
+    return value;
+  }
   catch (error) {
     if (error.code === 'ENOENT') return {};
-    throw new Error('无法读取扩展配对记录，请检查本地服务配置');
+    throw Object.assign(new Error('无法读取扩展配对记录，请检查本地服务配置'), { code: 'PAIRING_STORAGE_UNREADABLE' });
   }
 }
 

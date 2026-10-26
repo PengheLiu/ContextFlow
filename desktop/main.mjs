@@ -10,7 +10,7 @@ import { desktopPaths, nativeManifest, chromeHostFile, atomicJSON, readJSON, HOS
 import { ServiceManager } from './service.mjs';
 import { runNativeHost } from './native-host.mjs';
 import { diagnosticReport } from './diagnostics.mjs';
-import { createRecoveryPoint, listRecoveryPoints, validateRecoveryPoint, applyRecoveryPoint } from './recovery.mjs';
+import { createRecoveryPoint, listRecoveryPoints, validateRecoveryPoint, loadProtectedSecret, restoreStoppedDesktop } from './recovery.mjs';
 import { LocalDiscovery } from './discovery.mjs';
 import { journeyView, updateJourney } from './journey.mjs';
 import { openReadingInChrome } from './browser.mjs';
@@ -20,6 +20,7 @@ import { loadTrayIcon } from './tray-icon.mjs';
 import { createMenuBar, readMenuBarGeometry } from './menu-bar.mjs';
 import { trayMenuTemplate } from './tray-menu.mjs';
 import { approveBrowserPairing } from './pairing-approval.mjs';
+import { browserPairingState, requireBrowserPairings } from './pairing-state.mjs';
 
 const ROOT = dirname(fileURLToPath(import.meta.url));
 const development = !app.isPackaged;
@@ -58,7 +59,14 @@ if (isHost) {
   let pendingShow = false, secondInstanceEvents = 0;
   let healthResponding = true, healthRefresh, nativeMenu;
   const visibility = createVisibility({ app, getTray: () => menuBar?.getTray() || tray });
-  let preferences = readJSON(paths.preferences, { openAtLogin: false });
+  let preferences, preferencesWarning = '';
+  try {
+    preferences = readJSON(paths.preferences, { openAtLogin: false });
+    if (!preferences || typeof preferences !== 'object' || Array.isArray(preferences)) throw new Error('Invalid preferences');
+  } catch {
+    preferences = { openAtLogin: false };
+    preferencesWarning = '启动偏好无法读取，原文件已保留；首次准备进度暂不可用。配置与阅读记录没有重置，可在设置与帮助中检查或恢复。';
+  }
   const updateState = { state: 'manual', message: '桌面端通过官网下载更新。任务结束后退出旧版，再覆盖安装；现有配置与阅读数据保留。Chrome 扩展由商店单独更新。' };
   const core = app.isPackaged ? join(process.resourcesPath, 'core') : join(ROOT, 'build', 'core');
   const runtime = app.isPackaged ? join(process.resourcesPath, 'runtime', process.platform === 'win32' ? 'node.exe' : 'node')
@@ -67,13 +75,14 @@ if (isHost) {
   const { destinationKey, destinationIdentity } = await import(pathToFileURL(join(core, 'server', 'sync-status.mjs')));
   const { terminateTree } = await import(pathToFileURL(join(core, 'server', 'platform.mjs')));
   const { transformSecrets } = await import(pathToFileURL(join(core, 'server', 'secrets.mjs')));
+  const { acquireDataOwner } = await import(pathToFileURL(join(core, 'src', 'core', 'data-owner.mjs')));
   const execute = promisify(execFile);
 
   function show() {
     if (quitting) return;
     if (!window || window.isDestroyed()) {
       window = new BrowserWindow({ width: 1080, height: 780, minWidth: 820, minHeight: 620, show: false,
-        title: 'ContextFlow', backgroundColor: '#f7f6f2', autoHideMenuBar: true,
+        title: 'ContextFlow', backgroundColor: '#fbfaf7', autoHideMenuBar: true,
         webPreferences: { preload: join(ROOT, 'preload.cjs'), contextIsolation: true, sandbox: true, nodeIntegration: false },
       });
       window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
@@ -110,11 +119,11 @@ if (isHost) {
       }
     }
     return { version: app.getVersion(), platform: process.platform, architecture: process.arch, service: snapshot,
-      pairings: listPairings(paths.data), bridgeReady, preferences, updates: updateState, dataDir: paths.data,
+      ...browserPairingState(() => listPairings(paths.data)), bridgeReady, preferences, updates: updateState, dataDir: paths.data,
       discovery: discovery.snapshot(), journey: journeyView(preferences, destinationKey(lastConfig), service.lastHealth?.syncStatus, destinationIdentity(lastConfig)),
       recoveryPoints: await listRecoveryPoints(paths), packaged: app.isPackaged,
       systemIntegration: systemIntegration(), configuration: snapshot.state === 'running' ? lastConfig : null,
-      readingStatus: service.lastHealth?.readingStatus || null };
+      readingStatus: service.lastHealth?.readingStatus || null, startupWarning: preferencesWarning };
   }
   function systemIntegration() {
     return { ...(menuBar?.snapshot() || { trayAvailable: false, trayPlacement: 'unavailable' }),
@@ -192,6 +201,8 @@ if (isHost) {
       // paths, note content, or ability to stop/relaunch a process is exposed.
       if (req.url === '/status') return reply(200, { ok: true, version: app.getVersion(), build: identity.build,
         pid: process.pid, corePid: service.child?.pid || null, service: service.state, ...systemIntegration() });
+      try { requireBrowserPairings(() => listPairings(paths.data)); }
+      catch (error) { return reply(409, { ok: false, code: error.code, error: error.message }); }
       if (pairing) return reply(409, { ok: false, error: '已有连接申请，请先在桌面端处理。' });
       let ownsPairing = false;
       try {
@@ -271,14 +282,10 @@ if (isHost) {
   }
   if (app.isPackaged) preferences.openAtLogin = app.getLoginItemSettings({ path: app.getPath('exe'), args: ['--hidden'] }).openAtLogin;
   mkdirSync(paths.state, { recursive: true, mode: 0o700 });
-  let secretKey;
-  if (smoke) secretKey = randomBytes(32).toString('base64');
-  else {
-    if (!safeStorage.isEncryptionAvailable()) { dialog.showErrorBox('无法安全保存密钥', '系统凭据保护暂不可用，请解锁系统钥匙串后重新打开。'); app.exit(1); }
-    if (existsSync(paths.secret)) secretKey = safeStorage.decryptString(readFileSync(paths.secret));
-    else { secretKey = randomBytes(32).toString('base64'); writeFileSync(paths.secret, safeStorage.encryptString(secretKey), { mode: 0o600 }); }
-  }
+  const credentials = smoke ? { key: randomBytes(32).toString('base64') } : loadProtectedSecret(paths, safeStorage);
+  const secretKey = credentials.key;
   service = new ServiceManager({ paths, runtime, core, secretKey, terminateTree });
+  if (credentials.blockedReason) service.blockedReason = credentials.blockedReason;
   const request = async (path, init, options) => {
     const result = await service.request(path, init, options);
     if (path === '/config' && result.status === 200) lastConfig = result.body;
@@ -303,7 +310,7 @@ if (isHost) {
     return journeyView(preferences, destinationKey(lastConfig), service.lastHealth?.syncStatus, destinationIdentity(lastConfig));
   });
   handler('revoke', (id, instanceId) => {
-    if (!listPairings(paths.data).some(row => row.id === id && row.instanceId === instanceId)) throw new Error('连接记录不存在');
+    if (!requireBrowserPairings(() => listPairings(paths.data)).some(row => row.id === id && row.instanceId === instanceId)) throw new Error('连接记录不存在');
     pairExtension(id, { revoke: true, instanceId, legacyOnly: !instanceId, directory: paths.data }); return true;
   });
   handler('preferences', patch => {
@@ -314,9 +321,11 @@ if (isHost) {
     atomicJSON(paths.preferences, preferences); return preferences;
   });
   handler('folder', async target => {
-    const keys = { markdown: ['markdown', 'dir'], obsidian: ['obsidian', 'vaultPath'], agent: ['agent', 'notesDir'] };
+    const keys = { markdown: ['markdown', 'dir'], obsidian: ['obsidian', 'vaultPath'], agent: ['agent', 'notesDir'], 'codex-config': ['agent', 'codexHome'] };
     if (!keys[target]) throw new Error('无效的目录用途');
-    const selected = await dialog.showOpenDialog(window, { title: '选择 ContextFlow 使用的文件夹', properties: ['openDirectory', 'createDirectory'] });
+    const selected = await dialog.showOpenDialog(window, target === 'codex-config'
+      ? { title: '选择 Codex 登录与模型配置目录', properties: ['openDirectory'] }
+      : { title: '选择 ContextFlow 使用的文件夹', properties: ['openDirectory', 'createDirectory'] });
     if (selected.canceled) return null;
     return selected.filePaths[0];
   });
@@ -327,6 +336,11 @@ if (isHost) {
   });
   handler('action', async action => {
     if (recovering && ['start', 'restart', 'stop', 'takeover'].includes(action)) throw new Error('恢复点操作正在进行，请稍候。');
+    if (['start', 'restart'].includes(action) && service.blockedReason && !service.child && !smoke) {
+      const unlocked = loadProtectedSecret(paths, safeStorage);
+      service.secretKey = unlocked.key; service.blockedReason = unlocked.blockedReason;
+      if (!service.blockedReason) service.port = Number(readJSON(join(paths.data, 'config.json')).port) || 7317;
+    }
     if (action === 'start') { await service.start(); return state(); }
     if (action === 'restart') { await service.restart(); return state(); }
     if (action === 'stop') { if (await service.busy()) throw new Error('请先完成或取消排队中的任务，再停止服务。'); await service.stop(); return state(); }
@@ -344,6 +358,11 @@ if (isHost) {
     }
     if (action === 'data') return shell.openPath(paths.data);
     if (action === 'logs') return shell.openPath(paths.logs);
+    if (action === 'recovery-protection') {
+      const folder = join(paths.state, 'recovery-protection');
+      if (!existsSync(folder)) throw new Error('尚无故障保护副本。它只在恢复操作前创建，不是普通阅读备份。');
+      return shell.openPath(folder);
+    }
     if (action === 'takeover') {
       if (service.state !== 'external' || process.platform !== 'darwin') throw new Error('请在原来的终端停止旧服务，然后点击启动。');
       const plist = join(app.getPath('home'), 'Library', 'LaunchAgents', 'com.contextflow.server.plist');
@@ -375,37 +394,33 @@ if (isHost) {
     if (recovering) throw new Error('恢复点操作正在进行，请稍候。');
     if (smoke) throw new Error('测试模式不使用系统凭据恢复点。');
     if (!['create', 'restore'].includes(action)) throw new Error('无效的恢复点操作');
-    if (!service.child || service.state !== 'running') throw new Error('请先启动桌面端管理的服务。');
-    if (await service.busy()) throw new Error('请先完成或取消当前任务，再创建或恢复。');
-    if (action === 'restore') {
-      await validateRecoveryPoint(paths, id);
-      const answer = await dialog.showMessageBox(window, { buttons: ['取消', '创建保护副本并恢复'], defaultId: 0, cancelId: 0,
-        message: '恢复本机数据到这个时间点？', detail: '恢复前会创建当前数据的保护副本。只恢复服务端阅读记录、图片和配置；不恢复浏览器离线记录，也不撤销已有浏览器授权的撤销操作。恢复点仅适用于当前电脑的系统账号。' });
-      if (answer.response !== 1) return false;
-    }
+    if (action === 'create' && (!service.child || service.state !== 'running')) throw new Error('创建新恢复点需要先启动桌面端管理的服务；启动失败时仍可选择已有恢复点。');
+    if (service.state === 'external') throw new Error('请先正常退出其他 ContextFlow 服务，再进行恢复。');
+    if (service.child && await service.busy()) throw new Error('请先完成或取消当前任务，再创建或恢复。');
     recovering = true;
-    let before;
-    const oldKey = service.secretKey;
     try {
-      await service.stop();
-      before = await createRecoveryPoint(paths, { appVersion: app.getVersion(),
-        sealConfig: cfg => transformSecrets(transformSecrets(cfg, 'decode', service.secretKey), 'encode', service.secretKey) });
       if (action === 'restore') {
-        // Verify OS credentials before touching the live configuration.
-        const point = await validateRecoveryPoint(paths, id);
-        const restoredKey = safeStorage.decryptString(readFileSync(join(point.root, 'secret-key.bin')));
-        transformSecrets(JSON.parse(readFileSync(join(point.root, 'config.json'), 'utf8')), 'decode', restoredKey);
-        await applyRecoveryPoint(paths, id); service.secretKey = restoredKey;
+        await validateRecoveryPoint(paths, id);
+        const answer = await dialog.showMessageBox(window, { buttons: ['取消', '创建保护副本并恢复'], defaultId: 0, cancelId: 0,
+          message: '恢复本机数据到这个时间点？', detail: '请先正常退出其他终端运行的旧版服务；历史 CLI 不支持数据占用锁，不能仅凭端口检测证明它已退出。\n\n恢复前会原样保护当前文件（包括损坏或缺失状态），验证失败会尝试回滚。只恢复本机服务记录、图片和配置，不回退浏览器授权或已写入笔记。恢复点仅适用于当前电脑的系统账号。' });
+        if (answer.response !== 1) return false;
+        return await restoreStoppedDesktop(paths, id, { service, safeStorage, appVersion: app.getVersion(),
+          decodeConfig: (config, key) => transformSecrets(config, 'decode', key), acquireOwner: acquireDataOwner });
       }
+      await service.stop();
+      await service.startDone;
+      if (await service.health()) throw new Error('仍有服务占用，未创建不一致的恢复点。');
+      const owner = acquireDataOwner(paths.data, { kind: 'recovery' });
+      let before;
+      try { before = await createRecoveryPoint(paths, { appVersion: app.getVersion(),
+        sealConfig: cfg => transformSecrets(transformSecrets(cfg, 'decode', service.secretKey), 'encode', service.secretKey) }); }
+      finally { owner.release(); }
       await service.start();
-      if (service.state !== 'running') throw new Error('恢复后的服务未能启动');
+      if (service.state !== 'running') throw new Error('恢复点已保存，但服务尚未重新启动。请检查本地连接。');
       return { ok: true, protectedBy: before.id };
     } catch (error) {
-      if (action === 'restore' && before) {
-        await service.stop(); await applyRecoveryPoint(paths, before.id); service.secretKey = oldKey; await service.start();
-        throw new Error('恢复未完成，已尝试回到操作前的保护副本。请检查服务状态。');
-      }
-      await service.start(); throw error;
+      if (action === 'create') await service.start();
+      throw error;
     } finally { recovering = false; }
   });
   service.on('status', snapshot => { if (snapshot.state !== 'running') healthResponding = true; trayMenu(); });

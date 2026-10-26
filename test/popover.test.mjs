@@ -35,6 +35,16 @@ const rect = { left: 100, top: 200, bottom: 220, right: 300, width: 200, height:
 
 console.log('划词浮层\n');
 
+await t('解释与翻译弹层保留功能标题并统一使用 ContextFlow 品牌', () => {
+  for (const [name, title] of [['brand-explain', '解释'], ['brand-translate', '翻译']]) {
+    const p = new Popover({ name, title });
+    assert.equal(p.sh.querySelector('.hd-copy b').textContent, title);
+    assert.equal(p.sh.querySelector('.hd-copy small').textContent, 'ContextFlow');
+    assert.doesNotMatch(p.$('hd').textContent, /CONTEXT NOTE/);
+    p.dispose();
+  }
+});
+
 await t('面板移动和缩放有键盘替代，Esc 从任意内部控件关闭',()=>{
   const p=new Popover({name:'keyboard-popover',title:'解释',input:true});p.open(rect,'原文');
   p.el.getBoundingClientRect=()=>({left:100,top:100,width:460,height:260});
@@ -314,6 +324,69 @@ await t('异步落盘前不误报成功，完成等待落盘；失败保留编�
   await pending;
   await Promise.resolve();
   assert.equal(comments.open$, false);
+});
+
+await t('批注图片仍在保存时不误报已保存，完成入口等待图片与文字一起落盘', async () => {
+  let release;
+  const values = [];
+  const comments = new CommentPopover({ onCommit: (_id, value) => values.push(value), onAsset: () => new Promise(resolve => { release = resolve; }) });
+  try {
+    comments.open(rect, { id: 'pending-image-status', value: '已保存文字' });
+    comments.markSaved(comments.id);
+    const insertion = comments.composer.insertImage(0, 6, 6, new window.File(['image'], 'fixture.png', { type: 'image/png' }));
+    // A previous text commit may complete while the image write is pending.
+    comments.markSaved(comments.id);
+    assert.match(comments.$('state').textContent, /正在保存图片/);
+    assert.doesNotMatch(comments.$('state').textContent, /已保存在浏览器/);
+    assert.equal(comments.$('done').disabled, true);
+    comments.$('done').click(); assert.equal(comments.open$, true);
+    release({ id: 'a'.repeat(64) }); await insertion; await new Promise(resolve => setTimeout(resolve, 10));
+    assert.ok(values.some(value => value.includes('contextflow-asset:')));
+    assert.match(comments.$('state').textContent, /已保存在浏览器/);
+    assert.equal(comments.$('done').disabled, false);
+  } finally { comments.dispose(); }
+});
+
+await t('批注图片保存失败显示可处理原因，移除失败图片后恢复正常保存与完成', async () => {
+  const comments = new CommentPopover({ onCommit: () => {}, onAsset: () => Promise.reject(new Error('图片存储配额不足')) });
+  try {
+    comments.open(rect, { id: 'failed-image-status', value: '文字保留' });
+    comments.markSaved(comments.id);
+    await comments.composer.insertImage(0, 4, 4, new window.File(['image'], 'fixture.png', { type: 'image/png' }));
+    await new Promise(resolve => setTimeout(resolve, 10));
+    assert.match(comments.$('state').textContent, /图片保存失败.*配额不足.*移除/);
+    assert.ok(comments.$('state').classList.contains('bad'));
+    comments.markSaved(comments.id);
+    assert.doesNotMatch(comments.$('state').textContent, /已保存在浏览器/);
+    assert.equal(comments.$('done').disabled, true);
+    comments.close(); assert.equal(comments.open$, true, 'failed image remains available for removal');
+    comments.composer.list.querySelector('.rc-remove').click();
+    assert.match(comments.$('state').textContent, /已保存在浏览器/);
+    assert.equal(comments.$('done').disabled, false);
+    assert.ok(comments.composer.value().includes('文字保留'));
+  } finally { comments.dispose(); }
+});
+
+await t('批注图片未落盘前不能切换 ID 或覆盖原位草稿，旧图片完成仍写回原批注', async () => {
+  let release;
+  const commits = [], inputs = [];
+  const comments = new CommentPopover({ onInput: (id, value) => inputs.push([id, value]), onCommit: (id, value) => commits.push([id, value]), onAsset: () => new Promise(resolve => { release = resolve; }) });
+  try {
+    comments.open(rect, { id: 'image-owner-old', value: '原批注文字' });
+    const insertion = comments.composer.insertImage(0, 5, 5, new window.File(['image'], 'fixture.png', { type: 'image/png' }));
+    comments.close(); assert.equal(comments.open$, true);
+    comments.open(rect, { id: 'image-owner-new', value: '另一个批注' });
+    assert.equal(comments.id, 'image-owner-old');
+    comments.setValue('image-owner-old', '侧栏的覆盖操作');
+    assert.equal(comments.composer.blocks.some(block => block.pending), true);
+    assert.ok(comments.composer.value().includes('原批注文字'));
+    assert.doesNotMatch(comments.composer.value(), /另一个批注|侧栏的覆盖操作/);
+    release({ id: 'b'.repeat(64) }); await insertion; await new Promise(resolve => setTimeout(resolve, 10));
+    assert.ok(commits.some(([id, value]) => id === 'image-owner-old' && value.includes('contextflow-asset:')));
+    assert.ok([...commits, ...inputs].every(([id]) => id === 'image-owner-old'));
+    comments.open(rect, { id: 'image-owner-new', value: '另一个批注' });
+    assert.equal(comments.id, 'image-owner-new', 'switching is available after durable completion');
+  } finally { comments.dispose(); }
 });
 
 await t('批注完成会立即提交、关闭，并通知侧栏结束原文旁编辑态', () => {

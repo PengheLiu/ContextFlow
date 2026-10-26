@@ -3,9 +3,9 @@ import { readDshProbeConfig, DSH_CONNECTION_PROMPT } from '../server/dsh-probe-c
 
 let passed = 0;
 const test = (name, run) => { run(); passed++; console.log('  ok   ' + name); };
-function read(global, desktop, parseYaml = JSON.parse) {
+function read(global, desktop, parseYaml = JSON.parse, bundles = ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app']) {
   const files = new Map([
-    ['/fixture/dsh/profiles/desktop/package.json', { dsh: { profile: { bundles: ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app'] } } }],
+    ['/fixture/dsh/profiles/desktop/package.json', { dsh: { profile: { bundles } } }],
     ['/fixture/dsh/profiles/desktop/cordis.patch.yml', desktop],
     ['/fixture/dsh/cordis.patch.yml', global],
   ]);
@@ -29,6 +29,13 @@ console.log('DSH 受限连接测试配置读取\n');
 test('默认选择与固定短消息不需要加载 profile、凭据或其他文件', () => {
   assert.deepEqual(read(), { selection: { provider: 'deepseek-official', model: 'deepseek-flash' }, configs: { 'llm-deepseek': {} } });
   assert.match(DSH_CONNECTION_PROMPT, /Reply with exactly OK/);
+});
+
+test('官方桌面语音输入组合不会把正常模型误判为不支持，也不加载语音 bundle', () => {
+  const bundles = ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app', '@deepseek-ai/dsh-experimental-voice-input-bundle'];
+  const result = read(undefined, [{ id: 'agent-default-model', config: { provider: 'deepseek-official', model: 'desktop-model', reasoningEffort: 'high' } }], JSON.parse, bundles);
+  assert.deepEqual(result.selection, { provider: 'deepseek-official', model: 'desktop-model', reasoningEffort: 'high' });
+  assert.deepEqual(result.configs, { 'llm-deepseek': {} });
 });
 
 test('机器全局层在桌面层之后整段替换同名配置，匹配官方优先级', () => {
@@ -110,6 +117,10 @@ test('未知 bundle、缺失桌面清单与非标准加载顺序拒绝且不加�
   for (const bundles of [
     ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app', '/SECRET/custom-bundle'],
     ['@deepseek-ai/dsh-web-app', '@deepseek-ai/dsh-base'],
+    ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-experimental-voice-input-bundle', '@deepseek-ai/dsh-web-app'],
+    ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app', '@deepseek-ai/dsh-experimental-voice-input-bundle', '@deepseek-ai/dsh-experimental-voice-input-bundle'],
+    ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app', '@deepseek-ai/dsh-experimental-voice-input-bundle', '/SECRET/custom-bundle'],
+    ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app', '@deepseek-ai/dsh-unknown-bundle'],
     [],
   ]) {
     unsupported(() => readDshProbeConfig({ dshHome: '/fixture/dsh', parseYaml: JSON.parse,

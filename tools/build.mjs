@@ -12,6 +12,9 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { markdownLicenseComment } from './markdown-licenses.mjs';
 import { assertExtensionText } from './extension-text.mjs';
+import { checkDesignTokens } from './design-tokens.mjs';
+
+checkDesignTokens();
 
 const EXT = process.argv.includes('--ext');
 const PUBLIC_SKILL = process.argv.includes('--public');
@@ -97,7 +100,7 @@ async function buildExtension() {
     manifest_version: 3,
     name: 'ContextFlow',
     version: JSON.parse(readFileSync('package.json', 'utf8')).version,
-    description: '网页高亮批注与 Markdown 导出；连接自己的本地服务后使用 AI 解释、总结和笔记同步。',
+    description: '在网页原文旁批注、追问与 Markdown 导出；按需连接自己的 AI 和笔记。',
     minimum_chrome_version: '111',
     permissions: ['storage', 'nativeMessaging'],
     host_permissions: ['http://127.0.0.1:7317/*'],

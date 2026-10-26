@@ -12,7 +12,8 @@ const CSS=`
  p{margin:7px 0 15px;overflow-wrap:anywhere}.muted{color:${T.quote}}.kicker{font-size:11px;color:${T.accent};letter-spacing:.1em;font-weight:700;margin:0 0 10px}
  .library-tools,.preview-tools,.data-actions,.pager{display:flex;align-items:center;gap:9px;flex-wrap:wrap}
  button.action{padding:8px 12px;border:1px solid ${T.line};background:${T.paperRaised};font-size:12px;min-height:36px}
- button.primary{background:${T.accent};border-color:${T.accent};color:${T.paperRaised}}
+ button.primary{background:${T.accent};border-color:${T.accent};color:${T.onAccent}}
+ button.primary:hover{background:${T.accentHover};border-color:${T.accentHover};color:${T.onAccent}}
  .stats{margin:19px 0 15px;padding:12px 14px;border:1px solid ${T.line};border-radius:8px;background:${T.paperRaised};color:${T.inkSoft}}
  .library-tools{margin:15px 0;align-items:end}.search{flex:1;min-width:170px}label{display:block;font-size:12px;color:${T.inkSoft}}
  input,select{width:100%;min-width:0;margin-top:5px;padding:9px 10px;border:1px solid ${T.line};border-radius:6px;background:${T.paperRaised};color:${T.ink};font:13px ${T.sans};min-height:38px}
@@ -53,7 +54,7 @@ export class ReadingLibrary {
       <article class="preview" id="library-preview" aria-labelledby="library-preview-title"><h2 class="preview-heading" id="library-preview-title" tabindex="-1">在左侧选择一篇文章</h2><div class="preview-tools" id="library-preview-tools" hidden></div><div class="preview-body" id="library-preview-body"></div></article></div>
       <section class="data-box" aria-labelledby="library-data-title"><h2 id="library-data-title">备份与恢复</h2><p class="muted">卸载扩展会清除浏览器内记录。保留一份备份，换浏览器或重新安装后也能找回。</p>
       <div class="data-actions"><button class="action primary" type="button" id="library-backup">下载完整备份</button><button class="action" type="button" id="library-choose">选择备份文件</button><input id="library-file" type="file" accept=".json,application/json" hidden></div>
-      <p class="privacy-note">备份包含此扩展已保存的有效阅读记录、历史回答与引用图片，不含已删除内容、原网页全文、API key 或配对码，也不包含只存在于本地服务的记录。JSON 文件可读且未加密，请妥善保管；单个备份上限 32 MB。</p>
+      <p class="privacy-note">备份包含此扩展已保存的有效阅读记录、历史回答与引用图片，不含已删除内容、原网页全文、API key 或配对码，也不包含只存在于本地服务的记录。JSON 文件可读且未加密，请妥善保管；单个备份上限 32 MB，记录与图片不另设条数门槛。超限不会截断或删除原记录，可按文章下载 Markdown。</p>
       <section class="restore-preview" id="library-restore-preview" aria-labelledby="library-restore-title" hidden><h3 id="library-restore-title">确认恢复内容</h3><p id="library-restore-info"></p><p>只补充缺失记录；已有记录（含已删除记录）保持不变。不会恢复运行中的 AI 任务或写入笔记软件。恢复后刷新原文章查看，记录按原有规则保存到已连接的本地服务。</p><div class="data-actions"><button class="action primary" type="button" id="library-restore">确认补充记录</button><button class="action" type="button" id="library-cancel">取消恢复</button></div></section>
       </section></section>`;
     this.$=id=>this.sh.getElementById(id);
@@ -151,14 +152,16 @@ export class ReadingLibrary {
   }
   async backup() {
     this.notice('正在等待网页编辑保存并校验备份图片…');await this.o.flush();
-    const source=await encodeReadingBackup(await this.o.snapshot({withAssets:true}),this.o.version);
+    const snapshot=await this.o.snapshot({withAssets:true});
+    const source=await encodeReadingBackup(snapshot,this.o.version);
     this.download(source,`contextflow-reading-${new Date().toISOString().slice(0,10)}.json`);
-    this.notice('已生成包含图片的完整阅读备份，请确认浏览器下载完成并妥善保管。配置与密钥未导出。');
+    const size=(new Blob([source]).size/(1024*1024)).toFixed(2);
+    this.notice(`已生成完整阅读备份：${snapshot.events.filter(e=>!e.deletedAt).length} 条记录 · ${snapshot.assets.length} 张图片 · ${size} MB。请确认浏览器下载完成并妥善保管；配置与密钥未导出。`);
   }
   async inspectFile(file) {
     this.pendingRestore=null;this.$('library-restore-preview').hidden=true;this.$('library-file').value='';if(!file)return;
     if(file.size>MAX_BACKUP_BYTES)throw new Error('备份不能超过 32 MB，原记录未改动');
-    this.notice('正在校验备份，暂未写入任何记录…');
+    this.notice('正在校验全部记录与图片，较大备份可能需要片刻；暂未写入任何记录…');
     this.pendingRestore=await decodeReadingBackup(await file.text());
     const backup=this.pendingRestore;
     const current=await this.o.snapshot(),ids=new Set(current.events.map(e=>e.id)),deleted=new Set(current.events.filter(e=>e.deletedAt).map(e=>e.id));

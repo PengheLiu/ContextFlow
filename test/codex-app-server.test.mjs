@@ -212,6 +212,29 @@ await test('only explicit unsupported-method errors are eligible for pre-submiss
   } finally { f.runtime.close(); }
 });
 
+await test('RPC and terminal turn provider failures share safe classification without replaying a model task', async () => {
+  for (const mode of ['rpc', 'turn', 'notification']) {
+    const providerError = { message: JSON.stringify({ error: { code: 'unsupported_value', param: 'reasoning.effort',
+      message: 'Reasoning effort unsupported; Authorization: Bearer sk_PRIVATE' } }) };
+    const f = fixture({ handler({ message, send }) {
+      if (message.method !== 'turn/start') return;
+      if (mode === 'rpc') send({ id: message.id, error: { code: -32000, ...providerError } });
+      else {
+        const threadId = message.params.threadId, turnId = 'failed-provider-turn';
+        send({ id: message.id, result: { turn: { id: turnId, status: 'inProgress' } } });
+        if (mode === 'turn') send({ method: 'turn/completed', params: { threadId, turn: { id: turnId, status: 'failed', error: providerError } } });
+        else send({ method: 'error', params: { threadId, turnId, willRetry: false, error: providerError } });
+      }
+      return true;
+    } });
+    try {
+      await assert.rejects(() => f.runtime.run(f.options), error => error.code === 'AGENT_REASONING_UNSUPPORTED'
+        && error.submitted === true && !/sk_PRIVATE|Authorization|unsupported_value/.test(error.message));
+      assert.equal(methods(f, 'turn/start').length, 1); assert.equal(f.runtime.servers.size, 0);
+    } finally { await f.runtime.close(); }
+  }
+});
+
 await test('idle expiry frees processes; the next request rebuilds context', async () => {
   const f = fixture({ idleMs: 10 });
   try {

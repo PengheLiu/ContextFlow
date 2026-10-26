@@ -9,13 +9,17 @@ import { existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { websiteFiles } from '../tools/build-website.mjs';
+import { LIGHT } from '../src/core/design-tokens.js';
 
 const runtime = process.env.CONTEXTFLOW_PLAYWRIGHT_DIR;
 if (!runtime) throw new Error('Set CONTEXTFLOW_PLAYWRIGHT_DIR to the existing runtime containing playwright.');
 const { chromium } = createRequire(join(resolve(runtime), 'package.json'))('playwright');
 const root = fileURLToPath(new URL('..', import.meta.url));
 const website = join(root, 'release', 'website');
-const evidence = join(root, 'release', 'product-evidence');
+const evidence = join(root, 'release', 'product-evidence', 'theme-new');
+const rgb = hex => `rgb(${hex.slice(1).match(/../g).map(channel => Number.parseInt(channel, 16)).join(', ')})`;
+// Chromium serializes its BlinkMacSystemFont generic alias as system-ui.
+const fonts = value => value.split(',').map(family => family.trim().replace(/^["']|["']$/g, '').replace(/^BlinkMacSystemFont$/, 'system-ui'));
 const release = JSON.parse(readFileSync(join(root, 'product', 'release.json'), 'utf8'));
 const desktopRelease = release.desktop.platforms['darwin-arm64'];
 const files = new Set(websiteFiles.map(([, destination]) => destination));
@@ -79,6 +83,41 @@ try {
       assert.deepEqual(externalRequests, [], `${label}: 静态官网不得自动请求外部服务`);
     };
     const size = `${viewport.width}x${viewport.height}`;
+    const themeContract = async (name, label) => {
+      for (const os of ['light', 'dark']) {
+        await page.emulateMedia({ colorScheme: os, reducedMotion: 'reduce' });
+        const actual = await page.evaluate(() => {
+          const root = getComputedStyle(document.documentElement), body = getComputedStyle(document.body);
+          const brand = document.querySelector('.site-header .brand');
+          const brandAccent = document.querySelector('.site-header .accent') || document.querySelector('.eyebrow') || document.querySelector('nav a');
+          const cta = document.querySelector('.hero-copy .button, .download-hero .button');
+          return { paper: root.getPropertyValue('--cf-paper').trim(), ink: root.getPropertyValue('--cf-ink').trim(),
+            accent: root.getPropertyValue('--cf-accent').trim(), scheme: root.colorScheme,
+            background: body.backgroundColor, text: body.color, font: body.fontFamily,
+            headingFont: getComputedStyle(document.querySelector('h1')).fontFamily,
+            brand: brand ? getComputedStyle(brand).color : null,
+            brandAccent: getComputedStyle(brandAccent).color,
+            cta: cta ? { background: getComputedStyle(cta).backgroundColor, text: getComputedStyle(cta).color,
+              font: getComputedStyle(cta).fontFamily } : null };
+        });
+        assert.equal(actual.paper, LIGHT.paper, `${label} / OS ${os}: canonical paper token`);
+        assert.equal(actual.ink, LIGHT.ink, `${label} / OS ${os}: canonical ink token`);
+        assert.equal(actual.accent, LIGHT.accent, `${label} / OS ${os}: canonical brand token`);
+        assert.equal(actual.scheme, 'light', `${label} / OS ${os}: marketing pages stay deliberately light`);
+        assert.equal(actual.background, rgb(LIGHT.paper), `${label} / OS ${os}: paper background`);
+        assert.equal(actual.text, rgb(LIGHT.ink), `${label} / OS ${os}: readable ink`);
+        assert.equal(actual.brandAccent, rgb(LIGHT.accent), `${label} / OS ${os}: brand accent`);
+        assert.deepEqual(fonts(actual.font), fonts(LIGHT['font-sans']), `${label} / OS ${os}: body font`);
+        assert.deepEqual(fonts(actual.headingFont), fonts(LIGHT['font-serif']), `${label} / OS ${os}: editorial heading`);
+        if (actual.brand) assert.equal(actual.brand, rgb(LIGHT.ink), `${label} / OS ${os}: brand ink`);
+        if (actual.cta) {
+          assert.equal(actual.cta.background, rgb(LIGHT.accent), `${label} / OS ${os}: primary action`);
+          assert.equal(actual.cta.text, rgb(LIGHT['on-accent']), `${label} / OS ${os}: primary action contrast`);
+          assert.deepEqual(fonts(actual.cta.font), fonts(LIGHT['font-sans']), `${label} / OS ${os}: action font`);
+        }
+        await page.screenshot({ path: join(evidence, `website-${name}-${size}-os-${os}.png`) });
+      }
+    };
     await page.goto(homeURL, { waitUntil: 'networkidle' });
     await page.locator('#hero-title').waitFor();
     assert.equal(await page.locator('.hero-copy .button').getAttribute('href'), storeURL, '首页主行动必须先安装 Chrome 扩展');
@@ -88,6 +127,7 @@ try {
     assert.match(await page.locator('#desktop-extension-requirement').textContent(), /ContextFlow Chrome 扩展 1\.1\.0 或更高版本/);
     assert.match(await page.locator('#desktop-extension-requirement').textContent(), /下载前.*「连接桌面端」入口.*商店可安装版本以实际页面为准/);
     await layout(`首页 ${size}`);
+    await themeContract('home', `首页 ${size}`);
     await page.screenshot({ path: join(evidence, `website-home-${size}.png`) });
     await page.locator('.site-header .nav-links a[href="download.html"]').click();
     await page.waitForURL(homeURL + 'download.html');
@@ -95,7 +135,7 @@ try {
     assert.equal(await page.locator('.site-header a[href="' + storeURL + '"]').count(), 1);
     assert.equal(await page.locator('.site-header a[href="' + storeURL + '"]').getAttribute('class'), 'text-link', '已安装扩展的下载页不再强推重复安装');
     assert.match(await page.locator('.download-breadcrumb').textContent(), /01 安装 Chrome 扩展.*02 连接桌面端.*03 回到阅读/);
-    assert.match(await page.locator('#release-status-title').textContent(), /桌面客户端 1.1.0/);
+    assert.equal(await page.locator('#release-status-title').textContent(), `桌面客户端 ${desktopRelease.version} · Mac ARM64`);
     assert.match(await page.locator('.release-status').textContent(), /未使用 Developer ID 签名、未通过 Apple 公证/);
     assert.match(await page.locator('.release-status').textContent(), /不要关闭系统保护/);
     assert.equal(await page.locator('.release-status').getAttribute('data-desktop-version'), desktopRelease.version);
@@ -138,6 +178,7 @@ try {
     assert.match(await page.locator('#connect').textContent(), /不需要复制配对码/);
     assert.doesNotMatch(await page.locator('#connect').textContent(), /生成并复制|重置并复制|连接商店|等待升级/);
     await layout(`下载页 ${size}`);
+    await themeContract('download', `下载页 ${size}`);
     await page.screenshot({ path: join(evidence, `website-download-${size}.png`) });
     await page.locator('.download-hero a[href="#platforms"]').click();
     assert.equal(new URL(page.url()).hash, '#platforms');
@@ -150,10 +191,13 @@ try {
     await page.locator('.connect-section a[href="demo.html"]').click();
     await page.waitForURL(homeURL + 'demo.html');
     assert.equal(await page.locator('article').count(), 1, '练习文章是实际可访问的内部页面');
+    await layout(`练习页 ${size}`);
+    await themeContract('demo', `练习页 ${size}`);
     await page.goto(homeURL + 'privacy.html', { waitUntil: 'networkidle' });
     assert.doesNotMatch(await page.locator('body').textContent(), /预览|候选/);
     assert.doesNotMatch(await page.locator('body').textContent(), /生成并复制|重置并复制|连接商店|命令行服务/);
     await layout(`隐私页 ${size}`);
+    await themeContract('privacy', `隐私页 ${size}`);
     await page.screenshot({ path: join(evidence, `website-privacy-${size}.png`) });
     await page.goto(homeURL + 'download.html', { waitUntil: 'networkidle' });
     await page.locator('.site-header .brand').click();
@@ -162,6 +206,7 @@ try {
     assert.deepEqual(issues, [], `${size}: 导航全程无错误`);
     assert.deepEqual(externalRequests, [], `${size}: 不向外部请求或上报`);
     console.log(`${size}: 官网先安装扩展→下载状态→系统架构→练习文章→返回首页；资源/锚点/无假下载/无溢出/无 console 错误通过`);
+    console.log(`${size}: 四个页面在系统明暗两种模式下均使用共享纸色/墨色/品牌/字体；官网主按钮对比度通过`);
     await context.close(); context = null; page = null;
   }
   console.log(`官网视觉验收截图：${evidence}`);

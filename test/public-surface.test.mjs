@@ -10,8 +10,8 @@ test('public surface checks include the desktop download landing page, not just 
   await assert.rejects(checkWebsiteLinks(async url => ({ ok: !url.endsWith('/download.html'), status: 404 })), /请先部署完整官网/);
 });
 
-const desktop = () => {
-  const row = { status: 'available-unsigned', version: '1.1.0', releaseTag: 'v1.1.0', artifact: 'ContextFlow-1.1.0-mac-arm64.dmg', sha256: 'a'.repeat(64) };
+const desktop = (version = '1.1.0') => {
+  const row = { status: 'available-unsigned', version, releaseTag: `v${version}`, artifact: `ContextFlow-${version}-mac-arm64.dmg`, sha256: 'a'.repeat(64) };
   row.downloadUrl = `https://github.com/PengheLiu/ContextFlow/releases/download/${row.releaseTag}/${row.artifact}`;
   row.checksumUrl = `${row.downloadUrl}.sha256`;
   return { desktop: { platforms: { 'darwin-arm64': row, 'win32-x64': { status: 'unpublished' } } } };
@@ -27,6 +27,14 @@ test('available desktop downloads require actual installer and exact public chec
   await assert.rejects(checkDesktopDownloadLinks(state, async () => ({ ok: false, status: 404 })), /公开下载不可用/);
   await assert.rejects(checkDesktopDownloadLinks(state, async () => ({ ok: true, text: async () => 'wrong checksum' })), /摘要不一致/);
   assert.deepEqual(await checkDesktopDownloadLinks({ desktop: { platforms: { mac: { status: 'unpublished' } } } }, () => { throw new Error('must not fetch'); }), []);
+});
+test('reviewed 1.1.1 desktop download is checked without allowing arbitrary future versions or architectures', async () => {
+  const state = desktop('1.1.1'), row = state.desktop.platforms['darwin-arm64'];
+  const urls = await checkDesktopDownloadLinks(state, async () => ({ ok: true, text: async () => `${row.sha256}  ${row.artifact}\n` }));
+  assert.deepEqual(urls, [row.downloadUrl, row.checksumUrl]);
+  await assert.rejects(checkDesktopDownloadLinks(desktop('1.1.2'), () => { throw new Error('must not fetch'); }), /下载状态或资源地址无效/);
+  const other = { desktop: { platforms: { 'darwin-x64': { ...row } } } };
+  await assert.rejects(checkDesktopDownloadLinks(other, () => { throw new Error('must not fetch'); }), /下载状态或资源地址无效/);
 });
 test('desktop public checks reject arbitrary upstream URLs before making a request', async () => {
   const state = desktop(); state.desktop.platforms['darwin-arm64'].checksumUrl = 'https://invalid.test/private';

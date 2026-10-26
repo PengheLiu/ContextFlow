@@ -63,5 +63,8 @@ export function hashKey(str) {
 /** 稳定 id：同一篇文章内同一次查询恒定 */
 export function lookupId(urlKey, ev) {
   const prefix = { summary: 'sm', explain: 'ex' }[ev.action] || 'tr';
-  return `${prefix}:${hashKey(`${urlKey}${SEP}${lookupKey(ev)}`)}`;
+  // Namespace new IDs after identity repair. A legacy SPA-misattributed record
+  // can retain the old stable ID while moving to its proven article; a new
+  // record in the original article must never overwrite that retained ID.
+  return `${prefix}:${hashKey(`identity-v2${SEP}${urlKey}${SEP}${lookupKey(ev)}`)}`;
 }

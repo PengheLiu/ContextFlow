@@ -1,6 +1,7 @@
 // Portable reading data only. Never include connection configuration, credentials,
 // cached full articles, queue leases or local CLI/session identifiers.
 import { assetIds, ALLOWED_IMAGE_TYPES, MAX_ASSET_BYTES } from './assets.js';
+import { eventIdentityKey } from './urlkey.js';
 
 export const BACKUP_FORMAT = 'contextflow-reading-backup';
 export const MAX_BACKUP_BYTES = 32 * 1024 * 1024;
@@ -45,8 +46,9 @@ export function referencedAssets(events) {
 export function libraryArticles(events) {
   const groups=new Map();
   for(const event of events.filter(e=>!e.deletedAt)) {
-    if(!groups.has(event.urlKey))groups.set(event.urlKey,{key:event.urlKey,title:'未命名文章',url:'',updatedAt:0,events:[],search:''});
-    const row=groups.get(event.urlKey);row.events.push(event);
+    const key=eventIdentityKey(event);
+    if(!groups.has(key))groups.set(key,{key,title:'未命名文章',url:'',updatedAt:0,events:[],search:''});
+    const row=groups.get(key);row.events.push(event);
     const at=clock(event.updatedAt || event.createdAt);
     if(at>=row.updatedAt) { row.updatedAt=at;row.title=event.title || row.title;row.url=safeReadingUrl(event.url) || row.url; }
   }
@@ -66,10 +68,29 @@ const base64 = bytes => {
 };
 const digest = async bytes => [...new Uint8Array(await crypto.subtle.digest('SHA-256',bytes))].map(n=>n.toString(16).padStart(2,'0')).join('');
 
+// The byte budget is the format's resource boundary, in both directions. Older
+// encoders could produce valid <32 MB files with >50k records or >5k images;
+// a hidden import-only count limit made those self-generated files unusable.
+// Also bound the normalized records, so a tiny hand-written input cannot expand
+// into an arbitrarily large in-memory restore just by omitting default fields.
+function backupEvents(rows) {
+  if(!Array.isArray(rows))throw new Error('备份记录列表无效');
+  const events=[],ids=new Set(),encoder=new TextEncoder();let bytes=2;
+  for(const row of rows) {
+    const event=readingEvent(row);
+    if(ids.has(event.id))throw new Error('备份中存在重复记录标识');
+    bytes+=encoder.encode(JSON.stringify(event)).byteLength+(events.length ? 1 : 0);
+    if(bytes>MAX_BACKUP_BYTES)throw new Error('完整备份超过 32 MB 安全上限，原记录不受影响');
+    ids.add(event.id);events.push(event);
+  }
+  return {events,bytes};
+}
+
 export async function encodeReadingBackup(snapshot, appVersion='') {
-  const events=snapshot.events.filter(e=>!e.deletedAt).map(readingEvent);
+  if(!Array.isArray(snapshot?.events) || !Array.isArray(snapshot?.assets))throw new Error('阅读备份快照格式无效');
+  const {events,bytes:eventBytes}=backupEvents(snapshot.events.filter(e=>!e.deletedAt));
   const available=new Map(snapshot.assets.map(a=>[a.id,a])),assets=[];
-  let size=new Blob([JSON.stringify(events)]).size;
+  let size=eventBytes;
   for(const id of referencedAssets(events)) {
     const asset=available.get(id);
     if(!asset?.blob)throw new Error('部分记录的图片尚未保存在此扩展中，请先在原文章加载图片后重试，避免生成不完整备份');
@@ -89,9 +110,8 @@ export async function decodeReadingBackup(source) {
   if(typeof source!=='string' || new Blob([source]).size>MAX_BACKUP_BYTES)throw new Error('请选择不超过 32 MB 的 ContextFlow JSON 备份');
   let raw;try{raw=JSON.parse(source);}catch{throw new Error('文件不是有效的 JSON 备份');}
   if(raw?.format!==BACKUP_FORMAT || raw.version!==1)throw new Error('不支持此备份格式或版本，请使用兼容版本的 ContextFlow');
-  if(!Array.isArray(raw.events) || raw.events.length>50000 || !Array.isArray(raw.assets) || raw.assets.length>5000)throw new Error('备份记录列表无效或数量过多');
-  const events=raw.events.map(readingEvent),ids=new Set();
-  for(const e of events){if(ids.has(e.id))throw new Error('备份中存在重复记录标识');ids.add(e.id);}
+  if(!Array.isArray(raw.assets))throw new Error('备份图片列表无效');
+  const {events}=backupEvents(raw.events);
   const refs=new Set(referencedAssets(events)),assets=[],seen=new Set();
   for(const a of raw.assets) {
     if(!/^[a-f0-9]{64}$/.test(a?.id) || seen.has(a.id) || !ALLOWED_IMAGE_TYPES.has(a.mime) ||

@@ -18,22 +18,24 @@ import { buildTextIndex, serializeRange, resolveAnchor, charOffsetOf, boundaryOf
   from '../core/anchor.js';
 import { Highlighter, COLORS, DARK_COLORS, MARKS, supported } from '../core/highlight.js';
 import * as api from '../core/api.js';
-import { T, FLOAT, shadowHost, onPageTheme } from './theme.js';
+import { T, FLOAT, shadowHost, onPageTheme, releaseThemeHost } from './theme.js';
 import { Panel } from './panel.js';
 import { Popover, ticker } from './popover.js';
 import { CommentPopover } from './comment-popover.js';
 import { MarkDeleteControl } from './mark-delete.js';
 import { icon } from './icons.js';
-import { cleanQuestion, lookupKey, lookupId, normalizeLookupPart } from '../core/lookupkey.js';
+import { cleanQuestion, lookupKey, lookupId, normalizeLookupPart, hashKey } from '../core/lookupkey.js';
 import { reconcile } from '../core/reconcile.js';
 import {
   available as offlineAvailable, migrateArticleMirror, listOfflineEvents,
   saveOfflineEvents, tombstoneOfflineEvents, applyRemoteEvents, mutationStamp,
   saveOfflineAsset, getOfflineAsset,
+  migrateArticleIdentity,
 } from '../core/offline-store.js';
 import { renderArticleMarkdown, safeMarkdownFilename } from '../core/markdown.js';
 import { assetIds, inlineAssetTokens } from '../core/assets.js';
-import { urlKey } from '../core/urlkey.js';
+import { urlKey, articleIdentity, eventIdentityKey } from '../core/urlkey.js';
+import { articleSession } from './article-session.js';
 import { browserStorage } from '../core/browser-storage.js';
 import { randomUUID } from '../core/uuid.js';
 import {
@@ -71,10 +73,14 @@ export class App {
     this.initialPanelOpen = typeof initialPanelOpen === 'boolean' ? initialPanelOpen : null;
     this.pendingPanelToggle = false;
     this.key = urlKey();
-    this.items = mGet(this.key);
+    this.identity = articleIdentity();
+    this.articleUrl = this.identity.url || location.href;
+    this.articleTitle = document.title || '';
+    this.items = [...new Map([...(this.identity.legacyKey !== this.key ? mGet(this.identity.legacyKey) : []), ...mGet(this.key)]
+      .filter(event => eventIdentityKey(event) === this.key).map(event => [event.id, { ...event, urlKey: this.key }])).values()];
     this.hl = new Highlighter();
     // 正文标记与 UI 用同一明暗判定源：页面实测背景，系统偏好只是兜底。
-    onPageTheme((tone) => this.hl.setDark(tone === 'dark'));
+    this.unsubscribeTheme = onPageTheme((tone) => this.hl.setDark(tone === 'dark'));
     this.index = null;
     this.pos = new Map();          // id → 解析后的文档偏移，用于面板排序
     this.stats = { position: 0, quote: 0, fuzzy: 0, orphan: 0 };
@@ -89,30 +95,94 @@ export class App {
     this.lookupRuns = new Map();
     // 覆盖上传正文到轮询完成的整个提交窗口，避免连点重复排队。
     this.explainSubmissions = new Map();
+    this.translationSubmissions = new Map();
   }
 
   async start() {
+    this.retired = false; this.suspended = false;
+    if (blockedScope(this.articleUrl)) { this.stopped = true; return; }
+    this.stopped = false;
+    this.hl = new Highlighter();
+    this.unsubscribeTheme?.();
+    this.unsubscribeTheme = onPageTheme(tone => this.hl.setDark(tone === 'dark'));
     if (!supported()) return console.error('[ContextFlow] 浏览器不支持 CSS Custom Highlight API');
-    this.buildToolbar();
-    this.markDelete = new MarkDeleteControl((id) => this.deleteMarked(id));
-    this.blockMenu = new BlockControl((scope) => this.blockHere(scope));
-    this.panel = new Panel(this.handlers());
-    // 浏览器 userscript首次运行要直接展开；只覆盖这一次启动，不改变扩展和侧边按钮
-    // 对 localStorage 中 open 状态的正常记忆。若脚本在 DOMContentLoaded 前被连续点击，
-    // togglePanel() 会先翻转 initialPanelOpen，面板创建后再一次性应用最终状态。
-    if (this.initialPanelOpen !== null) this.panel.toggle(this.initialPanelOpen, false);
-    if (this.pendingPanelToggle) this.panel.toggle(!this.panel.open, false);
     if (offlineAvailable()) {
+      const migration = await migrateArticleIdentity(this.identity);
+      this.identityMigration = migration;
       await migrateArticleMirror(this.key, this.items);
       const durable = await listOfflineEvents(this.key);
       if (durable.length || !this.items.length) this.items = durable;
     }
+    if (!this.isCurrentArticle()) return;
+    // Do not expose editors until the private article store is readable. A
+    // failed startup can then be retried without replacing uncommitted input.
+    this.buildToolbar();
+    this.markDelete = new MarkDeleteControl((id) => this.deleteMarked(id));
+    this.blockMenu = new BlockControl((scope) => this.blockHere(scope));
+    this.panel = new Panel(this.handlers());
+    if (this.initialPanelOpen !== null) this.panel.toggle(this.initialPanelOpen, false);
+    if (this.pendingPanelToggle) this.panel.toggle(!this.panel.open, false);
+    this.pendingPanelToggle = false;
     this.reanchor();
     this.wire();
-    await this.sync();
     this.resumePending();          // 接上刷新前没跑完的解释
     if (this.panel.open) this.autoSummarize();   // 只恢复已有结果或生成入口，不发起 AI。
+    // Local records are ready independently of a slow/offline companion. A
+    // route switch must never wait for network reconciliation or asset upload.
+    this.sync().then(() => { if (this.isCurrentArticle() && this.panel.open) this.autoSummarize(); }).catch(error => console.warn('[ContextFlow] 连接状态暂未刷新：', error.message));
+    if (this.identityMigration?.ambiguous) this.panel.syncMsg('部分历史记录的文章归属无法确认，已原样保留在阅读库；不会自动合并或删除。');
     console.log('[ContextFlow] 就绪', { key: this.key, n: this.items.length, online: this.online });
+  }
+
+  isCurrentArticle() {
+    if (this.retired || this.suspended || this.stopped || urlKey() !== this.key) {
+      if (!this.retired && !this.stopped && urlKey() !== this.key) this.onRouteChange?.();
+      return false;
+    }
+    this.articleTitle = document.title || this.articleTitle;
+    return true;
+  }
+
+  suspend() {
+    if (this.retired) return;
+    this.suspended = true; this.hideTb(); this.markDelete?.hide(); this.hl.clear();
+    if (this.panel?.sh?.host) { this.panel.sh.host.inert = true; this.panel.sh.host.setAttribute('aria-busy', 'true'); }
+  }
+
+  async flushForNavigation() {
+    await this.panel?.flushEdits?.();
+    // Shared drafts can outlive a blurred/closed composer for one debounce.
+    await Promise.all([...this.commentDrafts].map(([id, value]) => this.commitCommentDraft(id, value, 'navigation')));
+    if (this.noteDraft != null) { const value = this.noteDraft; await this.saveNote(value); if (this.noteDraft === value) this.noteDraft = null; }
+    if (this.failedLocalEvents?.size) await this.persist([...this.failedLocalEvents.values()]);
+    await Promise.all(this.localSaves || []);
+  }
+
+  navigationFailed(error) {
+    if (this.panel?.sh?.host) { this.panel.sh.host.inert = false; this.panel.sh.host.removeAttribute('aria-busy'); }
+    this.panel?.syncMsg?.(`上一页草稿尚未保存，暂未切换阅读记录：${error.message}。请保留此页，完成图片保存或复制内容备份。`, 'bad');
+  }
+
+  hasBackgroundWork() { return !!(this.lookupRuns.size || this.explainSubmissions.size || this.translationSubmissions.size || this.briefBusy); }
+
+  deactivate() {
+    this.retired = true; this.suspended = true;
+    this.observer?.disconnect(); clearTimeout(this.timer);
+    for (const [target, type, listener, options] of this.pageListeners || []) target.removeEventListener(type, listener, options);
+    this.pageListeners = [];
+    this.unsubscribeTheme?.(); this.unsubscribeTheme = null;
+    this.hl.clear(); this.hl._styleEl?.remove();
+    this.commentPop?.dispose?.();
+    for (const pop of Object.values(this.pops || {})) pop.dispose?.();
+    this.markDelete?.dispose?.(); this.blockMenu?.dispose?.(); this.panel?.dispose?.();
+    const toolbarHost = this.tb?.getRootNode?.().host;
+    releaseThemeHost(toolbarHost); toolbarHost?.remove();
+    this.commentPop = null; this.pops = null;
+    for (const url of this.assetUrls?.values?.() || []) URL.revokeObjectURL(url);
+    this.assetUrls?.clear?.();
+    // Background callbacks may persist their own article, but cannot repaint or
+    // restore the root margin of a new page. This is not a canceled AI request.
+    this.panel = { render() {}, renderStatus() {}, renderBrief() {}, renderLookupPreview() {}, syncMsg() {} };
   }
 
   /**
@@ -223,6 +293,11 @@ export class App {
     for (const ctl of this.lookupRuns.values()) ctl.abort();
     this.lookupRuns.clear();
     this.briefController?.abort();
+    for (const run of this.translationSubmissions.values()) run.canceled = true;
+    this.translationSubmissions.clear();
+    this.unsubscribeTheme?.(); this.unsubscribeTheme = null;
+    for (const [target, type, listener, options] of this.pageListeners || []) target.removeEventListener(type, listener, options);
+    this.pageListeners = [];
     // 停用 / 重载插件前先提交未落盘的批注，不能丢掉最后 500ms 内的输入。
     this.commentPop?.close();
     for (const pop of Object.values(this.pops || {})) pop.close();
@@ -261,6 +336,12 @@ export class App {
   }
 
   async sync() {
+    if (this.syncing) return this.syncing;
+    this.syncing = this.reconcileService();
+    try { await this.syncing; } finally { this.syncing = null; }
+  }
+
+  async reconcileService() {
     try {
       this.serviceInfo = await api.health();
       this.online = true;
@@ -289,6 +370,9 @@ export class App {
       console.warn('[ContextFlow] 本地服务不可达，离线模式：', e.message);
     }
     this.panel.render();
+    if (!this.retired && this.identityMigration?.deferred) {
+      try { this.identityMigration = await migrateArticleIdentity(this.identity); } catch { /* durable alias reads remain available */ }
+    }
   }
 
   /**
@@ -310,7 +394,7 @@ export class App {
     if (this.articleHash === this.hashOf(text)) return;
     try {
       const r = await api.putArticle({
-        urlKey: this.key, title: document.title, url: location.href, text,
+        urlKey: this.key, title: this.articleTitle, url: this.articleUrl, text,
       });
       this.articleHash = this.hashOf(text);
       if (r.changed) {
@@ -339,23 +423,34 @@ export class App {
     let saved, failed;
     const local = new Promise((resolve, reject) => { saved = resolve; failed = reject; });
     let localSaved = false;
-    const markLocalSaved = () => { localSaved = true; saved(); };
+    const markLocalSaved = () => {
+      localSaved = true;
+      for (const event of stamped) this.failedLocalEvents?.delete(event.id);
+      saved();
+    };
     api.pushEvents(stamped, { onLocalSaved: markLocalSaved }).then(async (ok) => {
       markLocalSaved(); // 非 IndexedDB 载体的兼容兜底。
       this.pendingCount = await api.outboxSize(this.key);
       if (ok !== this.online) { this.online = ok; this.panel.renderStatus(); }
     }).catch((error) => {
+      if (!localSaved) {
+        this.failedLocalEvents ??= new Map();
+        for (const event of stamped) this.failedLocalEvents.set(event.id, event);
+      }
       failed(error);
       this.panel?.syncMsg?.(localSaved ? `记录已保存在浏览器，但服务状态暂无法确认：${error.message}`
         : `浏览器保存失败，请保留当前页面并复制内容备份：${error.message}`, 'bad');
     });
     // 其余即时高亮入口可能不等待；错误已在上方显示，不产生未处理的拒绝。
     local.catch(() => {});
+    this.localSaves ??= new Set(); this.localSaves.add(local);
+    local.then(() => this.localSaves.delete(local), () => this.localSaves.delete(local));
     return local;
   }
 
   // ---------- 锚定 ----------
   reanchor() {
+    if (!this.isCurrentArticle()) return;
     this.markDelete?.hide();        // range 即将全部重建，旧坐标失效
     this.index = buildTextIndex(document.body);
     this.stats = { position: 0, quote: 0, fuzzy: 0, orphan: 0 };
@@ -386,7 +481,7 @@ export class App {
   }
 
   scheduleReanchor() {
-    if (this.stopped) return;
+    if (!this.isCurrentArticle()) return;
     clearTimeout(this.timer); this.timer = setTimeout(() => this.reanchor(), 400);
   }
 
@@ -415,12 +510,17 @@ export class App {
   openCommentEditor(item, rect) {
     if (!item) return;
     const prev = this.editingCommentId;
-    if (prev && prev !== item.id) this.panel?.markCommentEditing(prev, false);
-    this.editingCommentId = item.id;
-    this.commentTipFor().open(rect, {
+    const tip = this.commentTipFor();
+    tip.open(rect, {
       id: item.id, source: item.text || '', value: this.commentValue(item.id),
     });
+    // The previous editor may still own a pending image. Keep its identity and
+    // sidebar marker until it is safe to switch, including late asset callbacks.
+    if (!tip.open$ || tip.id !== item.id) return false;
+    if (prev && prev !== item.id) this.panel?.markCommentEditing(prev, false);
+    this.editingCommentId = item.id;
     this.panel?.markCommentEditing(item.id, true);
+    return true;
   }
 
   /**
@@ -527,8 +627,11 @@ export class App {
   }
 
   wire() {
-    document.addEventListener('mouseup', () => setTimeout(() => {
-      if (this.stopped) return;
+    this.pageListeners = [];
+    const listen = (target, type, fn, options) => { target.addEventListener(type, fn, options); this.pageListeners.push([target, type, fn, options]); };
+    const win = document.defaultView || globalThis;
+    listen(document, 'mouseup', () => setTimeout(() => {
+      if (!this.isCurrentArticle()) return;
       const sel = getSelection();
       if (!sel || sel.isCollapsed || !sel.rangeCount) return this.hideTb();
       const range = sel.getRangeAt(0);
@@ -551,10 +654,10 @@ export class App {
     }, 0));
 
     // 翻译面板是常驻的（由 × 或点击页面空白关闭），滚动只收工具条
-    addEventListener('scroll', () => this.hideTb(), { passive: true });
+    listen(win, 'scroll', () => this.hideTb(), { passive: true });
 
-    document.addEventListener('click', (e) => {
-      if (this.stopped) return;
+    listen(document, 'click', (e) => {
+      if (!this.isCurrentArticle()) return;
       if (e.target?.closest?.('[data-contextflow]')) return;
       if (!getSelection()?.isCollapsed) { this.markDelete?.hide(); return; }
       const id = this.hl.hitTest(e.clientX, e.clientY);
@@ -570,6 +673,7 @@ export class App {
       // 打开 push 模式面板会挤窄正文并触发换行；必须等下一帧再量最后一个视觉碎片，
       // 否则 × 会停在重排前的旧坐标。
       requestAnimationFrame(() => {
+        if (!this.isCurrentArticle()) return;
         if (!this.hl.has(id) || !this.items.some((x) => x.id === id)) return;
         const rect = this.hl.endRectOf(id);
         if (!rect) return this.markDelete?.hide();
@@ -601,6 +705,7 @@ export class App {
 
   // ---------- 高亮 / 评论 / 总结 ----------
   addHighlight(range, color, openComment = false) {
+    if (!this.isCurrentArticle()) return;
     // 选区会在持久化前被清掉，原位编辑器所需的坐标必须先快照。
     const commentRect = openComment ? range.getBoundingClientRect() : null;
     // 必须用**新鲜**索引序列化。旧索引是 reanchor() 时建的，若期间 MathJax/懒加载
@@ -620,8 +725,8 @@ export class App {
         + `  引文: ${JSON.stringify(norm(anchor.exact).slice(0, 80))}`);
     }
     const ev = {
-      id: randomUUID(), urlKey: this.key, url: location.href,
-      title: document.title, action: 'highlight', text: anchor.exact,
+      id: randomUUID(), urlKey: this.key, url: this.articleUrl,
+      title: this.articleTitle, action: 'highlight', text: anchor.exact,
       value: null, color, anchor, parentId: null, createdAt: Date.now(),
     };
     this.items.push(ev);
@@ -641,8 +746,8 @@ export class App {
     if (!c) {
       if (!body) return;
       c = {
-        id: randomUUID(), urlKey: this.key, url: location.href,
-        title: document.title, action: 'comment', text: parent?.text ?? null,
+        id: randomUUID(), urlKey: this.key, url: this.articleUrl,
+        title: this.articleTitle, action: 'comment', text: parent?.text ?? null,
         value: body, color: null, anchor: parent?.anchor ?? null,
         parentId: highlightId, createdAt: Date.now(),
       };
@@ -782,8 +887,8 @@ export class App {
     if (!n) {
       // id 由 urlKey 派生：同一篇文章的笔记始终 upsert 同一行，不会越写越多
       n = {
-        id: `note:${this.key}`, urlKey: this.key, url: location.href,
-        title: document.title, action: 'note', text: null, value: body,
+        id: `note:2:${hashKey(this.key)}`, urlKey: this.key, url: this.articleUrl,
+        title: this.articleTitle, action: 'note', text: null, value: body,
         color: null, anchor: null, parentId: null, createdAt: Date.now(),
       };
       this.items.push(n);
@@ -854,39 +959,57 @@ export class App {
   }
 
   async doTranslate(range) {
+    if (!this.isCurrentArticle()) return;
     const text = String(range).trim();
     const { anchor, offset } = this.snapshot(range);
     const pop = this.tipFor('translate');
     this.hideTbSoon();
     pop.open(range.getBoundingClientRect()).foot('');
+    const subject = normalizeLookupPart(text);
+    const existing = this.translationSubmissions.get(subject);
+    if (existing) {
+      existing.pop = pop; pop.articleTranslationToken = existing.token;
+      pop.body('这段翻译仍在处理中，完成后会保存在当前文章。', 'prog');
+      return existing.promise;
+    }
+    const run = { token: Symbol('translation'), pop };
+    this.translationSubmissions.set(subject, run); pop.articleTranslationToken = run.token;
     const tk = ticker(pop, '翻译中');
+    const visible = () => this.isCurrentArticle() && run.pop?.open$ && run.pop.articleTranslationToken === run.token;
+    run.promise = (async () => {
     try {
       await this.uploadArticle();      // 按需：只为真正查过的页面存正文
+      if (run.canceled || this.stopped) return;
       const { translation, cached, usage, model, truncated, target, ctx } =
         await api.translate(text, undefined, this.key, offset);
+      if (run.canceled || this.stopped) return;
       if (target) this.target = target;
       const ms = tk.stop();
-      if (tk.current && pop.open$) {
-        pop.answer(translation).foot(this.meta({ cached, usage, model, truncated, ms, ctx }));
+      if (visible()) {
+        run.pop.answer(translation).foot(this.meta({ cached, usage, model, truncated, ms, ctx }));
       }
       this.saveLookup('translate', { text, value: translation, anchor,
         extra: { target: this.target || '' } });
     } catch (e) {
       tk.stop();
+      if (run.canceled || this.stopped) return;
       const status = this.online && e.status ? 'error' : 'deferred';
       this.saveLookup('translate', {
         text, value: null, anchor,
         extra: { target: this.target || '', offset, status, error: e.message,
           progress: status === 'deferred' ? '离线，已保存；联网后手动重试' : '' },
       });
-      if (tk.current && pop.open$) pop.body(`翻译失败：${e.message}`, 'bad').foot(status === 'deferred'
+      if (visible()) run.pop.body(`翻译失败：${e.message}`, 'bad').foot(status === 'deferred'
         ? '已保存到本地；恢复联网后请在「翻译」页点重试，不会自动产生费用'
         : this.hintFor(e));
-    }
+    } finally { tk.stop(); if (this.translationSubmissions.get(subject) === run) this.translationSubmissions.delete(subject); }
+    })();
+    return run.promise;
   }
 
   /** 解释分两步：先弹输入框拿补充问题，再请求。留空也可直接提交。 */
   doExplain(range) {
+    if (!this.isCurrentArticle()) return;
     const text = String(range).trim();
     // 锚点在这里就定下来，不留到提交时再算（那时 range 可能已失效）
     this.explainCtx = { text, rect: range.getBoundingClientRect(), ...this.snapshot(range) };
@@ -925,6 +1048,7 @@ export class App {
   }
 
   async runExplain(question, fresh = false) {
+    if (!this.isCurrentArticle()) return;
     const pop = this.tipFor('explain');
     const ctx = this.explainCtx;
     // 静默 return 会表现成"点了提问毫无反应"，和卡死无从区分
@@ -967,6 +1091,7 @@ export class App {
       tk.stop();
       if (this.explainSubmissions.get(key) === submission) this.explainSubmissions.delete(key);
       this.syncExplainSubmit(pop);
+      if (pop !== this.pops?.explain) this.syncExplainSubmit();
     }
   }
 
@@ -981,7 +1106,7 @@ export class App {
       && lookupKey(e) === lookupKey(seed));
     const id = prev?.id ?? lookupId(this.key, seed);
     const ev = {
-      id, urlKey: this.key, url: location.href, title: document.title,
+      id, urlKey: this.key, url: this.articleUrl, title: this.articleTitle,
       action: 'explain', text, value: prev?.value || null, color: null,
       anchor: anchor ?? prev?.anchor ?? null, parentId: null,
       extra: { ...prev?.extra, question: question || '', status: 'running', offset, error: '', progress: '正在准备上下文…',
@@ -1125,6 +1250,7 @@ export class App {
    * @param {boolean} [fresh] 点「重新生成」时跳过缓存
    */
   async autoSummarize(fresh = false) {
+    if (fresh && !this.isCurrentArticle()) return;
     if (this.briefBusy) return;
     const has = this.items.find((e) => e.action === 'summary' && !e.deletedAt && e.value);
     if (has && !fresh) {
@@ -1219,6 +1345,7 @@ export class App {
 
   /** 面板上点「重试」；deferred 永远由用户手动触发，不在重连时自动消费。 */
   async retryLookup(id) {
+    if (!this.isCurrentArticle()) return;
     const ev = this.items.find((e) => e.id === id);
     if (!ev || this.lookupRuns.has(id)) return;
     if (ev.action === 'translate') {
@@ -1249,7 +1376,7 @@ export class App {
   }
 
   markdown() {
-    return renderArticleMarkdown({ title: document.title, url: location.href, events: this.items });
+    return renderArticleMarkdown({ title: this.articleTitle, url: this.articleUrl, events: this.items });
   }
 
   async portableMarkdown() {
@@ -1283,7 +1410,7 @@ export class App {
   async downloadMarkdown() {
     const blob = new Blob([await this.portableMarkdown()], { type: 'text/markdown;charset=utf-8' });
     const href = URL.createObjectURL(blob), a = document.createElement('a');
-    a.href = href; a.download = safeMarkdownFilename(document.title, this.key);
+    a.href = href; a.download = safeMarkdownFilename(this.articleTitle, this.key);
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(href), 0);
     return 'Markdown 已下载';
@@ -1300,6 +1427,7 @@ export class App {
     const pend = this.items.filter((e) => e.action === 'explain' && !e.deletedAt
       && e.extra?.status === 'running');
     for (const ev of pend) {
+      if (this.lookupRuns.has(ev.id) || this.explainSubmissions.has(lookupKey(ev))) continue;
       const jobId = ev.extra?.jobId;
       if (!jobId) {
         this.patchLookup(ev.id, { status: 'error', error: '上次未完成（页面已刷新）', progress: '' });
@@ -1380,7 +1508,7 @@ export class App {
 
     const ev = {
       id: prev?.id ?? lookupId(this.key, draft),
-      urlKey: this.key, url: location.href, title: document.title,
+      urlKey: this.key, url: this.articleUrl, title: this.articleTitle,
       action, text, value, color: null,
       // 锚点由 snapshot() 在选中当时算好（见那里的注释）；缺失时沿用旧记录的
       anchor: anchor ?? prev?.anchor ?? null,
@@ -1445,7 +1573,29 @@ export function boot({ initialPanelOpen = null, toggleExisting = false } = {}) {
     return null;
   }
   document.documentElement.dataset[MARK] = toggleExisting ? TOGGLE_MARK : '1';
-  const app = new App({ initialPanelOpen });
+  let navigationNotice;
+  const clearNavigationNotice = () => { releaseThemeHost(navigationNotice); navigationNotice?.host?.remove(); navigationNotice = null; };
+  const app = articleSession({
+    create: options => new App(options || { initialPanelOpen }), keyOf: urlKey,
+    href: () => location.href,
+    onTransition: clearNavigationNotice,
+    onError: (error, retry, previous, phase) => {
+      const startup = phase === 'startup';
+      console.warn('[ContextFlow] 阅读记录暂不可用：', error.message);
+      if (!document.body) return;
+      navigationNotice ??= shadowHost('article-transition', `${FLOAT}.notice{position:fixed;top:14px;left:50%;transform:translateX(-50%);width:min(480px,calc(100vw - 28px));padding:15px;background:${T.paper};color:${T.ink};font:13px/1.6 ${T.sans};border:1px solid ${T.line};border-left:3px solid ${T.bad};border-radius:${T.radius};box-shadow:${T.shadowFloat}}.notice p{margin:7px 0 12px}.actions{display:flex;gap:8px;flex-wrap:wrap}.actions button{border:1px solid ${T.line};background:${T.paperRaised}}`, 2147483647);
+      if (!navigationNotice.getElementById('route-notice')) navigationNotice.innerHTML += '<section class="notice" id="route-notice" role="alert"><strong>上一页草稿尚未安全保存</strong><p></p><div class="actions"><button type="button" id="route-retry">重试保存并切换</button><button type="button" id="route-copy">复制上一页记录</button></div></section>';
+      navigationNotice.querySelector('strong').textContent = startup ? '暂时无法打开本地阅读记录' : '上一页草稿尚未安全保存';
+      navigationNotice.querySelector('p').textContent = startup ? '本地存储暂不可用，现有记录已保留。请重试；持续失败时，可在扩展设置的「帮助与诊断」中检查。' : `${error.message}。记录仍属于上一页；保存成功后再切换，不会写入当前文章。`;
+      navigationNotice.getElementById('route-retry').textContent = startup ? '重试打开' : '重试保存并切换';
+      navigationNotice.getElementById('route-copy').hidden = startup;
+      navigationNotice.getElementById('route-retry').onclick = () => retry();
+      navigationNotice.getElementById('route-copy').onclick = async () => {
+        try { await previous.copyMarkdown(); navigationNotice.querySelector('strong').textContent = '上一页记录已复制，请妥善保留'; }
+        catch (copyError) { navigationNotice.querySelector('p').textContent = copyError.message; }
+      };
+    },
+  });
   if (toggleExisting) {
     document.addEventListener(PANEL_TOGGLE_EVENT, () => app.togglePanel());
   }

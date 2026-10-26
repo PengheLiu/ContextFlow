@@ -6,6 +6,19 @@ import { mkdirSync, readFileSync, writeFileSync, renameSync } from 'node:fs';
 import { join } from 'node:path';
 import { trimBase } from './llm.mjs';
 
+// Enumerable Symbols survive the server's object spreads, but JSON serialization
+// never sends resolved program identities to the reading page or job stream.
+export const AGENT_EXECUTION_IDENTITY = Symbol.for('contextflow.agent-execution-identity');
+// These are evidence that the configured answering path did not complete.
+// Cancel and input validation failures intentionally do not revoke readiness.
+export const AGENT_READINESS_FAILURES = new Set(['AGENT_AUTH', 'AGENT_SPAWN', 'AGENT_EMPTY', 'AGENT_PARSE', 'AGENT_TIMEOUT', 'AGENT_ERROR',
+  'AGENT_QUOTA', 'AGENT_RATE_LIMIT', 'AGENT_MODEL_UNAVAILABLE', 'AGENT_REASONING_UNSUPPORTED', 'AGENT_NETWORK',
+  'AGENT_PROVIDER_UNAVAILABLE', 'AGENT_ACCESS_DENIED', 'AGENT_PROVIDER_REQUEST', 'AGENT_CONFIGURATION_CHANGED',
+  'CODEX_DISCONNECTED', 'CODEX_PROTOCOL', 'CODEX_RPC_TIMEOUT', 'CODEX_RPC', 'CODEX_UNSUPPORTED',
+  'DSH_DISCONNECTED', 'DSH_PROTOCOL', 'DSH_RPC_TIMEOUT', 'DSH_DESKTOP_UNSUPPORTED']);
+export const agentConnectionIdentity = agent => [agent.id, agent.path || '', agent.version || '', agent.identity || '',
+  agent.profile || 'safe', Object.entries(agent.env || {}).sort(([a], [b]) => a.localeCompare(b))];
+
 export class ConnectionChecks {
   constructor(dir, secret) {
     this.dir = dir; this.secret = secret;
@@ -30,9 +43,7 @@ export class ConnectionChecks {
     return this.identity('model', [t.provider, trimBase(t.baseUrl || (t.provider === 'anthropic' ? 'https://api.anthropic.com' : '')), t.model || '', t.apiKey || '']);
   }
   agentKey(agent) {
-    return this.identity('agent', [agent.id, agent.path || '', agent.version || '',
-      agent.profile || 'safe',
-      Object.entries(agent.env || {}).sort(([a], [b]) => a.localeCompare(b))]);
+    return this.identity('agent', agentConnectionIdentity(agent));
   }
   begin(key) {
     const ticket = { key, sequence: Symbol() };
@@ -62,7 +73,7 @@ export class ConnectionChecks {
       if (!row.available || !(row.connectionTestSupported ?? row.safeSupport !== 'unsupported')) continue;
       const profile = cfg.agent?.id === row.id ? cfg.agent.profile || 'safe' : 'safe';
       const result = this.entries.get(this.agentKey({ ...row, profile, env: cfg.agent?.id === row.id ? cfg.agent.env : {} }));
-      if (result) agents[row.id] = { ...result, version: row.version || '', path: row.path || '', profile };
+      if (result) agents[row.id] = { ...result, version: row.version || '', path: row.path || '', identity: row.identity || '', profile };
     }
     return { model: this.entries.get(this.modelKey(cfg)) || null, agents };
   }

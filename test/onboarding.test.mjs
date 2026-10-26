@@ -76,6 +76,15 @@ console.log('新手配置：用户目录展开、拒绝相对路径与越界、A
 
 // Exercise the actual options entrypoint, not a second model of its states.
 const optionsHTML = readFileSync(new URL('../extension/options.html', import.meta.url), 'utf8');
+const navigationDOM = new JSDOM(optionsHTML);
+const navigationLinks = [...navigationDOM.window.document.querySelectorAll('nav.page-nav a')];
+assert.deepEqual(navigationLinks.map(link => [link.textContent, link.getAttribute('href'), link.dataset.view]), [
+  ['开始使用', '#start', 'start'], ['连接与设置', '#connect', 'connect'],
+  ['我的阅读库', '#library', 'library'], ['帮助与诊断', '#support', 'support'],
+], '导航显示顺序、hash 和实际视图保持一致');
+assert.ok(navigationLinks.every(link => link.tabIndex === 0 && !link.hasAttribute('tabindex')),
+  '键盘使用自然 DOM 顺序，不用正 tabindex 制造不同的焦点顺序');
+navigationDOM.window.close();
 const optionsBundle = buildSync({ entryPoints: [new URL('../src/ext/options.js', import.meta.url).pathname],
   bundle: true, write: false, format: 'iife', platform: 'browser', logLevel: 'silent' }).outputFiles[0].text;
 const until = async predicate => {

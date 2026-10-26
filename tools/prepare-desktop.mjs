@@ -8,6 +8,7 @@ import esbuild from 'esbuild';
 import { runtimeFiles } from './package-store-support.mjs';
 import { renderTrayTemplate } from '../desktop/tray-icon.mjs';
 import { NODE_LICENSE_VERSION, installNodeLicense } from './node-license.mjs';
+import { checkDesignTokens } from './design-tokens.mjs';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 function prepareTrayAssets() {
@@ -19,6 +20,7 @@ function prepareTrayAssets() {
   }
 }
 if (process.argv.includes('--tray-assets-only')) { prepareTrayAssets(); console.log('Desktop tray assets prepared: monochrome 16px + 32px @2x.'); process.exit(0); }
+checkDesignTokens();
 const arg = name => process.argv[process.argv.indexOf(name) + 1];
 const platform = process.argv.includes('--platform') ? arg('--platform') : process.platform;
 const arch = process.argv.includes('--arch') ? arg('--arch') : process.arch;
@@ -86,6 +88,7 @@ const desktopSources = readdirSync(join(root, 'desktop')).filter(file => /\.(?:m
 writeFileSync(join(build, 'target.json'), JSON.stringify({ platform, arch, node: VERSION, sha256: hashes[target],
   sources: Object.fromEntries([...runtimeFiles, 'package.json', 'desktop/package.json', ...desktopSources,
     'desktop/ui/index.html', 'desktop/ui/styles.css', 'desktop/native/menu-bar.m', 'tools/prepare-desktop.mjs', 'tools/node-license.mjs',
+    'tools/package-desktop.mjs', 'tools/artifact-output.mjs',
     'assets/trayTemplate.svg', 'assets/trayTemplate.png', 'assets/trayTemplate@2x.png',
     ...Object.keys(uiBuild.metafile.inputs).map(file => relative(root, file))]
     .map(file => [file.replaceAll('\\', '/'), createHash('sha256').update(readFileSync(join(root, file))).digest('hex')])),

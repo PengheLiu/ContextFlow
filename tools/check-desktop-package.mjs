@@ -22,6 +22,7 @@ const require = createRequire(new URL('../desktop/package.json', import.meta.url
 const asar = require('@electron/asar');
 assertDesktopArchiveFiles(asar.listPackage(join(resources, 'app.asar')));
 const runtime = join(resources, 'runtime', metadata.platform === 'win32' ? 'node.exe' : 'node');
+assert.ok(existsSync(join(resources, 'core/src/core/data-owner.mjs')), 'Missing shipped data-directory ownership protocol');
 for (const file of [runtime, join(resources, 'runtime/NODE-LICENSE'), join(resources, 'core/server/platform.mjs'), join(resources, 'core/server/secrets.mjs'), join(resources, 'core/server/sync-status.mjs'), join(resources, 'core/server/reading-status.mjs'), join(resources, 'core/src/core/destination.js')]) assert.ok(existsSync(file), `Missing ${file}`);
 for (const name of ['@anthropic-ai/sdk', 'ws']) assert.ok(existsSync(join(resources, 'core/node_modules', name, 'package.json')), `Missing shipped production dependency: ${name}`);
 assert.ok(!existsSync(join(resources, 'core/config.json')), 'Never ship maintainer configuration');

@@ -77,7 +77,7 @@ try {
       const releaseNotice = document.querySelector('.hero-copy .release-notice');
       assert.equal(releaseNotice.dataset.desktopVersion, desktopRelease.version);
       assert.equal(releaseNotice.dataset.publishedVersion, release.publishedExtension.version);
-      assert.ok(releaseNotice.textContent.includes(release.candidateVersion));
+      assert.ok(releaseNotice.textContent.includes(release.desktop.platforms['darwin-arm64'].version), '公开下载提示绑定实际可下载桌面版本，不能冒充尚未发布的源码候选');
       assert.match(document.querySelector('.product-figure figcaption').textContent, /实际阅读界面/);
       assert.doesNotMatch(document.body.textContent, /目前通过终端安装和启动|本地服务需要 Node.js 22.13\+/,'CLI 不再是普通用户默认路径');
       assert.equal(document.querySelectorAll('.desktop-journey .journey-steps > li').length, 4);
@@ -152,7 +152,7 @@ try {
   assert.match(css, /\.download-grid\{display:grid;grid-template-columns:repeat\(2/);
   assert.match(css, /\.download-grid\{grid-template-columns:1fr/);
   const listing = readFileSync(new URL('../store/LISTING.zh-CN.md', import.meta.url), 'utf8');
-  assert.ok(listing.includes(`**${release.candidateVersion} 桌面连接更新**`));
+  assert.ok(listing.includes(`当前源码版本 **${release.candidateVersion}**`), '商店资料源稿与历史送审版本分别记录');
   assert.match(listing, /桌面客户端独立分发/);
   assert.match(listing, /未使用 Developer ID 签名、未通过 Apple 公证/);
   assert.doesNotMatch(listing, /预览|候选/);

@@ -18,6 +18,10 @@ const PROVIDERS = {
   'deepseek-account': ['llm-deepseek-account', 'deepseek-account'],
 };
 const CORE_TAGS = new Set(['str', 'int', 'float', 'bool', 'null', 'map', 'seq'].map(tag => 'tag:yaml.org,2002:' + tag));
+// Desktop 0.2.1-rc.2 may append this official voice-input bundle.
+// Its pinned patch only adds speech-to-text services/UI, without changing the
+// model defaults. Recognize the declaration but never resolve or load it here.
+const NON_MODEL_BUNDLES = new Set(['@deepseek-ai/dsh-experimental-voice-input-bundle']);
 const error = () => Object.assign(new Error('当前桌面模型配置无法用于受限连接测试。请使用普通数据配置的 DeepSeek 官方账号或 API 模型。'), { code: 'DSH_PROBE_UNSUPPORTED' });
 const plain = value => value !== null && typeof value === 'object' && !Array.isArray(value)
   && [Object.prototype, null].includes(Object.getPrototypeOf(value));
@@ -86,7 +90,8 @@ function parseRows(source, parseYaml) {
 export function readDshProbeConfig({ dshHome, parseYaml, readFile = readFileSync } = {}) {
   if (typeof dshHome !== 'string' || !dshHome || typeof parseYaml !== 'function') throw error();
   // A custom bundle can replace the model defaults before the user's patch.
-  // Inspect only its declaration and refuse it; never resolve or load the bundle.
+  // Only verified official non-model additions may follow the core pair;
+  // inspect declarations only and never resolve or load any profile bundle.
   let manifest;
   try {
     const source = readFile(join(dshHome, 'profiles/desktop/package.json'), 'utf8');
@@ -94,8 +99,9 @@ export function readDshProbeConfig({ dshHome, parseYaml, readFile = readFileSync
     manifest = JSON.parse(source);
   } catch { throw error(); }
   const bundles = manifest?.dsh?.profile?.bundles;
-  if (!Array.isArray(bundles) || bundles.length !== 2 || bundles[0] !== '@deepseek-ai/dsh-base'
-    || bundles[1] !== '@deepseek-ai/dsh-web-app') throw error();
+  if (!Array.isArray(bundles) || bundles.length < 2 || bundles[0] !== '@deepseek-ai/dsh-base'
+    || bundles[1] !== '@deepseek-ai/dsh-web-app' || new Set(bundles).size !== bundles.length
+    || bundles.slice(2).some(bundle => !NON_MODEL_BUNDLES.has(bundle))) throw error();
   const rows = new Map(Object.keys(NAMES).map(id => [id, { config: {}, disabled: false }]));
   rows.set('agent-default-model', { config: { provider: 'deepseek-official', model: 'deepseek-flash' }, disabled: false });
   const apply = (entries, depth = 0) => {

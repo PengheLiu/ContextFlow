@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { UNSIGNED_MAC_RELEASES } from './check-product-release.mjs';
 
 export async function checkReleaseLinks(version, fetcher = fetch) {
   if (!/^\d+\.\d+\.\d+$/.test(version)) throw new Error('发行版本必须为 x.y.z。');
@@ -27,8 +28,9 @@ export async function checkDesktopDownloadLinks(state, fetcher = fetch) {
   for (const [target, row] of Object.entries(state.desktop?.platforms || {})) {
     if (row.status !== 'available-unsigned') continue;
     const base = 'https://github.com/PengheLiu/ContextFlow/releases/download/';
-    if (target !== 'darwin-arm64' || row.version !== '1.1.0' || row.releaseTag !== `v${row.version}`
-      || row.artifact !== `ContextFlow-${row.version}-mac-arm64.dmg`
+    const approved = UNSIGNED_MAC_RELEASES.find(release => release.version === row.version);
+    if (!approved || target !== approved.target || row.releaseTag !== approved.releaseTag
+      || row.artifact !== approved.artifact
       || !/^[a-f0-9]{64}$/.test(row.sha256 || '')
       || row.downloadUrl !== `${base}${row.releaseTag}/${row.artifact}`
       || row.checksumUrl !== `${row.downloadUrl}.sha256`) throw new Error('桌面下载状态或资源地址无效，拒绝访问不明确的下载目标。');

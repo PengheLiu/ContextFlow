@@ -8,6 +8,8 @@
 // 颜色全部经 CSS variable 间接引用：亮色是日间纸张，暗色是暖炭灰的「夜间纸张」，
 // 不是纯黑控制台。注入页面时优先跟随网页本身的明暗，系统主题只作为无法判断时的兜底。
 
+import { FONTS, RADII, themeCSS } from '../core/design-tokens.js';
+
 export const T = {
   paper: 'var(--cf-paper)',
   paperRaised: 'var(--cf-paper-raised)',
@@ -21,9 +23,13 @@ export const T = {
   quote: 'var(--cf-quote)',
   placeholder: 'var(--cf-placeholder)',
   accent: 'var(--cf-accent)',
+  accentHover: 'var(--cf-accent-hover)',
+  onAccent: 'var(--cf-on-accent)',
   accentSoft: 'var(--cf-accent-soft)',
   accentWash: 'var(--cf-accent-wash)',
   ok: 'var(--cf-ok)',
+  okSoft: 'var(--cf-ok-soft)',
+  okLine: 'var(--cf-ok-line)',
   bad: 'var(--cf-bad)',
   badSoft: 'var(--cf-bad-soft)',
   focusLine: 'var(--cf-focus-line)',
@@ -34,71 +40,16 @@ export const T = {
   shadowControl: 'var(--cf-shadow-control)',
   blue: 'var(--cf-blue)',
   blueSoft: 'var(--cf-blue-soft)',
-  radius: '10px',
-  sans: '-apple-system,BlinkMacSystemFont,"PingFang SC","Hiragino Sans GB",sans-serif',
-  serif: 'Georgia,"Songti SC","Noto Serif CJK SC",serif',
-  mono: 'ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono",monospace',
+  radius: RADII.card,
+  sans: FONTS.sans,
+  serif: FONTS.serif,
+  mono: FONTS.mono,
 };
 
 /** 每个 Shadow Root 都要注入的基础样式 */
 export const BASE = `
-  :host{
-    all:initial;color-scheme:light;
-    --cf-paper:#fbfaf7;--cf-paper-raised:#fffefa;
-    --cf-sunk:#f4f1eb;--cf-sunk-hover:#ece7de;
-    --cf-line:#dcd5ca;--cf-line-soft:#ebe6de;--cf-line-strong:#bdb3a4;
-    --cf-ink:#24211d;--cf-ink-soft:#4e4840;--cf-quote:#655e55;--cf-placeholder:#71695f;
-    --cf-accent:#a6530e;--cf-accent-soft:rgba(166,83,14,.16);--cf-accent-wash:rgba(166,83,14,.085);
-    --cf-blue:#496f9f;--cf-blue-soft:rgba(73,111,159,.12);
-    --cf-ok:#356f3f;--cf-bad:#a8322a;--cf-bad-soft:#fff4f1;
-    --cf-focus-line:#bc7332;--cf-focus-ring:rgba(166,83,14,.17);--cf-hover:rgba(54,45,35,.065);
-    --cf-shadow-float:0 1px 2px rgba(28,26,23,.06),0 18px 44px -16px rgba(28,26,23,.28);
-    --cf-shadow-panel:-18px 0 48px -26px rgba(28,26,23,.34);
-    --cf-shadow-control:0 6px 20px -8px rgba(28,26,23,.30);
-    --cf-scroll:#c9c0b3;--cf-scroll-hover:#aea393;
-    --cf-grain:rgba(72,59,45,.035);
-  }
-  :host([data-theme=dark]){
-    color-scheme:dark;
-    --cf-paper:#302c27;--cf-paper-raised:#39342e;
-    --cf-sunk:#292621;--cf-sunk-hover:#403a33;
-    --cf-line:#554d43;--cf-line-soft:#423c35;--cf-line-strong:#746959;
-    --cf-ink:#f3ede3;--cf-ink-soft:#ddd4c7;--cf-quote:#c8bdad;--cf-placeholder:#aaa091;
-    --cf-accent:#e1a05f;--cf-accent-soft:rgba(225,160,95,.22);--cf-accent-wash:rgba(225,160,95,.105);
-    --cf-blue:#8fb4e2;--cf-blue-soft:rgba(143,180,226,.14);
-    --cf-ok:#8bc596;--cf-bad:#f09a91;--cf-bad-soft:#442d29;
-    --cf-focus-line:#dda05f;--cf-focus-ring:rgba(225,160,95,.22);--cf-hover:rgba(255,247,235,.075);
-    --cf-shadow-float:0 1px 2px rgba(0,0,0,.24),0 20px 50px -15px rgba(0,0,0,.56);
-    --cf-shadow-panel:-18px 0 48px -22px rgba(0,0,0,.56);
-    --cf-shadow-control:0 8px 24px -8px rgba(0,0,0,.54);
-    --cf-scroll:#62594d;--cf-scroll-hover:#7a7061;
-    --cf-grain:rgba(255,244,227,.025);
-  }
-  @media (prefers-color-scheme:dark){
-    :host(:not([data-theme=light])){
-      color-scheme:dark;
-      --cf-paper:#302c27;--cf-paper-raised:#39342e;
-      --cf-sunk:#292621;--cf-sunk-hover:#403a33;
-      --cf-line:#554d43;--cf-line-soft:#423c35;--cf-line-strong:#746959;
-      --cf-ink:#f3ede3;--cf-ink-soft:#ddd4c7;--cf-quote:#c8bdad;--cf-placeholder:#aaa091;
-      --cf-accent:#e1a05f;--cf-accent-soft:rgba(225,160,95,.22);--cf-accent-wash:rgba(225,160,95,.105);
-      --cf-blue:#8fb4e2;--cf-blue-soft:rgba(143,180,226,.14);
-      --cf-ok:#8bc596;--cf-bad:#f09a91;--cf-bad-soft:#442d29;
-      --cf-focus-line:#dda05f;--cf-focus-ring:rgba(225,160,95,.22);--cf-hover:rgba(255,247,235,.075);
-      --cf-shadow-float:0 1px 2px rgba(0,0,0,.24),0 20px 50px -15px rgba(0,0,0,.56);
-      --cf-shadow-panel:-18px 0 48px -22px rgba(0,0,0,.56);
-      --cf-shadow-control:0 8px 24px -8px rgba(0,0,0,.54);
-      --cf-scroll:#62594d;--cf-scroll-hover:#7a7061;
-      --cf-grain:rgba(255,244,227,.025);
-    }
-  }
-  @media (prefers-contrast:more){
-    :host{--cf-quote:#514a41;--cf-placeholder:#5c554d;--cf-line:#b6ac9d}
-    :host([data-theme=dark]){--cf-quote:#e4dbcf;--cf-placeholder:#cfc4b4;--cf-line:#7b7162}
-  }
-  @media (prefers-color-scheme:dark) and (prefers-contrast:more){
-    :host(:not([data-theme=light])){--cf-quote:#e4dbcf;--cf-placeholder:#cfc4b4;--cf-line:#7b7162}
-  }
+  :host{all:initial}
+  ${themeCSS(':host', { systemDark: true })}
   *,*::before,*::after{box-sizing:border-box}
   .r{display:flex;align-items:center;gap:6px}
   .ico{display:block;width:16px;height:16px;flex:0 0 auto;overflow:visible}
@@ -220,6 +171,9 @@ function watchTheme(host) {
   }
   if (typeof matchMedia === 'function') matchMedia('(prefers-color-scheme: dark)').addEventListener?.('change', schedule);
 }
+
+/** Retired SPA UI must not remain retained by the page-wide theme observer. */
+export function releaseThemeHost(host) { themeHosts.delete(host?.host || host); }
 
 export function shadowHost(name, css, z = 2147483646) {
   const el = document.createElement('div');

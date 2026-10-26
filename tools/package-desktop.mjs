@@ -1,10 +1,11 @@
 // Keep runnable build products out of Spotlight; expose only distributable
 // files in release/desktop. Never launch, move or unregister an installed app.
-import { copyFileSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, readFileSync, readdirSync, realpathSync } from 'node:fs';
 import { createHash } from 'node:crypto';
-import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
+import { ensureArtifactDirectory, publishImmutableArtifacts } from './artifact-output.mjs';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 const desktopRequire = createRequire(new URL('../desktop/package.json', import.meta.url));
@@ -24,17 +25,7 @@ export function desktopBuildPaths(repository = root, artifactSubdir = '') {
 }
 
 function ensureBuildDirectory(directory, repository) {
-  const base = resolve(repository), target = resolve(directory);
-  if (!inside(base, target)) throw new Error('构建目录必须在当前源码目录内。');
-  let current = base;
-  for (const part of relative(base, target).split(sep)) {
-    current = join(current, part);
-    if (existsSync(current)) {
-      const info = lstatSync(current);
-      if (info.isSymbolicLink() || !info.isDirectory()) throw new Error('构建或交付目录的各级路径必须是普通目录，不能是符号链接。');
-    } else mkdirSync(current);
-  }
-  if (!inside(realpathSync(base), realpathSync(target))) throw new Error('构建目录解析后越出源码目录。');
+  ensureArtifactDirectory(directory, repository);
 }
 
 export function parseDesktopBuildArgs(argv) {
@@ -104,22 +95,14 @@ export function stageDesktopArtifacts(files, { staging, artifacts, repository = 
   ensureBuildDirectory(artifacts, repository);
   const output = [];
   for (const file of sources) {
-    const target = join(artifacts, basename(file));
-    if (existsSync(target) && (!lstatSync(target).isFile() || lstatSync(target).isSymbolicLink())) throw new Error('拒绝覆盖不是普通文件的交付目标。');
-    const temporary = join(artifacts, `.${basename(file)}.${process.pid}.tmp`);
-    if (existsSync(temporary)) throw new Error('存在未完成的同名交付临时文件，请先核对。');
-    copyFileSync(file, temporary); renameSync(temporary, target); output.push(target);
-    if (/\.(?:dmg|exe|zip)$/.test(target)) {
-      const checksum = `${target}.sha256`;
-      if (existsSync(checksum) && (!lstatSync(checksum).isFile() || lstatSync(checksum).isSymbolicLink())) throw new Error('拒绝覆盖不是普通文件的校验目标。');
-      const checksumTemporary = join(artifacts, `.${basename(checksum)}.${process.pid}.tmp`);
-      if (existsSync(checksumTemporary)) throw new Error('存在未完成的校验临时文件，请先核对。');
-      const digest = createHash('sha256').update(readFileSync(target)).digest('hex');
-      writeFileSync(checksumTemporary, `${digest}  ${basename(target)}\n`, { flag: 'wx' });
-      renameSync(checksumTemporary, checksum); output.push(checksum);
+    const name = basename(file), bytes = readFileSync(file);
+    output.push({ name, bytes });
+    if (/\.(?:dmg|exe|zip)$/.test(name)) {
+      const digest = createHash('sha256').update(bytes).digest('hex');
+      output.push({ name: `${name}.sha256`, bytes: `${digest}  ${name}\n` });
     }
   }
-  return output;
+  return publishImmutableArtifacts(output, { directory: artifacts, repository });
 }
 
 export async function packageDesktop({ argv = [], repository = root, build = options => desktopRequire('electron-builder').build(options) } = {}) {

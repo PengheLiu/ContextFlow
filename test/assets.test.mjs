@@ -60,4 +60,27 @@ await t('在光标位置贴图会拆开文字，并显示可删除的原子图�
   assert.equal(assetIds(editor.value()).length, 1);
 });
 
+await t('侧栏与原位反向镜像不能覆盖尚未保存或失败的图片块，完成或移除后恢复更新', async () => {
+  let release;
+  const mount = document.createElement('div'); document.body.append(mount);
+  const editor = new RichComposer(mount, { value: '图片原位文字', onAsset: () => new Promise(resolve => { release = resolve; }), onCommit: () => {} });
+  const pending = editor.insertImage(0, 6, 6, { name: 'pending.png' });
+  const block = editor.blocks.find(row => row.pending);
+  editor.setValue('另一端的镜像不能抹掉图片');
+  assert.ok(editor.blocks.includes(block)); assert.equal(block.pending, true);
+  assert.match(editor.hint.textContent, /已保留原位草稿/);
+  release({ id: ID }); await pending;
+  assert.ok(editor.value().includes('图片原位文字')); assert.ok(editor.value().includes(assetToken(ID, 'pending')));
+  editor.setValue('图片已落盘后的正常更新'); assert.equal(editor.value(), '图片已落盘后的正常更新');
+
+  editor.o.onAsset = () => Promise.reject(new Error('asset quota'));
+  await editor.insertImage(0, 0, 0, { name: 'failed.png' });
+  const failed = editor.blocks.find(row => row.error);
+  editor.setValue('另一端的镜像不能抹掉失败占位');
+  assert.ok(editor.blocks.includes(failed)); assert.match(editor.hint.textContent, /图片保存失败.*保留原位草稿/);
+  editor.list.querySelector('.rc-remove').click();
+  editor.setValue('用户处理完成后的正常更新'); assert.equal(editor.value(), '用户处理完成后的正常更新');
+  mount.remove();
+});
+
 console.log(`\n${pass} 项通过`);

@@ -2,6 +2,7 @@
 // localStorage 只保留迁移兼容与小型 UI 偏好，不再承担并发写入正确性。
 import { referencedAssets, MAX_BACKUP_BYTES } from './reading-library.js';
 import { randomUUID as uid } from './uuid.js';
+import { articleIdentity, canonicalEventIdentity, eventIdentityKey, planArticleIdentityMigration } from './urlkey.js';
 
 const DB_NAME = 'contextflow-offline';
 const DB_VERSION = 4;
@@ -15,6 +16,7 @@ const now = () => Date.now();
 
 let dbPromise;
 let offlineTransport;
+const deferredIdentityReads = new Set();
 
 export function setOfflineTransport(transport) {
   offlineTransport = transport;
@@ -104,12 +106,39 @@ export async function saveOfflineEvents(events, { queue = true } = {}) {
   const db = await openOfflineStore();
   if (!db || !events?.length) return events || [];
   const tx = db.transaction(['events', 'operations'], 'readwrite');
+  const completed = done(tx);
   const es = tx.objectStore('events');
   const os = tx.objectStore('operations');
   const oi = os.index('coalesceKey');
-  for (const raw of events) {
-    const event = raw.updatedAt && raw.mutationId ? raw : mutationStamp(raw);
+  const existing = await req(es.getAll()), byId = new Map();
+  for (const row of existing) { const rows = byId.get(row.id) || []; rows.push(row); byId.set(row.id, rows); }
+  for (const input of events) {
+    const raw = canonicalEventIdentity(input);
+    // Mirroring is not a user edit: legacy snapshots without a mutation ID
+    // must keep their source clock rather than acquiring today's timestamp.
+    let event = !queue || raw.updatedAt && raw.mutationId ? raw : mutationStamp(raw);
+    const previous = byId.get(event.id) || [];
+    // URL repair preserves global event IDs. Replacing a legacy compound key
+    // must not leave a duplicate behind, nor steal an ID from another article.
+    for (const old of previous.filter(row => row.urlKey !== event.urlKey)) {
+      if (eventIdentityKey(old) !== event.urlKey) {
+        tx.abort(); await completed.catch(() => {});
+        throw Object.assign(new Error('记录标识与另一篇文章冲突，原记录已保留，请先备份后重试。'), { code: 'ARTICLE_IDENTITY_CONFLICT' });
+      }
+      es.delete([old.urlKey, old.id]);
+    }
+    if (!queue) {
+      // A sync snapshot may predate an edit committed by another tab while its
+      // network request was pending. Mirror reconciliation follows the durable
+      // mutation clock too; equal mutations keep the existing record. Repair a
+      // proven legacy key independently of which payload wins. Outbox leases
+      // and queued edits are deliberately untouched by this path.
+      for (const old of previous) {
+        if (compareMutation(old, event) >= 0) event = { ...old, urlKey: event.urlKey };
+      }
+    }
     es.put(event);
+    byId.set(event.id, [event]);
     if (!queue) continue;
     const key = `event:${event.id}`;
     const old = await req(oi.get(key));
@@ -123,7 +152,7 @@ export async function saveOfflineEvents(events, { queue = true } = {}) {
     }
     os.put(opFor(event));
   }
-  await done(tx);
+  await completed;
   return events;
 }
 
@@ -139,9 +168,52 @@ export async function listOfflineEvents(urlKey, { includeDeleted = false } = {})
   const db = await openOfflineStore();
   if (!db) return [];
   const tx = db.transaction('events', 'readonly');
-  const rows = await req(tx.objectStore('events').index('urlKey').getAll(urlKey));
-  await done(tx);
+  const completed = done(tx);
+  let rows;
+  if (deferredIdentityReads.has(urlKey)) {
+    // A sending lease is immutable. Until it is acknowledged, read through the
+    // original-URL evidence without changing the stored row or queued payload.
+    const all = await req(tx.objectStore('events').getAll());
+    const plan = planArticleIdentityMigration(all, articleIdentity(urlKey));
+    const moves = new Map(plan.moves.map(move => [move.event, move.to]));
+    rows = all.map(row => moves.has(row) ? { ...row, urlKey: moves.get(row) } : canonicalEventIdentity(row)).filter(row => row.urlKey === urlKey);
+  } else rows = await req(tx.objectStore('events').index('urlKey').getAll(urlKey));
+  await completed;
   return includeDeleted ? rows : rows.filter((e) => !e.deletedAt);
+}
+
+/** Repair only proven article identities; this RPC never exposes a whole library. */
+export async function migrateArticleIdentity(requested) {
+  if (offlineTransport) return offlineTransport('migrateArticleIdentity', [requested]);
+  const identity = typeof requested === 'string' ? articleIdentity(requested) : requested;
+  if (!identity || typeof identity.key !== 'string' || !identity.key || identity.key.length > 16384 ||
+      typeof identity.legacyKey !== 'string' || identity.legacyKey.length > 16384 ||
+      identity.url && (articleIdentity(identity.url).key !== identity.key || articleIdentity(identity.url).legacyKey !== identity.legacyKey)) throw new Error('文章身份无效');
+  const db = await openOfflineStore();
+  if (!db) return { moved: 0, ambiguous: 0, deferred: 0, legacyKeys: [] };
+  const tx = db.transaction(['events', 'operations'], 'readwrite'), completed = done(tx);
+  const es = tx.objectStore('events'), os = tx.objectStore('operations');
+  try {
+    const events = await req(es.getAll()), operations = await req(os.getAll());
+    const plan = planArticleIdentityMigration(events, identity);
+    const leased = new Set(), byEntity = new Map();
+    for (const op of operations) { if (op.state === 'sending') leased.add(op.entityId); const rows = byEntity.get(op.entityId) || []; rows.push(op); byEntity.set(op.entityId, rows); }
+    let moved = 0, deferred = 0;
+    const legacyKeys = new Set();
+    for (const move of plan.moves) {
+      legacyKeys.add(move.from);
+      if (leased.has(move.event.id)) { deferred++; continue; }
+      const next = { ...move.event, urlKey: move.to };
+      es.delete([move.from, move.event.id]); es.put(next); moved++;
+      for (const op of byEntity.get(move.event.id) || []) {
+        // Keep opId, mutation, parent/tombstone and delivery attempts unchanged.
+        os.put({ ...op, urlKey: move.to, payload: { ...op.payload, urlKey: move.to } });
+      }
+    }
+    await completed;
+    if (deferred) deferredIdentityReads.add(identity.key); else deferredIdentityReads.delete(identity.key);
+    return { moved, ambiguous: plan.ambiguous.length, ambiguousIds: plan.ambiguous.map(row => row.id), deferred, legacyKeys: [...legacyKeys] };
+  } catch (error) { try { tx.abort(); } catch {} await completed.catch(() => {}); throw error; }
 }
 
 // Only trusted extension pages call these directly. They are deliberately NOT
@@ -192,8 +264,28 @@ export async function restoreReadingLibrary({ events, assets }) {
     // the service's global event id space or in the unique operation index.
     const existing=await req(es.getAll()),ids=new Set(existing.map(e=>e.id));
     const deleted=new Set(existing.filter(e=>e.deletedAt).map(e=>e.id));
-    for(const event of events) {
-      if(ids.has(event.id) || (event.parentId && deleted.has(event.parentId))) { skipped++;continue; }
+    // Resolve ancestry against current rows first, then missing backup rows.
+    // This makes tombstones transitive without depending on archive order, and
+    // prevents stale metadata for an existing ID from changing its parentage.
+    const parents=new Map(existing.map(e=>[e.id,e.parentId || null]));
+    const incoming=events.map(canonicalEventIdentity);
+    for(const event of incoming)if(!parents.has(event.id))parents.set(event.id,event.parentId || null);
+    const blocked=new Map([...deleted].map(id=>[id,true]));
+    const excluded=id=>{
+      const path=[],seen=new Set();let at=id;
+      while(at && parents.has(at) && !blocked.has(at)) {
+        if(seen.has(at))throw new Error('备份包含循环的父子关系，未写入任何记录');
+        seen.add(at);path.push(at);at=parents.get(at);
+      }
+      const value=blocked.get(at)===true;
+      for(const key of path)blocked.set(key,value);
+      return value;
+    };
+    // Validate every new chain before issuing writes, so one malformed cycle
+    // cannot leave an unrelated earlier record restored on its own.
+    for(const event of incoming)if(!ids.has(event.id))excluded(event.id);
+    for(const event of incoming) {
+      if(ids.has(event.id) || blocked.get(event.id)) { skipped++;continue; }
       const stamped=event.updatedAt && event.mutationId ? event : mutationStamp(event);
       es.add(stamped);os.put(opFor(stamped));ids.add(event.id);added++;
     }
@@ -314,7 +406,7 @@ export async function operationCount(urlKey) {
   const tx = db.transaction('operations', 'readonly');
   const rows = await req(tx.objectStore('operations').getAll());
   await done(tx);
-  return rows.filter((o) => !urlKey || o.urlKey === urlKey).length;
+  return rows.filter((o) => !urlKey || eventIdentityKey(o.payload || o) === urlKey).length;
 }
 
 /** 远端结果（含 tombstone）写回本地，但不产生出站操作。 */
@@ -323,12 +415,25 @@ export async function applyRemoteEvents(events) {
   const db = await openOfflineStore();
   if (!db || !events?.length) return;
   const tx = db.transaction('events', 'readwrite');
+  const completed = done(tx);
   const os = tx.objectStore('events');
-  for (const e of events) {
+  const existing = await req(os.getAll()), byId = new Map();
+  for (const row of existing) { const rows = byId.get(row.id) || []; rows.push(row); byId.set(row.id, rows); }
+  for (const raw of events) {
+    const e = canonicalEventIdentity(raw);
+    for (const alias of (byId.get(e.id) || []).filter(row => row.urlKey !== e.urlKey)) {
+      if (eventIdentityKey(alias) !== e.urlKey) {
+        tx.abort(); await completed.catch(() => {});
+        throw Object.assign(new Error('服务端记录与另一篇文章的标识冲突，本机记录已保留。'), { code: 'ARTICLE_IDENTITY_CONFLICT' });
+      }
+      if (compareMutation(e, alias) >= 0) os.delete([alias.urlKey, alias.id]);
+      else { os.delete([alias.urlKey, alias.id]); os.put({ ...alias, urlKey: e.urlKey }); }
+    }
     const old = await req(os.get([e.urlKey, e.id]));
     if (!old || compareMutation(e, old) >= 0) os.put(e);
+    byId.set(e.id, [old && compareMutation(e, old) < 0 ? old : e]);
   }
-  await done(tx);
+  await completed;
 }
 
 export function compareMutation(a, b) {
@@ -468,25 +573,55 @@ export async function replaceFileEventStates(targetId, urlKey, states) {
   await done(tx);
 }
 
+// Legacy storage is a source snapshot, not a new edit. Its original clock is
+// the only evidence of recency; assigning a fresh UUID/time would let it win
+// over edits already committed to the private store by another tab.
+const legacyEvent = input => canonicalEventIdentity({ ...input,
+  updatedAt: Number(input.updatedAt || input.deletedAt || input.createdAt) || 0,
+  mutationId: input.mutationId || '',
+});
+function eventIndex(rows) {
+  const byId = new Map();
+  for (const row of rows) { const matches = byId.get(row.id) || []; matches.push(row); byId.set(row.id, matches); }
+  return byId;
+}
+function mergeLegacyEvent(es, byId, incoming) {
+  const previous = byId.get(incoming.id) || [];
+  for (const old of previous) if (eventIdentityKey(old) !== incoming.urlKey) {
+    throw Object.assign(new Error('旧记录标识与另一篇文章冲突，浏览器原记录和旧存档均已保留。'), { code: 'ARTICLE_IDENTITY_CONFLICT' });
+  }
+  let winner = incoming;
+  for (const old of previous) if (compareMutation(old, winner) >= 0) winner = { ...old, urlKey: incoming.urlKey };
+  for (const old of previous) if (old.urlKey !== incoming.urlKey) es.delete([old.urlKey, old.id]);
+  es.put(winner); byId.set(winner.id, [winner]);
+  return winner;
+}
+
 export async function migrateLegacyOutbox(legacyEvents = []) {
   if (offlineTransport) return offlineTransport('migrateLegacyOutbox', [legacyEvents]);
   const db = await openOfflineStore();
   if (!db) return false;
   const marker = 'migrated:legacy-outbox';
-  const check = db.transaction('meta', 'readonly');
-  const exists = await req(check.objectStore('meta').get(marker));
-  await done(check);
-  if (exists) return false;
   const valid = legacyEvents.filter((e) => e?.id && e?.urlKey && e?.action);
   const tx = db.transaction(['events', 'operations', 'meta'], 'readwrite');
-  const es = tx.objectStore('events'), os = tx.objectStore('operations');
-  const latest = new Map();
-  for (const e of valid) latest.set(e.id, mutationStamp(e,
-    { at: Number(e.deletedAt || e.updatedAt || e.createdAt) || now() }));
-  for (const e of latest.values()) { es.put(e); os.put(opFor(e)); }
-  tx.objectStore('meta').put({ name: marker, at: now(), count: latest.size });
-  await done(tx);
-  return true;
+  const completed = done(tx), es = tx.objectStore('events'), os = tx.objectStore('operations'), meta = tx.objectStore('meta');
+  try {
+    if (await req(meta.get(marker))) { await completed; return false; }
+    const byId = eventIndex(await req(es.getAll()));
+    for (const input of valid) {
+      const incoming = legacyEvent(input), winner = mergeLegacyEvent(es, byId, incoming);
+      if (compareMutation(incoming, winner) < 0) continue;
+      const old = await req(os.index('coalesceKey').get(`event:${winner.id}`));
+      if (old && compareMutation(old.payload, winner) >= 0) continue;
+      // Preserve an existing in-flight payload and its lease; a newer legacy
+      // mutation is a separate operation, acknowledged independently.
+      if (old?.state === 'sending') os.put({ ...old, coalesceKey: `sending:${old.opId}` });
+      else if (old) os.delete(old.opId);
+      os.put(opFor(winner));
+    }
+    meta.put({ name: marker, at: now(), count: new Set(valid.map(event => event.id)).size });
+    await completed; return true;
+  } catch (error) { try { tx.abort(); } catch {} await completed.catch(() => {}); throw error; }
 }
 
 /** 当前文章旧镜像的幂等迁移；成功后才写 marker，旧键暂留作降级回退。 */
@@ -495,17 +630,14 @@ export async function migrateArticleMirror(urlKey, legacyEvents = []) {
   const db = await openOfflineStore();
   if (!db) return false;
   const marker = `migrated:${urlKey}`;
-  const check = db.transaction('meta', 'readonly');
-  const exists = await req(check.objectStore('meta').get(marker));
-  await done(check);
-  if (exists) return false;
-  const stamped = legacyEvents.filter((e) => e?.id && e?.urlKey)
-    .map((e) => e.updatedAt && e.mutationId ? e
-      : mutationStamp(e, { at: Number(e.deletedAt || e.createdAt) || now() }));
   const tx = db.transaction(['events', 'meta'], 'readwrite');
-  const es = tx.objectStore('events');
-  for (const e of stamped) es.put(e);
-  tx.objectStore('meta').put({ name: marker, at: now(), count: stamped.length });
-  await done(tx);
-  return true;
+  const completed = done(tx), es = tx.objectStore('events'), meta = tx.objectStore('meta');
+  try {
+    if (await req(meta.get(marker))) { await completed; return false; }
+    const byId = eventIndex(await req(es.getAll()));
+    const valid = legacyEvents.filter((event) => event?.id && event?.urlKey);
+    for (const input of valid) mergeLegacyEvent(es, byId, legacyEvent(input));
+    meta.put({ name: marker, at: now(), count: valid.length });
+    await completed; return true;
+  } catch (error) { try { tx.abort(); } catch {} await completed.catch(() => {}); throw error; }
 }

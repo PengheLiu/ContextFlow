@@ -14,6 +14,7 @@ const offlineMethods = new Set([
   'claimOperations', 'acknowledgeOperations', 'releaseOperations', 'operationCount',
   'applyRemoteEvents', 'putOfflineArticle', 'getOfflineArticle',
   'migrateLegacyOutbox', 'migrateArticleMirror',
+  'migrateArticleIdentity',
 ]);
 const storageReady = chrome.storage.local.setAccessLevel({ accessLevel: 'TRUSTED_CONTEXTS' });
 
@@ -125,7 +126,8 @@ async function handleMessage(message, sender, kind) {
   }
   if (message.type === 'cf-open-settings') {
     if (kind !== 'page') throw new Error('仅网页扩展界面可打开连接设置');
-    await chrome.tabs.create({ url: chrome.runtime.getURL('options.html#connect') });
+    const view=message.view==='support' ? 'support' : 'connect';
+    await chrome.tabs.create({ url: chrome.runtime.getURL(`options.html#${view}`) });
     return true;
   }
   if (message.type === 'cf-open-library') {

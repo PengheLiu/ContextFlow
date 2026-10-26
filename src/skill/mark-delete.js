@@ -3,8 +3,9 @@
 // CSS Custom Highlight 不是 DOM 节点，拿不到自己的 click，也不能把按钮 append 到标记上。
 // 所以这里只保留**一个** fixed-position Shadow DOM 按钮：点击某条标记时，根据 Range 的
 // 最后一个 client rect 临时摆到视觉末端的右上角；点别处 / 滚动 / resize 就收起。
-import { T, shadowHost } from './theme.js';
+import { T, shadowHost, releaseThemeHost } from './theme.js';
 import { icon } from './icons.js';
+import { EventScope } from './event-scope.js';
 
 const CSS = `
   .x{all:unset;display:none;position:fixed;box-sizing:border-box;
@@ -26,6 +27,7 @@ const INSET = 8;
 export class MarkDeleteControl {
   /** @param {(id:string)=>void} onDelete */
   constructor(onDelete) {
+    this.events = new EventScope();
     const sh = shadowHost('mark-delete', CSS, 2147483647);
     sh.innerHTML += `<button class="x" id="x" type="button">${icon('trash')}</button>
       <span class="sr" id="status" role="status" aria-live="polite"></span>`;
@@ -45,15 +47,15 @@ export class MarkDeleteControl {
       this.status.textContent = '记录已删除';
     };
 
-    document.addEventListener('click', (e) => {
+    this.events.listen(document, 'click', (e) => {
       if (!this.visible) return;
       if (performance.now() - this.openedAt < 400) return;  // 打开它的同一次 click
       if (e.target?.closest?.('[data-contextflow]')) return;
       this.hide();
     });
-    document.addEventListener('keydown', (e) => { if (e.key === 'Escape') this.hide(); });
-    addEventListener('scroll', () => this.hide(), { passive: true });
-    addEventListener('resize', () => this.hide(), { passive: true });
+    this.events.listen(document, 'keydown', (e) => { if (e.key === 'Escape') this.hide(); });
+    this.events.listen(window, 'scroll', () => this.hide(), { passive: true });
+    this.events.listen(window, 'resize', () => this.hide(), { passive: true });
   }
 
   /**
@@ -62,6 +64,7 @@ export class MarkDeleteControl {
    * @param {string} label action 专属的无障碍文案
    */
   show(id, rect, label = '删除此记录') {
+    if (this.disposed) return;
     if (!id || !rect) return this.hide();
     this.openId = id;
     this.openedAt = performance.now();
@@ -85,4 +88,10 @@ export class MarkDeleteControl {
   }
 
   get visible() { return !!this.el?.classList.contains('on'); }
+
+  dispose() {
+    if (this.disposed) return;
+    this.disposed = true; this.events.dispose(); this.hide();
+    releaseThemeHost(this.sh.host); this.sh.host.remove();
+  }
 }

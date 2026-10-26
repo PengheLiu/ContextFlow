@@ -12,11 +12,11 @@ const t = async (name, fn) => {
   try { await fn(); console.log(`  ok   ${name}`); pass++; }
   catch (e) { console.log(`  FAIL ${name}\n       ${e.message}`); process.exitCode = 1; }
 };
-const make = () => {
+const make = (options = {}) => {
   document.body.innerHTML = '<div id="host"></div>';
   const sh = document.getElementById('host').attachShadow({ mode: 'open' });
   const mount = document.createElement('div'); sh.appendChild(mount);
-  const s = new Settings(sh, mount, {});
+  const s = new Settings(sh, mount, {}, null, options);
   s.cfg = {
     agent: {
       id: 'claude', profile: 'safe', profileSource: 'user', fullAccessAcknowledged: false,
@@ -605,6 +605,73 @@ await t('DSH新路径可以请求重新核实受限测试，但连接成功不�
   s.api.testAgent=async()=>({ok:true,agent:'dsh',label:'DeepSeek Harness',path:'/fixture/new-dsh',version:'fixture',configuredProfile:'safe',safeSupport:'unsupported',connectionTestSupported:true,scope:'connection-only'});
   await s.testAgent();assert.equal(s.agentResult().ok,true);assert.throws(()=>s.patch(),e=>e.code==='AGENT_SAFE_UNSUPPORTED');
   assert.equal(s.$('s-profileFull').checked,false);assert.equal(s.$('s-notesDir').value,'');
+});
+
+await t('Codex 配置目录仅在所选 Codex 显示，草稿测试与保存绑定同一目录且不授予笔记权限', async () => {
+  const s=make();let writes=0;
+  Object.assign(s.cfg.agent,{codexHome:'',codexDefaultHome:'/fixture/default'});
+  s.cfg.explain={backend:'llm'};s.$('s-exBackend').value='agent';
+  assert.equal(s.$('s-codexHomeField').hidden,true);
+  s.$('s-agent').value='codex';s.$('s-agent').dispatchEvent(new Event('change',{bubbles:true}));
+  assert.equal(s.$('s-codexHomeField').hidden,false);
+  assert.equal(s.$('s-codexHome').placeholder,'/fixture/default');
+  assert.match(s.$('s-codexHomeField').textContent,/登录.*模型.*不.*笔记/);
+  s.$('s-codexHome').value='/fixture/Personal';s.$('s-codexHome').dispatchEvent(new Event('input',{bubbles:true}));
+  assert.deepEqual(s.agentDraft(),{executable:'',profile:'safe',codexHome:'/fixture/Personal'});
+  s.api.putConfig=async()=>writes++;
+  s.api.testAgent=async(id,{draft})=>{
+    assert.equal(id,'codex');assert.deepEqual(draft,{executable:'',profile:'safe',codexHome:'/fixture/Personal'});
+    return {ok:true,agent:id,path:'/fixture/codex',version:'fixture',scope:'connection-only',checkedAt:5000};
+  };
+  await s.testAgent();assert.equal(s.agentResult().ok,true);assert.equal(writes,0);
+  assert.equal(s.patch().agent.codexHome,'/fixture/Personal');assert.equal(s.patch().agent.notesDir,'');
+  s.$('s-codexHome').value='/fixture/other';s.$('s-codexHome').dispatchEvent(new Event('input',{bubbles:true}));
+  assert.equal(s.agentResult(),null);assert.equal(s.$('s-save').disabled,true);
+  s.$('s-agent').value='dsh';s.$('s-agent').dispatchEvent(new Event('change',{bubbles:true}));
+  assert.equal(s.$('s-codexHomeField').hidden,true);assert.equal(s.$('s-codexHome').value,'');
+  assert.equal(Object.hasOwn(s.agentDraft(),'codexHome'),false);
+  s.$('s-agent').value='codex';s.$('s-agent').dispatchEvent(new Event('change',{bubbles:true}));
+  assert.equal(s.$('s-codexHome').value,'','another CLI choice cannot carry an unsaved profile across');
+  s.$('s-codexHome').value='/fixture/unsaved';
+  s.wantAgent='dsh';s.syncAgentSel();s.wantAgent='codex';s.syncAgentSel();
+  assert.equal(s.$('s-codexHome').value,'','desktop discovery selection cannot carry another CLI field either');
+});
+
+await t('读取和还原 Codex 配置回填目录；清空默认目录需要重新测试，旧服务不发送新字段', async () => {
+  const s=make(),cfg={...s.cfg,agent:{...s.cfg.agent,id:'codex',codexHome:'/fixture/saved',codexDefaultHome:'/fixture/default'},
+    translate:{provider:'openai',baseUrl:'',model:'',apiKeySet:false},explain:{backend:'agent'},sync:{backend:'markdown'},markdown:{dir:''},obsidian:{},siyuan:{}};
+  s.api={getConfig:async()=>structuredClone(cfg),listFolders:async()=>({folders:[]})};
+  await s.load();
+  assert.equal(s.$('s-codexHome').value,'/fixture/saved');assert.equal(s.agentChoiceChanged(),false);
+  s.$('s-codexHome').value='';assert.equal(s.agentChoiceChanged(),true);assert.equal(s.agentDraft().codexHome,'');
+  s.dirty=false;await s.load();assert.equal(s.$('s-codexHome').value,'/fixture/saved');
+  s.$('s-agent').value='claude';s.$('s-agent').dispatchEvent(new Event('change',{bubbles:true}));
+  assert.equal(s.$('s-codexHome').value,'');
+  s.$('s-agent').value='codex';s.$('s-agent').dispatchEvent(new Event('change',{bubbles:true}));
+  assert.equal(s.$('s-codexHome').value,'/fixture/saved','returning to the saved CLI restores its own directory');
+  const old=make();old.$('s-agent').value='codex';old.renderAgentState();
+  assert.equal(old.$('s-codexHomeField').hidden,false);assert.equal(old.$('s-codexHome').disabled,true);
+  old.$('s-codexHome').value='/fixture/unsupported';
+  assert.equal(Object.hasOwn(old.agentDraft(),'codexHome'),false);
+  assert.equal(Object.hasOwn(old.patch().agent,'codexHome'),false);
+  old.service={codexHomeSupported:true};old.renderAgentState();
+  assert.equal(old.$('s-codexHome').disabled,false);
+  assert.equal(old.agentDraft().codexHome,'/fixture/unsupported','the explicit service capability also enables a draft');
+  old.$('s-agent').value='claude';old.$('s-agent').dispatchEvent(new Event('change',{bubbles:true}));
+  assert.equal(Object.hasOwn(old.agentDraft(),'codexHome'),false);assert.equal(Object.hasOwn(old.patch().agent,'codexHome'),false);
+});
+
+await t('桌面 Codex 文件夹选择仅填草稿，使用专属用途，不保存或自动测试', async () => {
+  const purposes=[];
+  const s=make({desktop:true,chooseFolder:async purpose=>{purposes.push(purpose);return '/fixture/selected';}});
+  Object.assign(s.cfg.agent,{codexHome:'',codexDefaultHome:'/fixture/default'});
+  s.$('s-agent').value='codex';s.$('s-agent').dispatchEvent(new Event('change',{bubbles:true}));
+  const picker=s.$('s-codexHome').nextElementSibling;
+  assert.equal(picker.tagName,'BUTTON');assert.match(picker.textContent,/Codex.*配置目录/);
+  let writes=0,tests=0;s.api.putConfig=async()=>writes++;s.api.testAgent=async()=>tests++;
+  await picker.onclick();
+  assert.deepEqual(purposes,['codex-config']);assert.equal(s.$('s-codexHome').value,'/fixture/selected');
+  assert.equal(s.dirty,true);assert.equal(writes+tests,0);assert.equal(s.$('s-notesDir').value,'');
 });
 
 console.log(`\n${pass} 项通过`);

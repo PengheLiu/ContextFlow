@@ -2,13 +2,13 @@ import assert from 'node:assert/strict';
 import 'fake-indexeddb/auto';
 import { JSDOM } from 'jsdom';
 import * as store from '../src/core/offline-store.js';
-import { libraryArticles, searchLibrary, safeReadingUrl, encodeReadingBackup, decodeReadingBackup, BACKUP_FORMAT } from '../src/core/reading-library.js';
+import { libraryArticles, searchLibrary, safeReadingUrl, encodeReadingBackup, decodeReadingBackup, BACKUP_FORMAT, MAX_BACKUP_BYTES } from '../src/core/reading-library.js';
 
 const ev=(id,over={})=>({id,urlKey:'https://article.test/a',url:'https://article.test/a',title:'研究与学习',action:'highlight',
   text:'原文内容',value:null,color:'yellow',anchor:{exact:'原文内容',prefix:'前面',suffix:'后面',start:5,end:9},createdAt:100,updatedAt:200,mutationId:'m-'+id,...over});
 let pass=0;
 const t=async(name,fn)=>{try{await fn();console.log(`  ok   ${name}`);pass++;}catch(error){console.error(`  FAIL ${name}\n${error.stack}`);process.exitCode=1;}};
-let backup,image;
+let backup,image,largeBackup;
 await t('跨文章分组与多词搜索覆盖原文、问题、补充和标题；同文不同锚点不丢记录',()=>{
   const rows=libraryArticles([ev('a'),ev('b',{action:'explain',extra:{question:'怎么使用',supplement:'独立思考'},value:'LLM 解释'}),
     ev('c',{urlKey:'b',url:'javascript:alert(1)',title:'别的文章',updatedAt:300,action:'note',value:'我的思考'}),ev('d',{deletedAt:1000})]);
@@ -35,6 +35,7 @@ await t('缺图、图片哈希损坏、重复 ID、版本和字段错误被拒�
   await assert.rejects(()=>decodeReadingBackup(JSON.stringify({...raw,assets:[]})),/缺少引用/);
   await assert.rejects(()=>decodeReadingBackup(JSON.stringify({...raw,assets:[{...raw.assets[0],data:btoa('corrupt')}]})),/校验失败/);
   await assert.rejects(()=>decodeReadingBackup(JSON.stringify({...raw,events:[raw.events[0],{...raw.events[0],urlKey:'other'}]})),/重复/);
+  await assert.rejects(()=>encodeReadingBackup({events:[raw.events[0],{...raw.events[0],urlKey:'other'}],assets:[]}),/重复/);
   await assert.rejects(()=>decodeReadingBackup(JSON.stringify({...raw,events:[{...raw.events[0],value:{malicious:true}}]})),/格式/);
   await assert.rejects(()=>encodeReadingBackup({events:raw.events,assets:[]}),/图片尚未保存/);
 });
@@ -67,6 +68,35 @@ await t('备份快照只读取有效记录引用的图片，不搬入孤立或�
   await store.saveOfflineEvents([ev('dead-image',{deletedAt:1000,value:`![已删除](contextflow-asset:${orphan.id})`})],{queue:false});
   const snapshot=await store.readingLibrarySnapshot({withAssets:true});
   assert.deepEqual(snapshot.assets.map(a=>a.id),[image.id]);
+});
+await t('旧版可导出的 50001 条有效记录在 32 MB 内可完整导回，不因隐藏条数门槛失效',async()=>{
+  const events=Array.from({length:50001},(_,i)=>ev(`many-${i}`,{text:'',anchor:null}));
+  const source=largeBackup=await encodeReadingBackup({events,assets:[]},'1.1.0');
+  assert.ok(new Blob([source]).size<MAX_BACKUP_BYTES);
+  const decoded=await decodeReadingBackup(source);
+  assert.equal(decoded.events.length,50001);assert.equal(new Set(decoded.events.map(e=>e.id)).size,50001);
+  assert.equal(decoded.events[0].id,'many-0');assert.equal(decoded.events.at(-1).id,'many-50000');
+});
+await t('旧版可导出的 5001 张有效小图在 32 MB 内可完整导回，图片与历史引用不丢失',async()=>{
+  const assets=await Promise.all(Array.from({length:5001},async(_,i)=>{
+    const blob=new Blob([`backup-image-${i}`],{type:'image/png'});
+    const id=[...new Uint8Array(await crypto.subtle.digest('SHA-256',await blob.arrayBuffer()))].map(n=>n.toString(16).padStart(2,'0')).join('');
+    return {id,mime:'image/png',name:`图-${i}.png`,blob};
+  }));
+  const value=assets.map(a=>`![图](contextflow-asset:${a.id})`).join('\n');
+  const source=await encodeReadingBackup({events:[ev('many-images',{action:'comment',value,extra:{history:[{at:1,value:`![旧图](contextflow-asset:${assets[0].id})`}]}})],assets},'1.1.0');
+  assert.ok(new Blob([source]).size<MAX_BACKUP_BYTES);
+  const decoded=await decodeReadingBackup(source);
+  assert.equal(decoded.assets.length,5001);assert.equal(decoded.events[0].value,value);
+  assert.equal(await decoded.assets.at(-1).blob.text(),'backup-image-5000');
+  assert.equal(decoded.events[0].extra.history[0].value,`![旧图](contextflow-asset:${assets[0].id})`);
+});
+await t('导入和导出保留相同的 32 MB 字节上限，超限不截断也不修改源记录',async()=>{
+  const source=' '.repeat(MAX_BACKUP_BYTES+1);
+  await assert.rejects(()=>decodeReadingBackup(source),/32 MB/);
+  const events=Array.from({length:34},(_,i)=>ev(`oversize-${i}`,{value:'x'.repeat(1_000_000),anchor:null}));
+  await assert.rejects(()=>encodeReadingBackup({events,assets:[]}),/32 MB/);
+  assert.equal(events.length,34);assert.equal(events.at(-1).value.length,1_000_000);
 });
 
 const dom=new JSDOM('<!doctype html><body><div id="library"></div></body>',{pretendToBeVisual:true});
@@ -104,6 +134,26 @@ await t('备份先等待所有编辑保存；保存失败不生成文件且不�
   const ui=make({flush:async()=>{throw new Error('网页尚未保存');},snapshot:async()=>{throw new Error('不应读取');}});
   ui.download=()=>downloads++;await ui.action(()=>ui.backup());assert.equal(downloads,0);
   assert.match(ui.$('library-notice').textContent,/尚未保存/);assert.equal(ui.$('library-backup').disabled,false);
+});
+await t('备份成功报告实际记录、图片数量与文件体积，不把发起下载当成浏览器已下载完成',async()=>{
+  const ui=make({snapshot:async()=>({events:[ev('feedback'),ev('deleted-feedback',{deletedAt:9})],assets:[]})});
+  let downloaded;ui.download=source=>{downloaded=source;};await ui.action(()=>ui.backup());
+  assert.equal((await decodeReadingBackup(downloaded)).events.length,1);
+  assert.match(ui.$('library-notice').textContent,/1 条记录 · 0 张图片 · [\d.]+ MB/);
+  assert.match(ui.$('library-notice').textContent,/请确认浏览器下载完成/);
+});
+await t('大型有效备份也先预览与确认，再在真实单个 IDB 事务完整补充，重复恢复不新增',async()=>{
+  const ui=make({snapshot:store.readingLibrarySnapshot,restore:store.restoreReadingLibrary});
+  await ui.action(()=>ui.inspectFile({size:new Blob([largeBackup]).size,name:'large-valid.json',text:async()=>largeBackup}));
+  assert.match(ui.$('library-restore-info').textContent,/50001 条记录/);
+  assert.equal((await store.readingLibrarySnapshot()).events.some(e=>e.id==='many-0'),false,'确认前没有写入');
+  await ui.action(()=>ui.restore());
+  assert.match(ui.$('library-notice').textContent,/补充 50001 条/);
+  const decoded=await decodeReadingBackup(largeBackup);
+  assert.deepEqual(await store.restoreReadingLibrary(decoded),{added:0,skipped:50001});
+  const rows=(await store.readingLibrarySnapshot()).events.filter(e=>e.id.startsWith('many-'));
+  assert.equal(rows.length,50001);assert.ok(rows.some(e=>e.id==='many-50000'));
+  assert.ok(rows.every(e=>!e.extra?.jobId),'不会生成或恢复 AI 作业');
 });
 await t('阅读库预览共用公式与 GFM 渲染，下载不改写 LaTeX 原文',async()=>{
   const value=String.raw`公式 \[L_{\text{Brier}}=(q-c)^2\]，其中 $q$ 是概率。`+'\n\n- [x] 已理解';

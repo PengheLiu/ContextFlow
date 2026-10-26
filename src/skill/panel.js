@@ -11,7 +11,8 @@
 // 阅读记录一律按「文档中的位置」排序，而不是创建时间 —— 读者的心理模型是
 // 「从上往下读」，按时间排会让同一段的记录散落在列表各处，回看时对不上原文。
 
-import { T, shadowHost } from './theme.js';
+import { T, shadowHost, releaseThemeHost } from './theme.js';
+import { EventScope } from './event-scope.js';
 import { guarded, describeError } from './guard.js';
 import { MARKS } from '../core/highlight.js';
 import { Settings, SETTINGS_CSS } from './settings.js';
@@ -273,6 +274,7 @@ export class Panel {
   /** @param {object} h 回调集合，见 main.js handlers() */
   constructor(h) {
     this.h = h;
+    this.events = new EventScope(); this.layoutRoot = document.documentElement;
     this.lookupPreviews = new Map();
     this.ui = loadUI();
     // 打开工作台只回看，不自动调用 AI。
@@ -398,7 +400,7 @@ export class Panel {
       if (e.key !== 'Escape' || e.defaultPrevented) return;
       e.preventDefault(); e.stopPropagation(); this.toggle(false);
     });
-    addEventListener('resize', () => this.applyLayout());
+    this.events.listen(window, 'resize', () => this.applyLayout());
     this.select('records');
     this.applyLayout();
     if (this.ui.open) this.toggle(true, false);
@@ -406,6 +408,7 @@ export class Panel {
 
   /** 配置界面与阅读工作台互斥显示 */
   toggleSettings() {
+    if (this.disposed) return;
     const on = !this.settingsOpen;
     this.settingsOpen = on;
     this.toggle(true);
@@ -428,6 +431,7 @@ export class Panel {
   }
 
   async doSync() {
+    if (this.disposed) return;
     if (this.h.canConnectService?.() && !this.h.isOnline()) return this.h.onOpenConnection?.();
     if (this.syncing) return;
     this.syncing = true;
@@ -460,6 +464,7 @@ export class Panel {
       button.disabled = false;
       button.removeAttribute('aria-busy');
     }
+    if (this.disposed) return;
     clearTimeout(this.syncLabelTimer);
     this.syncLabelTimer = setTimeout(() => { label.textContent = '同步'; }, 2600);
   }
@@ -503,6 +508,7 @@ export class Panel {
    * 遇到 push 会搞坏布局的站点，切到 float 模式。
    */
   applyLayout() {
+    if (this.disposed) return;
     const w = this.clampWidth(this.ui.width);
     const viewport = this.viewportWidth();
     const narrow = viewport < 700;
@@ -525,6 +531,10 @@ export class Panel {
 
     const root = document.documentElement;
     if (this.open && !float) {
+      if (this._marginRestorePending) {
+        clearTimeout(this._marginTimer); root.style.transition = this._marginTransitionRestore || '';
+        this._marginRestorePending = false;
+      }
       if (this.rootMarginBefore === null) {
         this.rootMarginBefore = root.style.marginRight;
         this.rootTransitionBefore = root.style.transition;
@@ -536,7 +546,8 @@ export class Panel {
       root.style.marginRight = this.rootMarginBefore;
       const restore = this.rootTransitionBefore;
       clearTimeout(this._marginTimer);
-      this._marginTimer = setTimeout(() => { root.style.transition = restore || ''; }, 280);
+      this._marginRestorePending = true; this._marginTransitionRestore = restore;
+      this._marginTimer = setTimeout(() => { root.style.transition = restore || ''; this._marginRestorePending = false; }, 280);
       this.rootMarginBefore = null;
       this.rootTransitionBefore = null;
     }
@@ -571,22 +582,27 @@ export class Panel {
       e.preventDefault();this.ui.width=this.clampWidth(width);this.applyLayout();saveUI(this.ui);
     });
     let startX = 0, startW = 0;
-    let previousSelection='';
+    let previousSelection='', dragging = false, pointerId;
     const onMove = (e) => {
       // 往左拖变宽：面板贴右缘，所以用 startX - clientX
       this.ui.width = this.clampWidth(startW + (startX - e.clientX));
       this.applyLayout();
     };
-    const onUp = (e) => {
+    const cleanup = () => {
       grab.classList.remove('on');
-      grab.releasePointerCapture?.(e.pointerId);
+      try { if (pointerId != null) grab.releasePointerCapture?.(pointerId); } catch { /* Already released. */ }
       grab.removeEventListener('pointermove', onMove);
-      document.documentElement.style.userSelect = previousSelection;
-      saveUI(this.ui);
+      grab.removeEventListener('pointerup', onUp); grab.removeEventListener('pointercancel', onUp);
+      if (dragging) this.layoutRoot.style.userSelect = previousSelection;
+      dragging = false; pointerId = null;
     };
+    const onUp = () => { cleanup(); if (!this.disposed) saveUI(this.ui); };
+    this.cancelResize = cleanup;
     grab.addEventListener('pointerdown', (e) => {
       if(e.button!==undefined && e.button!==0)return;
       e.preventDefault();
+      if (this.disposed) return;
+      cleanup(); dragging = true; pointerId = e.pointerId;
       startX = e.clientX; startW = this.ui.width;
       grab.classList.add('on');
       grab.setPointerCapture?.(e.pointerId);
@@ -603,6 +619,7 @@ export class Panel {
   }
 
   toggle(open = !this.open, notify = true) {
+    if (this.disposed) return;
     const was = this.open;
     this.open = open;
     this.ui.open = open;
@@ -695,7 +712,7 @@ export class Panel {
    * 之前这里写了 this.guard(...) 却没有实现 —— 那次它发生在速览的成功路径上，
    * 把一次跑成的速览显示成了 "速览失败：this.guard is not a function"。
    */
-  guard(fn) { return guarded(fn, (e) => this.onHandlerError(e)); }
+  guard(fn) { return guarded((...args) => { if (!this.disposed) return fn(...args); }, (e) => this.onHandlerError(e)); }
 
   onHandlerError(e) {
     this.syncMsg(describeError(e), 'bad');
@@ -802,11 +819,29 @@ export class Panel {
   }
 
   render() {
+    if (this.disposed) return;
     this.renderStatus();
     if (this.open && this.tab === 'records') {
       this.records.render();
       for (const [id, text] of this.lookupPreviews) this.renderLookupPreview(id, text);
     }
+  }
+
+  /** Flushing belongs to the App; removal must not change remembered open state. */
+  dispose() {
+    if (this.disposed) return;
+    this.disposed = true; this.events.dispose(); this.cancelResize?.();
+    clearTimeout(this._hitTimer); clearTimeout(this.syncLabelTimer); clearTimeout(this._marginTimer);
+    if (this.rootMarginBefore !== null) {
+      this.layoutRoot.style.marginRight = this.rootMarginBefore;
+      this.layoutRoot.style.transition = this.rootTransitionBefore || '';
+    } else if (this._marginRestorePending) this.layoutRoot.style.transition = this._marginTransitionRestore || '';
+    this.rootMarginBefore = null; this.rootTransitionBefore = null; this._marginRestorePending = false;
+    const editors = new Set([this.noteComposer, ...this.composers.values(), ...this.lookupComposers.values(),
+      ...[...this.records.views.values()].map(view => view.composer)]);
+    for (const editor of editors) clearTimeout(editor?.saveTimer);
+    clearTimeout(this.settings?.toastTimer); clearTimeout(this.settings?.messageTimer);
+    releaseThemeHost(this.sh.host); this.sh.host.remove();
   }
 }
 

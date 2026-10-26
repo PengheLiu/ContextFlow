@@ -23,7 +23,7 @@ async function fixture({ state = initialStatus(), config = initialConfig(), acti
   state.journey.destination = destinationIdentity(config);
   const dom = new JSDOM(html, { pretendToBeVisual: true, url: 'https://desktop.test/' });
   for (const key of ['window', 'document', 'HTMLElement', 'Node', 'Event']) globalThis[key] = dom.window[key];
-  const calls = [], actions = [], progress = [];
+  const calls = [], actions = [], progress = [], recoveries = [];
   const api = {
     getConfig: async () => structuredClone(config),
     putConfig: async patch => { calls.push(patch); for (const [key, value] of Object.entries(patch)) config[key] = { ...config[key], ...value }; return structuredClone(config); },
@@ -41,10 +41,10 @@ async function fixture({ state = initialStatus(), config = initialConfig(), acti
     action: async name => { actions.push(name); if (actionError) throw new Error(actionError); return true; }, discover: async () => state.discovery,
     chooseFolder: async () => '/isolated/explicit-folder', chooseAgent: async () => '/isolated/agent',
     preferences: async patch => Object.assign(state.preferences, patch), revoke: async () => { state.pairings = []; },
-    updates: async () => { throw new Error('预览版不检查正式更新'); }, recovery: async () => true,
+    updates: async () => { throw new Error('预览版不检查正式更新'); }, recovery: async (...args) => { recoveries.push(args); return true; },
   };
   const ui = startDesktopUI({ desktop, serviceAPI: api, root: dom.window.document, poll: false }); await ui.ready; await tick();
-  return { dom, ui, state, config, calls, actions, progress, $: id => dom.window.document.getElementById(id),
+  return { dom, ui, state, config, calls, actions, progress, recoveries, $: id => dom.window.document.getElementById(id),
     close() { ui.dispose(); dom.window.close(); },
   };
 }
@@ -134,11 +134,14 @@ test('note candidates and native picker only fill shared fields; defaults need e
   const f = await fixture({ state });
   try {
     await f.ui.page('notes'); assert.equal(f.$('notes-badge').textContent, '尚未确认位置'); assert.equal(f.$('confirm-notes').disabled, false);
+    assert.equal(f.$('note-confirmation').dataset.state, 'pending', '未确认位置不能使用验证成功的视觉状态');
     f.$('confirm-notes').click(); await tick(); assert.equal(f.state.journey.notesConfirmed, true); assert.equal(f.state.journey.notesVerified, false);
     assert.equal(f.$('notes-badge').textContent, '位置已确认 · 待同步');
+    assert.equal(f.$('note-confirmation').dataset.state, 'confirmed', '位置确认与真实写入区分');
     f.$('note-candidates').querySelector('button').click(); await tick();
     assert.equal(f.ui.settings.$('s-vaultPath').value, '/isolated/vault'); assert.equal(f.$('note-candidates').querySelector('img'), null);
     assert.equal(f.$('confirm-notes').disabled, true); assert.equal(f.calls.length, 0);
+    assert.equal(f.$('note-confirmation').dataset.state, 'pending', '未保存的目的地草稿不继承已确认视觉');
     await f.ui.page('ai'); const picker = f.ui.settings.$('s-notesDir').nextElementSibling; picker.click(); await tick();
     assert.equal(f.ui.settings.$('s-notesDir').value, '/isolated/explicit-folder'); assert.equal(f.calls.length, 0);
   } finally { f.close(); }
@@ -186,5 +189,22 @@ test('desktop update opens the official download page without stopping services 
     const main = readFileSync(new URL('../desktop/main.mjs', import.meta.url), 'utf8');
     assert.doesNotMatch(main, /quitAndInstall|from ['"]electron-updater['"]/);
     assert.equal(JSON.parse(readFileSync(new URL('../desktop/package.json', import.meta.url))).dependencies?.['electron-updater'], undefined);
+  } finally { f.close(); }
+});
+
+test('A failed core retains the support and existing recovery actions without mounting settings', async () => {
+  const state = initialStatus(); state.service = { state: 'error', message: '系统密钥无法读取，原文件已保留。' }; state.journey.dismissed = true;
+  state.startupWarning = '启动偏好暂不可用，原文件保留。';
+  state.recoveryPoints = [{ id: 'fixture-verified-point', createdAt: Date.now(), appVersion: 'fixture' }];
+  const f = await fixture({ state });
+  try {
+    assert.equal(f.ui.settings, undefined); assert.equal(f.$('home-primary').disabled, false);
+    assert.match(f.$('toast-message').textContent, /启动偏好/); assert.equal(f.$('create-recovery').disabled, true);
+    f.$('home-primary').click(); await tick();
+    assert.equal(f.dom.window.document.querySelector('[data-view=support]').hidden, false);
+    assert.match(f.$('service-message').textContent, /密钥/);
+    const restore = f.$('recovery-points').querySelector('button'); assert.equal(restore.disabled, false);
+    restore.click(); await tick(); assert.deepEqual(f.recoveries, [['restore', 'fixture-verified-point']]);
+    assert.equal(f.calls.length, 0, 'failed startup cannot silently save a default configuration');
   } finally { f.close(); }
 });

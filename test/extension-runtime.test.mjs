@@ -56,6 +56,10 @@ assert.equal(optionsOpened, 0, '受限或尚未就绪的页面应解释如何继
 chrome.tabs.sendMessage = originalTabMessage;
 assert.equal((await send({ type: 'cf-open-settings' })).ok, true);
 assert.equal(settingsTab.url, `chrome-extension://${id}/options.html#connect`);
+assert.equal((await send({type:'cf-open-settings',view:'support'})).ok,true);
+assert.equal(settingsTab.url,`chrome-extension://${id}/options.html#support`,'startup recovery opens the extension diagnostics, not pairing');
+assert.equal((await send({type:'cf-open-settings',view:'https://outside.test/'})).ok,true);
+assert.equal(settingsTab.url,`chrome-extension://${id}/options.html#connect`,'page messages cannot choose an arbitrary navigation URL');
 assert.equal((await send({type:'cf-open-library'})).ok,true);
 assert.equal(settingsTab.url,`chrome-extension://${id}/options.html#library`);
 assert.equal((await send({type:'cf-flush-reading'})).ok,false,'阅读页不能触发全局保存或读取整个阅读库');

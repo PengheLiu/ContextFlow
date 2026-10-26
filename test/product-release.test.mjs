@@ -13,21 +13,23 @@ const publicState = () => ({ schemaVersion: 1, candidateVersion: '1.1.0', channe
   publishedGithub: { version: '1.0.0', tag: 'v1.0.0', commit: oldCommit, checkedAt: '2026-10-23' },
   desktop: { updateMode: 'manual', platforms: Object.fromEntries(RELEASE_TARGETS.map(target => [target,
     { status: 'unpublished', validation: target === 'darwin-arm64' ? 'local-preview-verified' : 'not-verified' }])) } });
-const unsignedState = () => {
-  const state = publicState(), url = 'https://github.com/PengheLiu/ContextFlow/releases/download/v1.1.0/ContextFlow-1.1.0-mac-arm64.dmg';
-  state.desktop.platforms['darwin-arm64'] = { status: 'available-unsigned', validation: 'local-package-verified', version: '1.1.0',
-    releaseTag: 'v1.1.0', artifact: 'ContextFlow-1.1.0-mac-arm64.dmg', sha256: digest('unsigned fixture bytes'),
+const unsignedState = (version = '1.1.0') => {
+  const state = publicState(), url = `https://github.com/PengheLiu/ContextFlow/releases/download/v${version}/ContextFlow-${version}-mac-arm64.dmg`;
+  state.candidateVersion = version;
+  state.desktop.platforms['darwin-arm64'] = { status: 'available-unsigned', validation: 'local-package-verified', version,
+    releaseTag: `v${version}`, artifact: `ContextFlow-${version}-mac-arm64.dmg`, sha256: digest('unsigned fixture bytes'),
     checkedAt: '2026-10-23', signing: 'unsigned-unnotarized', downloadUrl: url, checksumUrl: `${url}.sha256` };
   return state;
 };
 const putJSON = (file, value) => writeFileSync(file, JSON.stringify(value, null, 2));
-function sourceFixture() {
+function sourceFixture(version = '1.1.0') {
   const root = mkdtempSync(join(tmpdir(), 'contextflow-product-release-'));
   mkdirSync(join(root, 'product')); mkdirSync(join(root, 'desktop'));
-  putJSON(join(root, 'product/release.json'), publicState());
+  const state = publicState(); state.candidateVersion = version;
+  putJSON(join(root, 'product/release.json'), state);
   for (const prefix of ['', 'desktop/']) {
-    putJSON(join(root, `${prefix}package.json`), { version: '1.1.0' });
-    putJSON(join(root, `${prefix}package-lock.json`), { version: '1.1.0', packages: { '': { version: '1.1.0' } } });
+    putJSON(join(root, `${prefix}package.json`), { version });
+    putJSON(join(root, `${prefix}package-lock.json`), { version, packages: { '': { version } } });
   }
   return { root, close: () => rmSync(root, { recursive: true, force: true }) };
 }
@@ -146,6 +148,28 @@ test('unsigned download binding rejects other architectures, altered URLs/tags, 
     try { const state = unsignedState(); mutate(state); putJSON(join(f.root, 'product/release.json'), state); assert.throws(() => sourceReleaseState(f.root)); }
     finally { f.close(); }
   }
+});
+
+test('reviewed unsigned 1.1.1 binds exact files without approving future versions or a later signing overwrite', () => {
+  const f = sourceFixture('1.1.1'), state = unsignedState('1.1.1'), directory = join(f.root, 'unsigned'); mkdirSync(directory);
+  const row = state.desktop.platforms['darwin-arm64'];
+  try {
+    putJSON(join(f.root, 'product/release.json'), state);
+    assert.equal(sourceReleaseState(f.root).releaseReady, false);
+    writeFileSync(join(directory, row.artifact), 'unsigned fixture bytes');
+    writeFileSync(join(directory, `${row.artifact}.sha256`), `${row.sha256}  ${row.artifact}\n`);
+    assert.equal(checkUnsignedDesktopFiles(directory, state).version, '1.1.1');
+    putJSON(join(f.root, 'product/release.json'), unsignedState('1.1.2'));
+    assert.throws(() => sourceReleaseState(f.root), /未签名下载/);
+    const older = { ...state, candidateVersion: '1.1.0' };
+    putJSON(join(f.root, 'product/release.json'), older);
+    assert.throws(() => sourceReleaseState(f.root), /桌面下载版本/);
+    const bundle = bundleFixture();
+    try {
+      bundle.options.sourceState.candidateVersion = '1.1.1'; bundle.manifest.version = '1.1.1'; bundle.manifest.tag = 'v1.1.1';
+      assert.throws(bundle.validate, /已保留为未签名分发/);
+    } finally { bundle.close(); }
+  } finally { f.close(); }
 });
 
 test('authorized unsigned file checks compare actual local bytes and sidecar without running or publishing them', () => {

@@ -49,7 +49,7 @@ L_{\text{Brier}}=(q-c)^2
 <img src=x onerror="window.markdownExecuted=true">
 `;
 let context, service, proxy, article;
-const logs = [], pageErrors = [], coreRequests = [];
+const logs = [], pageErrors = [], coreRequests = [], proxySocketErrors = [];
 const listen = server => new Promise((resolve, reject) => { server.once('error', reject); server.listen(0, '127.0.0.1', resolve); });
 const files = dir => readdirSync(dir, { withFileTypes: true }).flatMap(entry => entry.isDirectory() ? files(join(dir, entry.name)) : [join(dir, entry.name)]);
 const stop = async child => {
@@ -109,7 +109,13 @@ try {
     }
     res.writeHead(502).end(); // Never proxy to external hosts or user services.
   });
-  proxy.on('connect', (_req, socket) => socket.end('HTTP/1.1 403 Forbidden\r\n\r\n'));
+  proxy.on('connect', (_req, socket) => {
+    // Chromium can reset a deliberately rejected background HTTPS tunnel.
+    // CONNECT sockets leave the HTTP parser, so own their terminal errors;
+    // unexpected transport failures still fail the acceptance assertions.
+    socket.on('error', error => { if (!['ECONNRESET', 'EPIPE'].includes(error.code)) proxySocketErrors.push(error.code || error.name); });
+    socket.end('HTTP/1.1 403 Forbidden\r\n\r\n');
+  });
   await listen(proxy);
   context = await chromium.launchPersistentContext(join(temporary, 'profile'), {
     channel: 'chromium', executablePath: process.env.CONTEXTFLOW_CHROMIUM_PATH || undefined,
@@ -137,9 +143,10 @@ try {
   await article.getByRole('button', { name: '完成', exact: true }).click();
   await article.getByRole('button', { name: '展开 ContextFlow', exact: true }).click();
   await article.getByRole('tab', { name: /阅读记录/ }).click();
-  await article.waitForFunction(note => [...document.querySelector('[data-contextflow="panel"]').shadowRoot.querySelectorAll('textarea')].some(el => el.value === note), note);
+  await article.waitForFunction(note => [...(document.querySelector('[data-contextflow="panel"]')?.shadowRoot?.querySelectorAll('textarea') || [])].some(el => el.value === note), note);
   await article.reload();
-  await article.waitForFunction(note => [...document.querySelector('[data-contextflow="panel"]').shadowRoot.querySelectorAll('textarea')].some(el => el.value === note), note);
+  // A fresh document can be ready before its content-script storage restores.
+  await article.waitForFunction(note => [...(document.querySelector('[data-contextflow="panel"]')?.shadowRoot?.querySelectorAll('textarea') || [])].some(el => el.value === note), note);
   assert.deepEqual(await article.evaluate(async () => ({ local: Object.keys(localStorage), databases: (await indexedDB.databases()).map(db => db.name) })), { local: [], databases: [] });
   const options = await context.newPage(); options.on('pageerror', error => pageErrors.push(error.message));
   await options.goto(`chrome-extension://${id}/options.html#library`);
@@ -248,6 +255,7 @@ try {
   assert.ok(meta.requests.every(request => request.consent === true && request.instanceId === instanceId));
   assert.equal(meta.disconnects, meta.requests.length - 1, 'every replied native port closes; disconnect fixture already represents a closed port');
   assert.deepEqual(pageErrors, []);
+  assert.deepEqual(proxySocketErrors, [], 'unexpected fixture CONNECT socket errors');
   for (const [name, hash] of Object.entries(hashes)) if (name !== 'manifest.json') assert.equal(sha(readFileSync(join(extension, name))), hash, `${name} changed after ZIP extraction`);
   assert.equal(sha(readFileSync(zip)), zipHash, 'release artifact must remain unchanged');
   console.log(`ok Final ZIP ${manifest.version} sha256=${zipHash}: Chromium ${context.browser().version()}; native consent/cancel/disconnect/protocol/success, real HTTP headers, private credential isolation and revocation`);

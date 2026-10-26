@@ -15,7 +15,37 @@ const ICONS = {
   info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7h.01"/>',
   close: '<path d="m6 6 12 12M18 6 6 18"/>',
 };
-const DESKTOP_FORM_CSS = `:host{display:block}.folio-kicker{display:none}.chapter-deck{padding:0;background:none;gap:16px}.save{bottom:0;border-radius:8px;margin-top:16px}.folio{font-size:14px}.chapter-head{padding:18px 16px}.chapter-body{padding:20px 18px 22px}.desktop-field-picker{align-self:flex-start;justify-self:start;padding:7px 10px;margin-top:3px;font-size:11px;border:1px solid #d0ddcc;border-radius:6px;background:#f2f6ee;color:#365c41;cursor:pointer;min-height:34px}.desktop-field-picker:focus-visible{outline:3px solid #6c9775;outline-offset:2px}.chapter[data-expanded=true]{border-color:#c8d7c3}.chapter[data-expanded=true] .chapter-icon,.answer-help-button{color:#52745b}.save>button{background:#52745b;border-color:#52745b;color:#fff}.save>button:hover{background:#365c41;color:#fff}.save::before{background:#52745b}.settings-toast{position:sticky;bottom:70px;left:auto;right:auto;transform:none;margin:14px 0 0;max-width:none}.settings-toast.bad{background:#fff0e9;color:#923f2d}.settings-status{margin-bottom:14px}.settings-status:not(.bad){display:none}.chapter-state[data-state=ok]{background:#eaf2e8;color:#3b6845}.chapter-intro{font-family:inherit}@media(max-width:650px){.chapter-head{padding:14px 12px}.chapter-body{padding:16px 12px}.chapter-meta{max-width:150px}.save{padding:12px}}`;
+// Desktop changes only the shared form's density and placement. Brand colors,
+// focus states and status meanings come from the same tokens as the extension.
+const DESKTOP_FORM_CSS = `
+  :host{display:block;color-scheme:light}
+  .folio-kicker{display:none}
+  .chapter-deck{padding:0;background:none;gap:16px}
+  .folio{font-size:14px}
+  .chapter-head{padding:18px 16px}
+  .chapter-body{padding:20px 18px 22px}
+  .desktop-field-picker{
+    align-self:flex-start;justify-self:start;padding:7px 10px;margin-top:3px;
+    font-size:11px;border:1px solid var(--cf-line);border-radius:var(--cf-radius-control);
+    background:var(--cf-paper-raised);color:var(--cf-accent);cursor:pointer;min-height:34px;
+  }
+  .desktop-field-picker:hover:not(:disabled){background:var(--cf-sunk);border-color:var(--cf-line-strong)}
+  .desktop-field-picker:focus-visible{outline:3px solid var(--cf-focus-line);outline-offset:2px}
+  .destination{display:none}
+  .save{bottom:0;border-radius:var(--cf-radius-control);margin-top:16px}
+  .save>button{color:var(--cf-on-accent)}
+  .save>button:hover:not(:disabled){background:var(--cf-accent-hover);border-color:var(--cf-accent-hover);color:var(--cf-on-accent)}
+  .desktop-form:not([data-dirty=true]) .save{display:none}
+  .settings-toast{position:static;inset:auto;transform:none;margin:14px 0 0;max-width:100%;width:auto;overflow-wrap:anywhere}
+  .settings-toast.bad{background:var(--cf-bad-soft);color:var(--cf-bad)}
+  .settings-status{margin-bottom:14px}
+  .settings-status:not(.bad){display:none}
+  .chapter-state[data-state=ok]{background:var(--cf-ok-soft);color:var(--cf-ok)}
+  @media(max-width:650px){
+    .chapter-head{padding:14px 12px}.chapter-body{padding:16px 12px}
+    .chapter-meta{max-width:150px}.save{padding:12px}
+  }
+`;
 
 export function startDesktopUI({ desktop = window.contextflowDesktop, serviceAPI = api, root = document, poll = true } = {}) {
   const win = root.defaultView, $ = id => root.getElementById(id);
@@ -65,8 +95,11 @@ export function startDesktopUI({ desktop = window.contextflowDesktop, serviceAPI
     if (!running) return;
     if (loadingSettings) return loadingSettings;
     if (!settings) {
+      // The desktop surface is explicitly light, just like the website. Do not
+      // let the injected form alone follow a dark system preference.
+      $('configuration').dataset.theme = 'light';
       const shadow = $('configuration').attachShadow({ mode: 'open' }), style = make('style');
-      style.textContent = BASE + SETTINGS_CSS + DESKTOP_FORM_CSS + `.chapter,.profile,.agent-health,.advanced,.field input,.field select{background:#fff;border-color:#dce3dc}.chapter-body{border-color:#e3e9e0}.field input:focus,.field select:focus{border-color:#6c9775;box-shadow:0 0 0 3px #d8e7d3}.check-row input,.profile input[type=radio]{accent-color:#52745b}.destination{display:none}.save{background:#f8f9f7;border-color:#dce3dc}.desktop-form:not([data-dirty=true]) .save{display:none}.answer-help-button:hover,.answer-help-button[aria-expanded=true]{color:#365c41;background:#eaf2e8}.settings-toast{position:static;inset:auto;transform:none;margin:14px 0 0;max-width:100%;width:auto;overflow-wrap:anywhere}`;
+      style.textContent = BASE + SETTINGS_CSS + DESKTOP_FORM_CSS;
       const mount = make('div'); shadow.append(style, mount);
       const settingsAPI = { ...serviceAPI, getConfig: async () => cfg || serviceAPI.getConfig() };
       settings = new Settings(shadow, mount, settingsAPI, null, { standalone: true, desktop: true,
@@ -129,6 +162,7 @@ export function startDesktopUI({ desktop = window.contextflowDesktop, serviceAPI
     else await goStep(STEPS[STEPS.indexOf(currentStep()) + 1]);
   });
   async function action(name) {
+    if (name === 'browser' && current?.pairingError) throw new Error('浏览器授权记录需要处理，请在「设置与帮助」查看处理指引。原文件未修改。');
     const result = await desktop.action(name);
     if (name === 'diagnostics' && result) notice('脱敏诊断已导出；未包含文章、网址、密钥或原始日志。');
     if (name === 'browser') notice('已打开连接指引。请在 Chrome 的目标用户配置中发起连接，再回到桌面端确认授权。');
@@ -138,8 +172,17 @@ export function startDesktopUI({ desktop = window.contextflowDesktop, serviceAPI
   for (const button of root.querySelectorAll('[data-discover]')) button.onclick = () => perform(button, async () => { await desktop.discover({ fresh: true }); notice('已重新检查本机工具；发现结果不代表已经授权或测试通过。'); });
   $('home-primary').onclick = () => perform($('home-primary'), async () => {
     const kind = productState(current, cfg).action.kind;
-    if (['setup', 'notes', 'ai', 'support'].includes(kind)) { await page(kind); if (kind === 'support') $('service-controls').open = true; }
+    if (['setup', 'notes', 'ai', 'support'].includes(kind)) {
+      await page(kind);
+      if (kind === 'support') {
+        if (current?.pairingError) { $('pairing-repair-guide').open = true; $('pairing-repair-guide').scrollIntoView?.({ block: 'start' }); }
+        else $('service-controls').open = true;
+      }
+    }
     else if (kind !== 'none') await action(kind);
+  });
+  $('setup-pairing-help').onclick = () => perform($('setup-pairing-help'), async () => {
+    await page('support'); $('pairing-repair-guide').open = true; $('pairing-repair-guide').scrollIntoView?.({ block: 'start' });
   });
   $('open-at-login').onchange = () => perform($('open-at-login'), async () => { await desktop.preferences({ openAtLogin: $('open-at-login').checked }); notice('登录启动设置已更新。'); });
   $('create-recovery').onclick = () => perform($('create-recovery'), async () => { await desktop.recovery('create'); notice('本机恢复点已创建，本地服务已重新启动。浏览器离线记录与笔记目的地文件不在恢复点范围内。'); });
@@ -158,6 +201,7 @@ export function startDesktopUI({ desktop = window.contextflowDesktop, serviceAPI
   function renderConfirmation() {
     if (!current) return;
     const notes = productState(current, cfg).notes, dirty = !!settings?.dirty;
+    $('note-confirmation').dataset.state = !dirty && notes.verified ? 'verified' : !dirty && notes.confirmed ? 'confirmed' : 'pending';
     $('note-confirm-title').textContent = notes.verified ? '当前位置已验证写入' : notes.confirmed ? '位置已确认，下一步在网页同步' : '确认保存位置';
     $('note-confirm-detail').textContent = dirty ? '有尚未保存的改动。请先保存，再确认最终位置。' : notes.detail;
     $('note-confirm-path').textContent = notes.destination ? `${notes.destination.name} · ${notes.destination.path}${notes.destination.folder ? ` · ${notes.destination.folder}` : ''}` : '尚未保存有效的笔记目的地。';
@@ -185,19 +229,23 @@ export function startDesktopUI({ desktop = window.contextflowDesktop, serviceAPI
     if (hint) {
       hint.hidden = !blocked;
       hint.textContent = formBusy ? '正在完成测试或保存，请稍候…' : step === 'tools' ? settings?.dirty ? '测试当前选择并保存更改后，即可继续。' : '请先测试所选回答方式；也可以选择「稍后配置 AI」。'
-        : step === 'notes' ? settings?.dirty ? '先保存当前笔记位置，再确认使用。' : '请确认保存位置；确认不会自动写入笔记。' : '请先在 Chrome 扩展中发起连接并授权。';
+        : step === 'notes' ? settings?.dirty ? '先保存当前笔记位置，再确认使用。' : '请确认保存位置；确认不会自动写入笔记。'
+          : state.browser.error ? '浏览器授权记录需要处理。请查看处理指引；基础批注与导出仍可用。' : '请先在 Chrome 扩展中发起连接并授权。';
     }
-    $('setup-browser-status').textContent = state.running ? state.browser.count ? `${state.browser.label}。可以继续选择 AI。` : current.bridgeReady ? '本地连接已准备好，等待你在 Chrome 中发起授权。' : current.packaged ? '浏览器桥接尚未就绪，请在「设置与帮助」检查。' : '开发运行不注册浏览器桥接。端到端连接请使用打包后的桌面应用。' : current.service?.message || '等待本地连接准备完成…';
-    $('setup-browser-status').dataset.error = String(!state.running && !state.preparing);
+    $('setup-browser-status').textContent = state.browser.error ? state.browser.detail : state.running ? state.browser.count ? `${state.browser.label}。可以继续选择 AI。` : current.bridgeReady ? '本地连接已准备好，等待你在 Chrome 中发起授权。' : current.packaged ? '浏览器桥接尚未就绪，请在「设置与帮助」检查。' : '开发运行不注册浏览器桥接。端到端连接请使用打包后的桌面应用。' : current.service?.message || '等待本地连接准备完成…';
+    $('setup-browser-status').dataset.error = String(state.browser.error || !state.running && !state.preparing);
+    $('setup-pairing-help').hidden = !state.browser.error;
     const summary = $('finish-summary'); summary.replaceChildren();
     for (const [label, value, ok] of [['浏览器', state.browser.label, state.browser.ok], ['AI 回答（可选）', state.ai.label, state.ai.ok], ['笔记保存（可选）', state.notes.label, state.notes.verified]]) {
-      const row = make('div', 'finish-row'); row.append(make('span', '', label)); const status = make('span', 'badge', value); status.dataset.state = ok ? 'ok' : ''; row.append(status); summary.append(row);
+      const row = make('div', 'finish-row'); row.append(make('span', '', label)); const status = make('span', 'badge', value); status.dataset.state = ok ? 'ok' : label === '浏览器' && state.browser.error ? 'bad' : ''; row.append(status); summary.append(row);
     }
     $('resume-setup').textContent = current.journey?.dismissed ? '继续首次准备' : '返回首次准备';
   }
-  function renderPairings(rows) {
-    const signature = JSON.stringify(rows); if (signature === pairingSignature) return;
+  function renderPairings(rows, error = '') {
+    const signature = JSON.stringify([rows, !!error]); if (signature === pairingSignature) return;
     pairingSignature = signature; const list = $('pairings'); list.replaceChildren();
+    $('pairing-repair-guide').hidden = !error;
+    if (error) { const message = make('p', 'inline-status', '授权记录无法读取，数量暂不可确认。原文件已保留；连接与撤销已暂停。请按下方指引处理。'); message.dataset.error = 'true'; message.setAttribute('role', 'alert'); list.append(message); return; }
     if (!rows.length) { list.append(make('p', 'empty-state', '还没有已授权的浏览器。基础批注与下载不需要连接。')); return; }
     for (const row of rows) {
       const article = make('article', 'pairing-row'), copy = make('div'), button = make('button', '', '撤销');
@@ -270,21 +318,23 @@ export function startDesktopUI({ desktop = window.contextflowDesktop, serviceAPI
         badge('service-badge', state.running ? '运行中' : state.preparing ? '准备中' : current.service?.state === 'external' ? '检测到旧服务' : '需要处理', state.running ? 'ok' : state.preparing ? '' : 'bad');
         $('service-message').textContent = current.service?.message || '正在准备本地连接…';
         $('start-service').disabled = state.running || state.preparing; $('takeover').hidden = current.service?.state !== 'external' || current.platform !== 'darwin';
+        $('create-recovery').disabled = !state.running || busyButtons.has($('create-recovery'));
         $('open-at-login').checked = !!current.preferences?.openAtLogin;
         const menuPlacement = current.systemIntegration?.trayPlacement;
         $('menu-bar-status').textContent = current.platform === 'darwin'
           ? ['obscured', 'offscreen'].includes(menuPlacement) ? '菜单栏图标可能被刘海或屏幕边界遮挡。可从 Dock 打开；若使用菜单栏管理工具，请将 ContextFlow 设为始终显示。'
             : '点击右上角的 ContextFlow 图标可查看服务与任务状态，或重新打开窗口。若菜单栏空间不足，可从 Dock 打开。'
           : '可从系统托盘查看状态或重新打开窗口。Windows 可能将图标放入任务栏的隐藏图标区域。';
-        $('bridge-status').textContent = current.bridgeReady ? '浏览器桥接已注册。每个 Chrome 用户配置需要独立发起连接并授权。' : current.packaged ? '浏览器桥接注册未成功，请重新打开应用或导出诊断。' : '开发运行不修改浏览器注册。端到端配对请使用打包后的应用。';
+        $('bridge-status').textContent = current.pairingError ? '浏览器授权记录需要处理，连接与撤销已暂停。原文件未修改；桥接注册状态不代表授权记录可用。' : current.bridgeReady ? '浏览器桥接已注册。每个 Chrome 用户配置需要独立发起连接并授权。' : current.packaged ? '浏览器桥接注册未成功，请重新打开应用或导出诊断。' : '开发运行不修改浏览器注册。端到端配对请使用打包后的应用。';
+        for (const button of root.querySelectorAll('[data-action=browser]')) { button.disabled = !!current.pairingError; button.title = current.pairingError ? '请先查看授权记录处理指引' : ''; }
         $('home-title').textContent = state.action.title; $('home-detail').textContent = state.action.detail;
         $('home-primary').textContent = state.action.label; $('home-primary').disabled = state.action.kind === 'none';
-        badge('browser-badge', state.browser.label, state.browser.ok ? 'ok' : ''); $('browser-summary').textContent = state.browser.detail;
+        badge('browser-badge', state.browser.label, state.browser.ok ? 'ok' : state.browser.error ? 'bad' : ''); $('browser-summary').textContent = state.browser.detail;
         badge('model-badge', state.ai.label, state.ai.ok ? 'ok' : state.ai.checked && state.running ? 'bad' : ''); $('model-summary').textContent = state.ai.detail;
         badge('notes-badge', state.notes.label, state.notes.verified ? 'ok' : ''); $('notes-summary').textContent = state.notes.detail;
         $('update-status').textContent = current.updates?.message || '可以手动检查经过签名发布的新版本。';
-        renderPairings(current.pairings || []); renderRecovery(current.recoveryPoints || []); renderDiscovery(); renderJourney(); renderConfirmation();
-        if (!initialized) { initialized = true; if (!explicitPageRequested) await page(current.journey?.dismissed ? 'home' : 'setup', { focus: false }); }
+        renderPairings(current.pairings || [], current.pairingError); renderRecovery(current.recoveryPoints || []); renderDiscovery(); renderJourney(); renderConfirmation();
+        if (!initialized) { initialized = true; if (current.startupWarning) notice(current.startupWarning, true); if (!explicitPageRequested) await page(current.journey?.dismissed ? 'home' : 'setup', { focus: false }); }
         else if (['ai', 'notes', 'setup'].includes(activePage)) await placeWorkspace();
       } catch (error) { notice(error.message || '无法读取本地状态，请稍后重试。', true); }
     })();

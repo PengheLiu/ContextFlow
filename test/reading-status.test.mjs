@@ -4,6 +4,7 @@ import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { ReadingStatus } from '../server/reading-status.mjs';
+import { AGENT_EXECUTION_IDENTITY } from '../server/connection-checks.mjs';
 
 const cfg = { explain: { backend: 'llm' }, translate: { provider: 'openai', baseUrl: 'https://model.private', model: 'm', apiKey: 'secret' },
   agent: { id: 'codex', executable: '/private/codex', profile: 'safe', notesDir: '/private/notes', env: { TOKEN: 'secret-env' } },
@@ -20,10 +21,11 @@ test('actual answers validate only their own configuration; cached/degraded answ
     assert.equal(status.view(agentCfg).ai.verified, false);
     status.answer(agentCfg, { answer: 'degraded', via: 'llm', cached: false });
     assert.equal(status.view(agentCfg).ai.verified, false);
-    status.answer(agentCfg, { answer: 'agent answer', via: 'agent:codex', cached: false });
-    assert.equal(new ReadingStatus(root, 'service-secret').view(agentCfg).ai.verified, true);
+    const installed={id:'codex',available:true,path:'/private/codex',version:'fixture-v1',identity:'fixture-program'};
+    status.answer(agentCfg, { answer: 'agent answer', via: 'agent:codex', cached: false, [AGENT_EXECUTION_IDENTITY]:installed });
+    assert.equal(new ReadingStatus(root, 'service-secret').view(agentCfg,[installed]).ai.verified, true);
     for (const patch of [{ executable: '/other' }, { profile: 'full' }, { notesDir: '/other' }, { env: { TOKEN: 'changed' } }]) {
-      assert.equal(status.view({ ...agentCfg, agent: { ...cfg.agent, ...patch } }).ai.verified, false);
+      assert.equal(status.view({ ...agentCfg, agent: { ...cfg.agent, ...patch } },[installed]).ai.verified, false);
     }
     assert.equal(status.view({ ...cfg, translate: { ...cfg.translate, apiKey: 'changed' } }).ai.verified, false);
     const text = readFileSync(join(root, 'reading-status.json'), 'utf8');

@@ -66,11 +66,20 @@ export class RichComposer {
     });
   }
 
-  value() { return joinAssetDocument(this.blocks.filter((b) => !b.pending)); }
+  value() { return joinAssetDocument(this.blocks.filter((b) => !b.pending && !b.error)); }
 
   setValue(value, force = false) {
     value = String(value || '');
     if (!force && value === this.value()) return this;
+    // Mirrors from a second editor cannot replace an unfinished image block:
+    // its asynchronous save still owns this document and insertion position.
+    if (!force && this.blocks.some(block => block.pending || block.error)) {
+      const pending = this.blocks.some(block => block.pending);
+      this.busy(pending, pending
+        ? '图片正在保存，已保留原位草稿；完成后再修改。'
+        : '图片保存失败，已保留原位草稿；请移除后再修改。');
+      return this;
+    }
     clearTimeout(this.saveTimer);
     this.blocks = splitAssetDocument(value);
     this.dirty = false;

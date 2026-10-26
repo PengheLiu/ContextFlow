@@ -45,7 +45,7 @@ try {
   }
   assert.equal(manifest.version,release.candidateVersion,'打包候选版本必须与中央发布状态一致');
   assert.ok(release.publishedExtension.version,'中央发布状态保留真实公开版本，不靠营销正文判定商店审核结果');
-  assert.ok(listing.includes(`**${release.candidateVersion} 桌面连接更新**`),'桌面更新能力不能冒充已上架扩展权限');
+  assert.ok(listing.includes(`当前源码版本 **${release.candidateVersion}**`),'商店源稿必须区分当前源码与历史实际送审内容');
   assert.match(policy.body.textContent,/设置与帮助.*浏览器授权/,'隐私撤销指引必须可在真实桌面界面找到');
   policy.defaultView?.close();sourcePolicy.defaultView?.close();
   assert.equal(manifest.manifest_version, 3);
@@ -63,7 +63,7 @@ try {
   assert.ok(app.includes('Khan Academy and other contributors'));
   assert.ok(app.indexOf('setBrowserStorage({') < app.indexOf('migrateLegacyKeys()'));
   assert.ok(app.includes('cf-offline'));
-  assert.ok(app.includes('initializePrivateStorage().then'));
+  assert.ok(app.includes('createContentStartup') && app.includes('startup-error'),'content startup failure has a bounded recovery path');
   const worker = readFileSync(join(output, 'sw.js'), 'utf8');
   assert.ok(worker.includes('TRUSTED_CONTEXTS'));
   assert.ok(worker.includes('PAIRING_REQUIRED'));

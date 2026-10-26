@@ -40,11 +40,11 @@ The inline editor and reading panel share **one record**. Write in place, review
 
 Explain or translate a selection and ask follow-up questions on the page. Start with an overview of a long article, then investigate the passages that matter. AI results stay with your reading records, alongside your own additions and pasted images.
 
-Choose your own model or local agent. AI requires the optional companion service; annotations and export work independently.
+Choose your own model or local agent. Connect and configure the optional desktop app when you need AI; annotations and export work independently.
 
 ### Bring the reading back to your notes
 
-Copy or download Markdown that includes the source, reading records, and your own summary. With the companion connected, sync to **Obsidian, a Markdown folder, or SiYuan**.
+Copy or download Markdown that includes the source, reading records, and your own summary. With the desktop app connected, sync to **Obsidian, a Markdown folder, or SiYuan**.
 
 The same article updates the same note rather than creating a new copy on every sync. Input saves automatically in the browser; writing to your note destination happens when you click **同步** (Sync). Your notes remain portable and editable in your own tools.
 
@@ -70,7 +70,7 @@ ContextFlow connects the web, AI, and your existing knowledge rather than creati
 
 ### Add AI or note sync when you need them
 
-The [desktop download page](https://pengheliu.github.io/ContextFlow/download.html) provides Desktop 1.1.0 for Apple Silicon as a DMG with a SHA-256 checksum; macOS 13.5+ is required. The package includes its runtime, so end users do not need Node.js, Git, or npm. Intel Mac and Windows installers are not open for download; do not substitute a different architecture.
+The [desktop download page](https://pengheliu.github.io/ContextFlow/download.html) provides Desktop 1.1.1 for Apple Silicon as a DMG with a SHA-256 checksum; macOS 13.5+ is required. The package includes its runtime, so end users do not need Node.js, Git, or npm. Intel Mac and Windows installers are not open for download; do not substitute a different architecture.
 
 Desktop one-click connection requires **ContextFlow Chrome extension 1.1.0 or later**. Before downloading, open the extension's **连接与设置** and confirm that **连接桌面端** (Connect desktop) is available. The actual store page determines which version can be installed. If the entry is absent, continue highlighting, annotating, and exporting Markdown; do not uninstall the extension.
 
@@ -90,7 +90,7 @@ Open **我的阅读库** (My reading library) to search across saved articles, p
 
 Long answers can be collapsed; regeneration keeps the previous answer and up to five historical versions. Cancel generation, retry failures, and undo recent deletions within the current page session. JSON backup restores missing records and images after validation and confirmation, without overwriting existing or deleted records or restarting AI jobs.
 
-**帮助与诊断** (Help and diagnostics) checks connection and storage counts without calling AI. Preview the entire redacted report before copying it; it contains no URLs, reading contents or credentials. JSON backups are unencrypted and limited to 32 MB per file. They protect browser reading records, not configuration, keys, or external notes; desktop recovery points are not a substitute. Back up before uninstalling. [Scope and known limits (Chinese) →](./docs/RELEASE_1_0.md)
+**帮助与诊断** (Help and diagnostics) checks connection and storage counts without calling AI. Preview the entire redacted report before copying it; it contains no URLs, reading contents or credentials. JSON backups are unencrypted and limited to 32 MB per file in both directions, without a separate record or image count threshold. They protect browser reading records, not configuration, keys, or external notes; desktop recovery points are not a substitute. Back up before uninstalling. [Scope and known limits (Chinese) →](./docs/CAPABILITIES.md)
 
 Basic reading works on ordinary web pages in desktop Chrome / Chromium 111+. Chrome internal pages, Web Store pages, the built-in PDF viewer, and local files are not supported. Desktop connection is validated with Google Chrome; other Chromium browsers are not equally validated. Its bundled runtime requires macOS 13.5+; OS, processor, and agent compatibility still require [separate validation](./docs/DESKTOP.md#当前发布状态). This does not change the browser requirements for extension-only reading.
 
@@ -120,4 +120,6 @@ Export or sync regularly. Uninstalling the extension clears its browser records,
 
 [Report a bug or suggest an improvement](https://github.com/PengheLiu/ContextFlow/issues). Include your extension version, browser version, reproduction steps, and a redacted screenshot.
 
-[Releases](https://github.com/PengheLiu/ContextFlow/releases) · [Desktop v1.1.0](https://github.com/PengheLiu/ContextFlow/releases/tag/v1.1.0) · [Development guide](./docs/DEVELOPMENT.md) · [Architecture and security](./DESIGN.md) · [MIT License](./LICENSE)
+[Releases](https://github.com/PengheLiu/ContextFlow/releases) · [Desktop v1.1.1](https://github.com/PengheLiu/ContextFlow/releases/tag/v1.1.1) · [Development guide](./docs/DEVELOPMENT.md) · [Architecture and security](./DESIGN.md) · [MIT License](./LICENSE)
+
+The current source and desktop app version is v1.1.1. Chrome extension updates are reviewed and distributed separately; check the actual store page for the installable version.

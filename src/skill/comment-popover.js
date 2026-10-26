@@ -2,7 +2,8 @@
 //
 // 与右侧栏不各存一份状态：每次输入先交给 App 的共享草稿，再由 App 镜像到另一处；
 // 500ms 停顿或失焦时才持久化，避免每个按键都写 localStorage / IDB / 服务端。
-import { T, FLOAT, shadowHost } from './theme.js';
+import { T, FLOAT, shadowHost, releaseThemeHost } from './theme.js';
+import { EventScope } from './event-scope.js';
 import { brandMark, icon } from './icons.js';
 import { RichComposer, RICH_COMPOSER_CSS } from './rich-composer.js';
 
@@ -42,8 +43,8 @@ const CSS = `${FLOAT}${RICH_COMPOSER_CSS}
   .state.saved{color:${T.ok}}.state.saved .ico{color:${T.ok}}
   .state.bad{color:${T.bad}}.state.bad .ico{color:${T.bad}}
   .done{min-height:34px;display:inline-flex;align-items:center;gap:5px;padding:6px 12px;border:1px solid ${T.accent};
-        border-radius:6px;background:${T.accent};color:${T.paperRaised};font-size:13px;font-weight:680;white-space:nowrap}
-  .done:hover{background:${T.accent};color:${T.paperRaised};filter:saturate(1.08) brightness(.94)}
+        border-radius:var(--cf-radius-control);background:${T.accent};color:${T.onAccent};font-size:13px;font-weight:680;white-space:nowrap}
+  .done:hover:not(:disabled){background:${T.accentHover};color:${T.onAccent}}
   .done .ico{width:14px;height:14px}
   @media (max-width:420px){
     .hd-copy small{display:none}.source{margin-left:14px;margin-right:14px}.edit{padding-left:14px;padding-right:14px}
@@ -55,6 +56,7 @@ export class CommentPopover {
   /** @param {{onInput?:function,onCommit?:function,onClose?:function}} o */
   constructor(o = {}) {
     this.o = o;
+    this.events = new EventScope();
     const sh = shadowHost('tip-comment', CSS, 2147483647);
     sh.innerHTML += `<section class="card" id="c" aria-label="原位批注编辑器">
       <div class="hd">
@@ -82,7 +84,7 @@ export class CommentPopover {
         }
       },
       onCommit: () => this.commit(),
-      onAsset: (file) => this.o.onAsset?.(file),
+      onAsset: (file) => this.saveAsset(file),
       resolveAsset: (id) => this.o.resolveAsset?.(id),
     });
     Object.defineProperty(this, 'input', { get: () => this.composer.list.querySelector('.rc-text') });
@@ -103,7 +105,7 @@ export class CommentPopover {
       }
     });
 
-    document.addEventListener('click', (e) => {
+    this.events.listen(document, 'click', (e) => {
       if (performance.now() - (this.openedAt ?? 0) < 400) return;
       if (!e.target?.closest?.('[data-contextflow]')) this.close();
     });
@@ -111,6 +113,12 @@ export class CommentPopover {
 
   /** @param {DOMRect|object} rect @param {{id:string,source?:string,value?:string}} data */
   open(rect, data) {
+    if (this.disposed) return this;
+    if (this.hasUnsettledAssets) {
+      this.el.classList.add('on');
+      this.status('', '', '图片处理完成后再切换批注，原位草稿已保留。');
+      return this;
+    }
     if (!this.open$) {
       let active = document.activeElement;
       while (active?.shadowRoot?.activeElement) active = active.shadowRoot.activeElement;
@@ -132,13 +140,18 @@ export class CommentPopover {
     this.openedAt = performance.now();
     this.grow();
     this.place(rect);
-    setTimeout(() => this.input.focus(), 0);
+    clearTimeout(this.focusTimer);
+    this.focusTimer = setTimeout(() => { if (!this.disposed && this.open$) this.input?.focus(); }, 0);
     return this;
   }
 
   /** 侧栏输入时反向镜像；只接受当前正在编辑的高亮。 */
   setValue(id, value) {
     if (!this.open$ || id !== this.id) return this;
+    if (this.hasUnsettledAssets) {
+      this.status('', '', '原位图片草稿已保留，请处理完成后再修改侧栏。');
+      return this;
+    }
     this.composer.setValue(String(value ?? ''));
     this.dirty = false;             // 侧栏自己负责它那一侧的 500ms 持久化
     this.status('已同步侧栏修改', 'saved');
@@ -150,14 +163,44 @@ export class CommentPopover {
     return this;
   }
 
-  status(text, cls = '') {
+  get hasUnsettledAssets() { return !!this.composer?.blocks?.some(block => block.pending || block.error); }
+
+  status(text, cls = '', assetContext = '') {
+    if (this.disposed) return;
+    const pending = this.composer?.blocks?.some(block => block.pending);
+    const failed = this.composer?.blocks?.find(block => block.error);
+    if (pending) { text = `正在保存图片…${assetContext}`; cls = 'saving'; }
+    else if (failed) { text = `图片保存失败：${failed.error}。请移除后重新粘贴。${assetContext}`; cls = 'bad'; }
+    this.$('done').disabled = !!(pending || failed);
     const el = this.$('state');
     el.className = `state${cls ? ` ${cls}` : ''}`;
     el.querySelector('span').textContent = text;
   }
 
+  saveAsset(file) {
+    const id = this.id;
+    this.status('正在保存图片…');
+    let result;
+    try { result = this.o.onAsset?.(file); } catch (error) { result = Promise.reject(error); }
+    return Promise.resolve(result).finally(() => {
+      if (this.disposed) return;
+      // RichComposer applies pending/error and triggers its commit after the
+      // asset promise settles. Refresh after that work, including failures
+      // where the composer intentionally does not emit a partial document.
+      clearTimeout(this.assetStatusTimer);
+      this.assetStatusTimer = setTimeout(() => {
+        if (this.disposed || this.id !== id) return;
+        if (this.hasUnsettledAssets) this.status('');
+        else if (this.dirty || this.pendingSave) this.status('正在保存到浏览器…');
+        else this.markSaved(id);
+      }, 0);
+    });
+  }
+
   commit() {
     clearTimeout(this.saveTimer);
+    if (this.disposed) return this.pendingSave || true;
+    if (this.hasUnsettledAssets) { this.status(''); return false; }
     if (!this.dirty || !this.id) return this.pendingSave || true;
     const id = this.id, value = this.composer.value();
     this.dirty = false;
@@ -201,7 +244,12 @@ export class CommentPopover {
   }
 
   close(commit = true) {
+    clearTimeout(this.focusTimer);
     if (!this.open$) return;
+    if (commit && this.hasUnsettledAssets) {
+      this.status('', '', '图片处理完成后再收起，原位草稿已保留。');
+      return false;
+    }
     if (commit) this.commit();
     clearTimeout(this.saveTimer);
     const id = this.id;
@@ -212,4 +260,13 @@ export class CommentPopover {
   }
 
   get open$() { return !!this.el?.classList.contains('on'); }
+
+  /** The owning App flushes first; retiring a UI must not commit a second time. */
+  dispose() {
+    if (this.disposed) return;
+    this.disposed = true; this.events.dispose();
+    clearTimeout(this.saveTimer); clearTimeout(this.focusTimer); clearTimeout(this.assetStatusTimer); clearTimeout(this.composer?.saveTimer);
+    this.el.classList.remove('on'); this.returnFocus = null; this.id = null;
+    releaseThemeHost(this.sh.host); this.sh.host.remove();
+  }
 }

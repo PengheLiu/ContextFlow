@@ -1,4 +1,4 @@
-import { EventEmitter, once } from 'node:events';
+import { EventEmitter } from 'node:events';
 import { spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { appendFileSync, mkdirSync, existsSync, statSync, renameSync } from 'node:fs';
@@ -11,7 +11,8 @@ export class ServiceManager extends EventEmitter {
     super(); Object.assign(this, { paths, runtime, core, secretKey, terminateTree, environment, fetcher, spawnProcess });
     this.state = 'stopped'; this.message = ''; this.restarts = 0; this.intentionalStop = false;
     this.token = randomBytes(32).toString('base64url');
-    this.port = Number(readJSON(join(paths.data, 'config.json')).port) || 7317;
+    try { this.port = Number(readJSON(join(paths.data, 'config.json')).port) || 7317; }
+    catch { this.port = 7317; this.blockedReason = '本地配置无法读取。原文件已保留；请在设置与帮助中选择有效的本机恢复点。'; }
   }
   snapshot() { return { state: this.state, message: this.message, port: this.port, owned: !!this.child, health: this.lastHealth || null }; }
   update(state, message = '') {
@@ -28,8 +29,10 @@ export class ServiceManager extends EventEmitter {
     } catch (error) { return error.name === 'TimeoutError' ? { occupied: true } : null; }
   }
   async start() {
-    if (this.child || this.starting) return;
+    if (this.child || this.starting) return this.startDone;
+    if (this.blockedReason) { this.update('error', this.blockedReason); return; }
     this.starting = true; this.intentionalStop = false;
+    let completeStart; this.startDone = new Promise(resolve => { completeStart = resolve; });
     try {
       const existing = await this.health(readJSON(join(this.paths.data, 'config.json')).token || '');
       if (this.intentionalStop) { this.update('stopped', '本地服务已停止'); return; }
@@ -50,6 +53,20 @@ export class ServiceManager extends EventEmitter {
         stdio: ['ignore', 'pipe', 'pipe', 'ipc'], windowsHide: true, detached: process.platform !== 'win32',
       });
       this.child = child;
+      let spawned = !!child.pid, ended = false;
+      child.once('spawn', () => { spawned = true; });
+      const finish = failedToSpawn => {
+        if (ended || this.child !== child) return;
+        ended = true; clearTimeout(this.stableTimer);
+        this.child = null; this.lastHealth = null;
+        if (this.intentionalStop) { this.update('stopped', '本地服务已停止'); return; }
+        if (failedToSpawn || !spawned) {
+          this.update('error', '内置服务无法启动，请查看诊断或重新安装后重试。'); return;
+        }
+        this.update('error', '本地服务意外退出，正在尝试恢复…');
+        if (++this.restarts <= 3) this.restartTimer = setTimeout(() => this.start().catch(() => {}), 2000 * this.restarts);
+        else this.update('error', '服务连续退出，已停止自动重试。请打开诊断后重试。');
+      };
       child.on('message', message => {
         if (this.child === child && message?.type === 'contextflow-state-changed' && Number.isSafeInteger(message.revision) && message.revision > 0) this.emit('changed');
       });
@@ -58,18 +75,14 @@ export class ServiceManager extends EventEmitter {
         try { appendFileSync(log, chunk, { mode: 0o600 }); } catch { /* full disk: report service state instead */ }
       };
       child.stdout?.on('data', logChunk); child.stderr?.on('data', logChunk);
-      child.once('error', () => this.update('error', '内置服务无法启动，请查看诊断或重新安装。'));
-      child.once('exit', () => {
-        clearTimeout(this.stableTimer);
-        if (this.child !== child) return;
-        this.child = null; this.lastHealth = null;
-        if (this.intentionalStop) { this.update('stopped', '本地服务已停止'); return; }
-        this.update('error', '本地服务意外退出，正在尝试恢复…');
-        if (++this.restarts <= 3) this.restartTimer = setTimeout(() => this.start().catch(() => {}), 2000 * this.restarts);
-        else this.update('error', '服务连续退出，已停止自动重试。请打开诊断后重试。');
-      });
+      child.once('error', () => { if (!spawned) finish(true); });
+      child.once('exit', () => finish(false));
+      // An unsuccessful spawn emits error + close, but never exit. The shared
+      // terminal path must also cover that case without scheduling two retries.
+      child.once('close', () => finish(!spawned));
       for (let n = 0; n < 100 && this.child === child; n++) {
         const h = await this.health();
+        if (this.child !== child) break;
         if (h?.desktopManaged) {
           this.lastHealth = h; this.update('running', '本地服务已就绪');
           this.stableTimer = setTimeout(() => { this.restarts = 0; }, 60000); this.stableTimer.unref(); return;
@@ -78,7 +91,7 @@ export class ServiceManager extends EventEmitter {
       }
       if (this.child === child) { await this.stop(); this.update('error', '服务启动超时，请查看诊断。'); }
     } catch (error) { this.update('error', error.message); }
-    finally { this.starting = false; }
+    finally { this.starting = false; completeStart(); }
   }
   async request(path, init = {}, { timeoutMs = 120000 } = {}) {
     const valid = validateRequest(path, init);
@@ -103,13 +116,18 @@ export class ServiceManager extends EventEmitter {
     const child = this.child;
     if (!child) { this.update('stopped', '本地服务已停止'); return; }
     this.update('stopping', '正在停止任务与服务…');
-    const exited = once(child, 'exit').catch(() => {});
+    let finished;
+    const exited = new Promise(resolve => {
+      finished = () => { child.removeListener('exit', finished); child.removeListener('close', finished); resolve(); };
+      child.once('exit', finished); child.once('close', finished);
+    });
     if (child.connected) child.send({ type: 'contextflow-shutdown' }, () => {});
     else this.terminateTree(child);
     let timer;
     await Promise.race([exited, new Promise(resolve => { timer = setTimeout(() => { this.terminateTree(child, 'SIGKILL'); resolve(); }, 8000); })]);
     clearTimeout(timer);
     if (this.child === child) { await Promise.race([exited, new Promise(resolve => setTimeout(resolve, 2000))]); }
+    child.removeListener('exit', finished); child.removeListener('close', finished);
     if (this.child === child) throw new Error('服务尚未完全停止，请稍后重试。');
   }
   async restart() { if (await this.busy()) throw new Error('仍有任务执行或排队，请完成后再重启。'); await this.stop(); this.restarts = 0; await this.start(); }

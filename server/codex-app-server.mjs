@@ -3,7 +3,7 @@
 // for rebuilding context after idle shutdown, cancellation, or a Codex upgrade.
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { accessSync, constants, statSync } from 'node:fs';
+import { accessSync, constants, statSync, realpathSync } from 'node:fs';
 import { delimiter, join, resolve } from 'node:path';
 import { homedir, tmpdir } from 'node:os';
 import { createCodexNoteTools } from './codex-note-tools.mjs';
@@ -40,7 +40,18 @@ export function resolveCodexExecutable(env = process.env, requested) {
 }
 
 function fileStamp(path) {
-  try { const s = statSync(path); return [s.mtimeMs, s.size, s.ino]; } catch { return null; }
+  try { const s = statSync(path); return [realpathSync(path), s.dev, s.ino, s.size, s.mtimeMs, s.ctimeMs]; }
+  catch (error) { return ['unavailable', error.code || 'UNKNOWN']; }
+}
+
+// Shared with discovery/readiness. This opaque identity reads metadata only;
+// configuration, credentials, directory names and timestamps never leave it.
+export function codexConfigurationIdentity(env = process.env) {
+  const userHome = resolve(tmpdir(), env.HOME || env.USERPROFILE || homedir());
+  const home = resolve(tmpdir(), env.CODEX_HOME || join(userHome, '.codex'));
+  return createHash('sha256').update(JSON.stringify({ home, userHome,
+    config: fileStamp(join(home, 'config.toml')), auth: fileStamp(join(home, 'auth.json')),
+  })).digest('hex');
 }
 
 function identity(options) {
@@ -49,13 +60,11 @@ function identity(options) {
   const cwd = resolve(options.notesDir || tmpdir());
   const notesRoot = options.notesDir ? resolve(options.notesDir) : null;
   const profile = options.connectionTest ? 'safe' : options.profile || 'safe';
-  const codexHome = env.CODEX_HOME || join(env.HOME || homedir(), '.codex');
   // Hash the environment rather than retaining credentials in diagnostic keys.
   // Only metadata is read: never inspect the contents of auth.json/config.toml.
   const key = createHash('sha256').update(JSON.stringify({
     bin, cwd, notesRoot, profile, env: Object.entries(env).sort(([a], [b]) => a.localeCompare(b)),
-    config: fileStamp(join(codexHome, 'config.toml')),
-    auth: fileStamp(join(codexHome, 'auth.json')),
+    configuration: codexConfigurationIdentity(env),
   })).digest('hex');
   return { key, bin, cwd, profile, env };
 }
@@ -69,16 +78,57 @@ function usageOf(value) {
   };
 }
 
-function rpcError(error, method) {
-  const message = String(error?.message || 'Codex 请求失败').slice(0, 500);
+// Provider errors can arrive as structured TurnError data or JSON embedded in
+// an RPC message. Read only known diagnostic fields and return fixed wording:
+// upstream bodies may contain authorization headers, URLs or personal context.
+export function classifyCodexError(error, method = 'turn/start', fallback = 'CODEX_RPC') {
   if (error?.code === -32601 && ['initialize', 'thread/start'].includes(method)) {
     return fail('当前 Codex 不支持所需的 app-server 协议，请更新 Codex', 'CODEX_UNSUPPORTED', { submitted: false });
   }
-  if (/not logged in|unauthorized|authentication|\b401\b|please.{0,15}login/i.test(message)) {
-    return fail('Codex 登录或认证失败，请确认所选配置目录已登录', 'AGENT_AUTH');
+  const messages = [], codes = new Set(), infos = new Set(), params = new Set(), statuses = new Set();
+  const visit = (value, depth = 0) => {
+    if (!value || depth > 5) return;
+    if (typeof value === 'string') {
+      const text = value.slice(0, 8192); messages.push(text);
+      const status = text.match(/\b(?:http(?:\s+(?:error|status(?:\s+code)?))?|status(?:\s+code)?)\s*[:=]?\s*([45]\d{2})\b/i);
+      if (status) statuses.add(Number(status[1]));
+      const first = text.indexOf('{'), last = text.lastIndexOf('}');
+      if (first >= 0 && last > first) try { visit(JSON.parse(text.slice(first, last + 1)), depth + 1); } catch { /* not JSON */ }
+      return;
+    }
+    if (typeof value !== 'object' || Array.isArray(value)) return;
+    for (const key of ['status', 'statusCode', 'httpStatusCode']) if (Number.isInteger(value[key]) && value[key] >= 400 && value[key] <= 599) statuses.add(value[key]);
+    for (const key of ['code', 'type']) if (typeof value[key] === 'string') codes.add(value[key].toLowerCase());
+    if (typeof value.param === 'string') params.add(value.param.toLowerCase());
+    if (typeof value.codexErrorInfo === 'string') infos.add(value.codexErrorInfo);
+    else if (value.codexErrorInfo && typeof value.codexErrorInfo === 'object') for (const [name, details] of Object.entries(value.codexErrorInfo)) {
+      infos.add(name); visit(details, depth + 1);
+    }
+    for (const key of ['message', 'additionalDetails', 'error', 'data']) visit(value[key], depth + 1);
+  };
+  visit(error);
+  const text = messages.join('\n'), hasCode = (...names) => names.some(name => codes.has(name));
+  const result = (message, code) => fail(message, code, {
+    ...(typeof error?.code === 'number' ? { rpcCode: error.code } : {}),
+    ...(statuses.size === 1 ? { httpStatus: [...statuses][0] } : {}),
+  });
+  if (statuses.has(401) || infos.has('unauthorized') || hasCode('invalid_api_key', 'authentication_error', 'unauthorized', 'token_expired', 'invalid_authentication', 'invalid_token', 'authentication_failed', 'unauthenticated') || /not logged in|\bunauthori[sz]ed\b|invalid api key|authentication (?:failed|required)|please.{0,15}(?:run.{0,5})?\/?login/i.test(text)) {
+    return result('Codex 登录或认证失败，请在当前配置目录完成登录，或检查所配置模型服务的凭据。', 'AGENT_AUTH');
   }
-  return fail(message, 'CODEX_RPC', { rpcCode: error?.code });
+  if (statuses.has(402) || infos.has('usageLimitExceeded') || infos.has('sessionBudgetExceeded') || hasCode('insufficient_quota', 'quota_exceeded', 'billing_hard_limit_reached', 'usage_limit_reached')) return result('当前模型服务的可用额度或使用预算不足，请检查账号额度与使用限制后重试。', 'AGENT_QUOTA');
+  if (statuses.has(429) || infos.has('rateLimitExceeded') || hasCode('rate_limit_exceeded', 'rate_limit_error', 'too_many_requests')) return result('当前模型服务正在限流，请稍后重试并检查账号的请求频率限制。', 'AGENT_RATE_LIMIT');
+  if (hasCode('unsupported_reasoning_effort', 'reasoning_effort_not_supported') || ([...params].some(param => /^reasoning(?:[._]effort)?$/.test(param)) && hasCode('unsupported_value', 'invalid_value', 'unsupported_parameter', 'invalid_parameter', 'invalid_request_error')) || /(?:reasoning[ ._-]*(?:effort)?[^\n]{0,100}(?:not supported|unsupported|invalid|not allowed)|(?:does not support|unsupported|invalid)[^\n]{0,60}reasoning)/i.test(text)) return result('当前模型或网关不支持 Codex 配置的推理强度。请在当前 Codex 配置中选择该模型支持的推理档后重试；本次未切换模型。', 'AGENT_REASONING_UNSUPPORTED');
+  if (hasCode('model_not_found', 'model_not_available', 'model_access_denied', 'unsupported_model', 'model_unavailable', 'invalid_model', 'model_not_supported') || params.has('model') && hasCode('unsupported_value', 'invalid_value', 'invalid_parameter') || /(?:model[^\n]{0,80}(?:not found|does not exist|not available|unavailable|not supported|unsupported|no access)|(?:no access|access denied)[^\n]{0,60}model)/i.test(text)) return result('当前 Codex 默认模型不存在、不可用或当前账号没有访问权限。请检查模型名称及服务端可用模型后重试。', 'AGENT_MODEL_UNAVAILABLE');
+  if (hasCode('etimedout', 'esockettimedout') || statuses.has(408) || /(?:connection|request|connect|operation|read) timed? out|timeout (?:was )?reached/i.test(text)) return result('连接模型服务超时，请检查网络、代理与服务状态后重试。', 'AGENT_TIMEOUT');
+  if (hasCode('econnrefused', 'enotfound', 'eai_again', 'econnreset', 'enetunreach', 'cert_has_expired', 'unable_to_verify_leaf_signature') || /connection refused|dns (?:error|failed|failure)|failed to (?:connect|resolve)|network (?:is unreachable|error)|certificate (?:verify|verification|has expired)|tls (?:error|handshake)/i.test(text) || [...infos].some(info => ['responseStreamDisconnected', 'responseStreamConnectionFailed', 'httpConnectionFailed'].includes(info)) && !statuses.size) return result('无法连接当前模型服务，或回答连接已断开。请检查网络、代理、证书和服务地址后重试。', 'AGENT_NETWORK');
+  if ([...statuses].some(status => status >= 500) || infos.has('internalServerError') || infos.has('serverOverloaded')) return result('当前模型服务或网关暂时不可用，请检查服务状态，稍后重试。', 'AGENT_PROVIDER_UNAVAILABLE');
+  if (statuses.has(403)) return result('当前模型服务拒绝了访问，请检查账号权限、网关访问策略与服务地址。', 'AGENT_ACCESS_DENIED');
+  if (statuses.size || hasCode('invalid_request_error', 'unsupported_value', 'unsupported_parameter', 'bad_request') || infos.has('badRequest')) return result('当前模型服务拒绝了 Codex 请求。请检查服务地址、Responses 接口与当前模型配置是否兼容。（支持代码：AGENT_PROVIDER_REQUEST）', 'AGENT_PROVIDER_REQUEST');
+  if ([-32700, -32600, -32601, -32602].includes(error?.code)) return result('Codex 协议消息不兼容，请更新 CLI 与 ContextFlow 后重新检测。（支持代码：CODEX_PROTOCOL）', 'CODEX_PROTOCOL');
+  const code = fallback === 'AGENT_ERROR' ? 'AGENT_ERROR' : 'CODEX_RPC';
+  return result(`Codex 未能完成本次请求，请查看诊断信息并联系支持。（支持代码：${code}）`, code);
 }
+const rpcError = (error, method) => classifyCodexError(error, method);
 
 class Server {
   constructor(id, runtime) {
@@ -371,7 +421,7 @@ export function createCodexRuntime({
           for (const item of p.turn?.items || []) if (item.id) items.set(item.id, item);
           if (abortError) { failTurn(abortError); return; }
           if (p.turn?.status !== 'completed') {
-            failTurn(fail(p.turn?.error?.message || 'Codex 任务未完成', p.turn?.status === 'interrupted' ? 'ABORTED' : 'AGENT_ERROR'));
+            failTurn(p.turn?.status === 'interrupted' ? fail('已取消', 'ABORTED') : classifyCodexError(p.turn?.error, 'turn/start', 'AGENT_ERROR'));
           } else {
             const answer = visibleAnswer();
             if (!answer) failTurn(fail('Codex 没有返回答案', 'AGENT_EMPTY'));

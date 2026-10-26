@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { once } from 'node:events';
+import { once, EventEmitter } from 'node:events';
 import { createServer } from 'node:net';
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
@@ -71,4 +71,37 @@ test('Quitting during startup prevents a delayed probe from spawning an orphan s
   const starting = service.start();
   await service.stop(); release({ ok: false }); await starting;
   assert.equal(service.state, 'stopped'); assert.equal(spawned, false);
+});
+
+test('A spawn error followed by close releases ownership and permits a deliberate retry', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'cf-desktop-spawn-error-'));
+  let attempts = 0, child, service;
+  try {
+    service = new ServiceManager({ paths: { data: join(root, 'data'), logs: join(root, 'logs') },
+      runtime: process.execPath, core: root, secretKey: randomBytes(32).toString('base64'),
+      fetcher: async () => {
+        if (attempts > 1 && child?.pid) return { ok: true, json: async () => ({ ok: true, desktopManaged: true, serviceVersion: 'fixture', capabilities: [] }) };
+        throw new Error('ECONNREFUSED');
+      },
+      spawnProcess: () => {
+        attempts++; child = new EventEmitter(); child.connected = false;
+        if (attempts === 1) queueMicrotask(() => { child.emit('error', Object.assign(new Error('fixture cannot execute'), { code: 'EACCES' })); child.emit('close', -13, null); });
+        else { child.pid = 12345; queueMicrotask(() => child.emit('spawn')); }
+        return child;
+      },
+      terminateTree: target => { target.emit('exit', 0, null); target.emit('close', 0, null); },
+    });
+    const starting = service.start();
+    try {
+      await new Promise(resolve => setTimeout(resolve, 20));
+      assert.equal(service.snapshot().owned, false, 'failed spawn is not a live owned core');
+      await starting;
+    } finally {
+      if (service.child && attempts === 1) { service.intentionalStop = true; service.child.emit('exit', -13, null); service.child?.emit('close', -13, null); }
+      await starting;
+    }
+    assert.equal(service.state, 'error');
+    await service.start(); assert.equal(attempts, 2); assert.equal(service.state, 'running');
+    await service.stop(); assert.equal(service.child, null); assert.equal(service.state, 'stopped');
+  } finally { await service?.stop().catch(() => {}); rmSync(root, { recursive: true, force: true }); }
 });

@@ -16,7 +16,7 @@ export const runtimeFiles = [
   'server/db.mjs', 'server/extension-pairing.mjs', 'server/index.mjs', 'server/jobs.mjs',
   'server/layout.mjs', 'server/llm.mjs', 'server/lookup.mjs', 'server/mdfile.mjs', 'server/paths.mjs',
   'server/obsidian.mjs', 'server/origin.mjs', 'server/siyuan.mjs', 'server/sync.mjs', 'server/sync-status.mjs', 'server/reading-status.mjs',
-  'src/core/assets.js', 'src/core/lookupkey.js', 'src/core/markdown.js', 'src/core/destination.js',
+  'src/core/assets.js', 'src/core/lookupkey.js', 'src/core/markdown.js', 'src/core/destination.js', 'src/core/urlkey.js', 'src/core/data-owner.mjs',
   'tools/pair-extension.mjs', 'tools/service.mjs', 'package-lock.json', 'LICENSE',
 ];
 

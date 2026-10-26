@@ -274,7 +274,11 @@ async function ensureArticleDoc(call, { art, notebookId, docPathPrefix, parentID
         + " WHERE a.name IN ('custom-contextflow-urlkey','custom-ctxit-urlkey')"
         + ` AND a.value='${sqlLit(art.urlKey)}' AND b.type='d' LIMIT 1`,
     });
-    id = rows?.[0]?.block_id;
+    const found = rows?.[0]?.block_id;
+    // An old mixed document may still carry the legacy URL-key attribute.
+    // Reverse lookup must not reattach the mapping that identity repair safely
+    // detached. Leave the original note untouched and create a separate one.
+    id = found && !db.isArchivedArticleDoc(found, 'siyuan') ? found : undefined;
   }
 
   if (!id) {
