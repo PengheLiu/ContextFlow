@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { resolveDshInstallation } from './dsh-installation.mjs';
+import { canTestDshConnection } from './dsh-compatibility.mjs';
 import { DSH_CONNECTION_PROMPT } from './dsh-probe-config.mjs';
 import { execAgent, spawnAgent, terminateTree } from './platform.mjs';
 
@@ -17,7 +18,8 @@ const MESSAGES = {
   ABORTED: '测试已取消',
   AGENT_TEST_TOOLS_FORBIDDEN: 'DSH 模型尝试调用工具，连接测试已拒绝执行',
   DSH_PROBE_UNSUPPORTED: '当前 DSH 模型配置暂不支持受限连接测试，请使用桌面版内置的官方模型和纯数据配置',
-  DSH_DESKTOP_UNSUPPORTED: '当前桌面版尚未验证受限连接测试，请重新检测安装或检查版本',
+  DSH_DESKTOP_UNSUPPORTED: '当前 DeepSeek Harness 的模型连接接口与 ContextFlow 不兼容，请更新 ContextFlow 或改用模型 API 连接',
+  DSH_TEST_ISOLATION: '无法建立禁用工具的独立连接测试，本次测试已停止，请更新 ContextFlow 后重试',
   AGENT_TEST_RESPONSE: 'DSH 模型未完成固定短消息验证，请检查桌面版默认模型',
   AGENT_ERROR: 'DSH 未能完成连接测试，请在桌面版确认当前模型可用',
 };
@@ -30,7 +32,7 @@ export function createDshConnectionTester({ spawnProcess = spawnAgent, checkVers
     if (options.profile !== 'safe' || !options.connectionTest || options.notesDir
       || options.prompt !== DSH_CONNECTION_PROMPT) throw error('DSH 连接测试只接受固定短消息与隔离测试档', 'AGENT_TEST_SCOPE');
     const installation = resolveDshInstallation({ env: options.env || {}, bin: options.bin });
-    if (!installation.appPath || !installation.available) throw error(MESSAGES.DSH_DESKTOP_UNSUPPORTED, 'DSH_DESKTOP_UNSUPPORTED');
+    if (!canTestDshConnection(installation)) throw error('连接测试需要 DeepSeek Harness 桌面版，请选择已安装的桌面版入口', 'DSH_DESKTOP_UNSUPPORTED');
     const controller = new AbortController();
     const startedAt = Date.now();
     let child, result, failure, finished = false, ready = false, stopTimer, hardTimer;
@@ -62,7 +64,9 @@ export function createDshConnectionTester({ spawnProcess = spawnAgent, checkVers
         : (await execFileAsync(installation.bin, ['--version'], { env: id.env, signal: controller.signal,
           timeout: 5000, killSignal: 'SIGKILL', maxBuffer: 65536 })).stdout.trim();
       if (failure) throw failure;
-      if (version !== '0.2.1-rc.2') throw error(MESSAGES.DSH_DESKTOP_UNSUPPORTED, 'DSH_DESKTOP_UNSUPPORTED');
+      if (typeof version !== 'string' || !version.trim() || version.length > 200 || /[\r\n\0]/.test(version)) {
+        throw error(MESSAGES.DSH_DESKTOP_UNSUPPORTED, 'DSH_DESKTOP_UNSUPPORTED');
+      }
       if (closed || controller.signal.aborted) throw failure || error(MESSAGES.ABORTED, 'ABORTED');
       const resources = join(installation.appPath, 'Contents/Resources');
       const executable = join(installation.appPath, 'Contents/MacOS/DeepSeek Harness');
@@ -76,8 +80,8 @@ export function createDshConnectionTester({ spawnProcess = spawnAgent, checkVers
       child.on('message', message => {
         if (finished || failure || !message || typeof message !== 'object') return;
         if (message.type === 'ready') {
-          if (ready || message.scope !== 'connection-only' || message.toolsDisabled !== true) {
-            stop(error(MESSAGES.AGENT_ERROR, 'AGENT_ERROR')); return;
+          if (ready || message.contract !== 1 || message.scope !== 'connection-only' || message.toolsDisabled !== true) {
+            stop(error(MESSAGES.DSH_TEST_ISOLATION, 'DSH_TEST_ISOLATION')); return;
           }
           ready = true;
           try { child.send({ type: 'run' }); } catch { stop(error(MESSAGES.AGENT_ERROR, 'AGENT_ERROR')); }
@@ -96,7 +100,10 @@ export function createDshConnectionTester({ spawnProcess = spawnAgent, checkVers
       });
       child.once('error', () => stop(error('无法启动 DSH 桌面连接测试', 'AGENT_SPAWN')));
       child.once('close', (code, signal) => {
-        if (!failure && (!result || code !== 0 || signal)) failure = error(MESSAGES.AGENT_ERROR, 'AGENT_ERROR');
+        if (!failure && (!result || code !== 0 || signal)) {
+          const cause = ready ? 'AGENT_ERROR' : 'DSH_DESKTOP_UNSUPPORTED';
+          failure = error(MESSAGES[cause], cause);
+        }
         finish();
       });
       await completion;

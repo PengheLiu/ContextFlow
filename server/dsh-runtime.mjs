@@ -7,6 +7,7 @@ import { statSync, mkdtempSync, rmSync } from 'node:fs';
 import { rm } from 'node:fs/promises';
 import WebSocket from 'ws';
 import { resolveDshInstallation } from './dsh-installation.mjs';
+import { supportsDshDesktop } from './dsh-compatibility.mjs';
 import { createDshConnectionTester } from './dsh-connection-test.mjs';
 import { join, resolve } from 'node:path';
 import { homedir, tmpdir } from 'node:os';
@@ -35,7 +36,9 @@ function identity(options) {
   const dshHome = env.DSH_HOME || join(env.HOME || homedir(), '.dsh');
   const profile = options.profile || 'safe';
   const stable = {
-    bin, binary: stamp(bin), bundle: installation.appPath ? stamp(join(installation.appPath, 'Contents/Resources/app.asar')) : null, cwd, notesDir: options.notesDir ? cwd : null, profile, dshHome,
+    bin, binary: stamp(bin), bundle: installation.appPath ? stamp(join(installation.appPath, 'Contents/Resources/app.asar')) : null,
+    host: installation.appPath ? stamp(join(installation.appPath, 'Contents/MacOS/DeepSeek Harness')) : null,
+    cwd, notesDir: options.notesDir ? cwd : null, profile, dshHome,
     env: Object.entries(env).sort(([a], [b]) => a.localeCompare(b)),
   };
   const lockKey = createHash('sha256').update(JSON.stringify(stable)).digest('hex');
@@ -86,7 +89,7 @@ class DshServer {
       : ['--profile', 'web', '--host', '127.0.0.1', '--port', '0'];
     this.stateDir = this.modern ? mkdtempSync(join(tmpdir(), 'contextflow-dsh-worker-')) : null;
     try { this.child = runtime.spawnProcess(executable, argv, {
-      env: this.modern ? { ...this.env, ELECTRON_RUN_AS_NODE: '1', DSH_CLIENT_VERSION: '0.2.1-rc.2', CONTEXTFLOW_DSH_STATE_DIR: this.stateDir } : this.env,
+      env: this.modern ? { ...this.env, ELECTRON_RUN_AS_NODE: '1', DSH_CLIENT_VERSION: this.version, CONTEXTFLOW_DSH_STATE_DIR: this.stateDir } : this.env,
       cwd: this.cwd, stdio: ['ignore', 'pipe', 'pipe', ...(this.modern ? ['ipc'] : [])],
     }); } catch (error) {
       if (this.stateDir) rmSync(this.stateDir, { recursive: true, force: true });
@@ -395,8 +398,9 @@ export function createDshRuntime({ spawnProcess = spawnAgent, fetcher = fetch,
         runtime.probes.add(probe);
         checking.then(() => runtime.probes.delete(probe), () => runtime.probes.delete(probe));
         const version = await Promise.race([checking, interrupted.promise]);
-        if (!['0.1.0-rc.6', '0.2.1-rc.2'].includes(version)) throw fail('该 DSH 版本尚未验证常驻协议', id.source === 'desktop' ? 'DSH_DESKTOP_UNSUPPORTED' : 'DSH_UNSUPPORTED', { submitted: false });
-        id.modern = version === '0.2.1-rc.2';
+        if (version !== '0.1.0-rc.6' && !supportsDshDesktop(version)) throw fail('当前 ContextFlow 尚未适配此 DeepSeek Harness 版本，请更新 ContextFlow 后重新检测安装', id.source === 'desktop' ? 'DSH_DESKTOP_UNSUPPORTED' : 'DSH_UNSUPPORTED', { submitted: false });
+        id.version = version;
+        id.modern = supportsDshDesktop(version);
         if (id.modern && !id.appPath) throw fail('请安装并选择 DeepSeek Harness 桌面版', 'DSH_DESKTOP_UNSUPPORTED', { submitted: false });
         if (runtime.closed || options.signal?.aborted) throw fail('已取消', 'ABORTED');
         for (const old of runtime.servers.values()) {

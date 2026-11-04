@@ -10,7 +10,7 @@ import { createDshRuntime } from '../server/dsh-runtime.mjs';
 // without loading user profiles, starting a browser, or calling a model.
 function fixture({ handler, version = '0.1.0-rc.6', idleMs = 1000, timeoutMs = 1000,
   ignoreTerm = false, maxSessions = 32, onSpawn, connectFailure = false } = {}) {
-  const modern = version === '0.2.1-rc.2';
+  const modern = ['0.2.1-rc.2', '0.2.1-rc.5'].includes(version);
   const children = [], requests = [], sockets = [], versions = [];
   const options = { bin: modern ? '/fixture/DeepSeek Harness.app/Contents/Resources/runtime/cli/bin/dsh' : '/fixture/dsh', env: {}, profile: 'full', contextKey: 'article-A',
     prompt: 'full history', continuationPrompt: 'next question', timeoutMs,
@@ -391,7 +391,8 @@ await test('concurrent submissions serialize and shutdown waits for SIGKILL esca
 });
 
 await test('desktop Host uses its bundled runtime and profile, private IPC, API authentication, and reusable streams', async () => {
-  const f = fixture({ version: '0.2.1-rc.2' });
+  for (const version of ['0.2.1-rc.2', '0.2.1-rc.5']) {
+  const f = fixture({ version });
   try {
     const events = [], first = await f.runtime.run({ ...f.options, onEvent: e => events.push(e) });
     const second = await f.runtime.run({ ...f.options, expectedSessionId: first.sessionId });
@@ -403,12 +404,14 @@ await test('desktop Host uses its bundled runtime and profile, private IPC, API 
     assert.ok(f.children[0].argv[3].endsWith('/profiles/desktop'));
     assert.deepEqual(f.children[0].spawnOptions.stdio, ['ignore', 'pipe', 'pipe', 'ipc']);
     assert.equal(f.children[0].spawnOptions.env.ELECTRON_RUN_AS_NODE, '1');
+    assert.equal(f.children[0].spawnOptions.env.DSH_CLIENT_VERSION, version);
     assert.equal(f.sockets.length, 1); assert.ok(f.sockets[0].url.endsWith('/api/remote.mux'));
     assert.deepEqual(calls(f, 'session.prompt').map(r => r.payload.content[0].text), ['full history', 'next question']);
     assert.ok(events.some(e => e.type === 'answer' && e.text === '中文'));
     assert.equal(first.answer, '中文答案'); assert.deepEqual(first.usage, { in: 18, out: 4, cacheRead: 8, cacheWrite: 0 });
   } finally { await f.runtime.close(); }
   assert.ok(!existsSync(f.children[0].spawnOptions.env.CONTEXTFLOW_DSH_STATE_DIR));
+  }
 });
 
 await test('desktop API authentication failure cannot submit a prompt or fall back', async () => {

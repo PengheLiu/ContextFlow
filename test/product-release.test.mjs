@@ -150,26 +150,28 @@ test('unsigned download binding rejects other architectures, altered URLs/tags, 
   }
 });
 
-test('reviewed unsigned 1.1.1 binds exact files without approving future versions or a later signing overwrite', () => {
-  const f = sourceFixture('1.1.1'), state = unsignedState('1.1.1'), directory = join(f.root, 'unsigned'); mkdirSync(directory);
+test('reviewed unsigned desktop fixes bind exact files without approving future versions or a later signing overwrite', () => {
+  for (const version of ['1.1.1', '1.1.2']) {
+  const f = sourceFixture(version), state = unsignedState(version), directory = join(f.root, 'unsigned'); mkdirSync(directory);
   const row = state.desktop.platforms['darwin-arm64'];
   try {
     putJSON(join(f.root, 'product/release.json'), state);
     assert.equal(sourceReleaseState(f.root).releaseReady, false);
     writeFileSync(join(directory, row.artifact), 'unsigned fixture bytes');
     writeFileSync(join(directory, `${row.artifact}.sha256`), `${row.sha256}  ${row.artifact}\n`);
-    assert.equal(checkUnsignedDesktopFiles(directory, state).version, '1.1.1');
-    putJSON(join(f.root, 'product/release.json'), unsignedState('1.1.2'));
+    assert.equal(checkUnsignedDesktopFiles(directory, state).version, version);
+    putJSON(join(f.root, 'product/release.json'), unsignedState('1.1.3'));
     assert.throws(() => sourceReleaseState(f.root), /未签名下载/);
     const older = { ...state, candidateVersion: '1.1.0' };
     putJSON(join(f.root, 'product/release.json'), older);
     assert.throws(() => sourceReleaseState(f.root), /桌面下载版本/);
     const bundle = bundleFixture();
     try {
-      bundle.options.sourceState.candidateVersion = '1.1.1'; bundle.manifest.version = '1.1.1'; bundle.manifest.tag = 'v1.1.1';
+      bundle.options.sourceState.candidateVersion = version; bundle.manifest.version = version; bundle.manifest.tag = `v${version}`;
       assert.throws(bundle.validate, /已保留为未签名分发/);
     } finally { bundle.close(); }
   } finally { f.close(); }
+  }
 });
 
 test('authorized unsigned file checks compare actual local bytes and sidecar without running or publishing them', () => {

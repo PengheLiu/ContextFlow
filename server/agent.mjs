@@ -24,6 +24,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { runCodex, getCodexSession, closeCodexServers, resolveCodexExecutable, codexConfigurationIdentity } from './codex-app-server.mjs';
 import { runDsh, getDshSession, closeDshServers } from './dsh-runtime.mjs';
 import { resolveDshInstallation } from './dsh-installation.mjs';
+import { canTestDshConnection } from './dsh-compatibility.mjs';
 import { findExecutable, agentEnvironment, execAgent, spawnAgent, terminateTree, invocation } from './platform.mjs';
 import { tmpdir } from 'node:os';
 import { realpathSync, statSync } from 'node:fs';
@@ -101,7 +102,27 @@ function executableIdentity(path,env) {
 }
 export function currentExecutionIdentity({ id, path, env = {} }) {
   const effective = childEnv(env), program = executableIdentity(path, effective);
-  if (!program || id !== 'codex') return program;
+  if (!program) return '';
+  if (id === 'dsh') {
+    const { appPath } = resolveDshInstallation({ env: effective, bin: path });
+    if (!appPath) return program;
+    // Desktop upgrades can replace the runtime archive while keeping the CLI
+    // wrapper byte-for-byte identical. Bind checks and probe caches to the
+    // actual runtime too, without opening configuration or credential files.
+    const stamp = file => {
+      try {
+        const actual = realpathSync(file), s = statSync(actual);
+        return s.isFile() ? [actual, s.dev, s.ino, s.size, s.mtimeMs, s.ctimeMs] : null;
+      } catch { return null; }
+    };
+    // Missing components remain detectable as an installation; an attempted
+    // connection reports the incompatible/incomplete runtime explicitly.
+    return createHash('sha256').update(JSON.stringify([program,
+      stamp(`${appPath}/Contents/Resources/app.asar`),
+      stamp(`${appPath}/Contents/MacOS/DeepSeek Harness`),
+    ])).digest('hex');
+  }
+  if (id !== 'codex') return program;
   return createHash('sha256').update(JSON.stringify([program, codexConfigurationIdentity(effective)])).digest('hex');
 }
 function resolveInstallation(id,baseEnv,configuredAgent) {
@@ -162,7 +183,7 @@ async function probe(baseEnv, configuredAgent) {
     } catch (e) {
       row.version = '(取版本失败)';
     }
-    if (id === 'dsh') row.connectionTestSupported = row.source === 'desktop' && row.version === '0.2.1-rc.2';
+    if (id === 'dsh') row.connectionTestSupported = canTestDshConnection(row);
     return row;
   }));
 }

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
-import { spawn } from 'node:child_process';
-import { access, mkdtemp, mkdir, readFile, realpath, writeFile, rm } from 'node:fs/promises';
+import { spawn, execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+import { access, mkdtemp, mkdir, readFile, readdir, realpath, writeFile, rm } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -15,6 +16,9 @@ const electron = resolve(resources, '../MacOS/DeepSeek Harness');
 const root = await mkdtemp(join(tmpdir(), 'cf-dsh-connection-'));
 const home = join(root, 'home'), dshHome = join(root, 'dsh');
 await mkdir(home); await mkdir(dshHome);
+const env = { PATH: process.env.PATH, HOME: home, DSH_HOME: dshHome, LANG: 'en_US.UTF-8', TMPDIR: tmpdir(),
+  USER: 'contextflow-fixture', CF_LOCAL_FIXTURE_KEY: 'fixture-not-a-real-key' };
+const execFileAsync = promisify(execFile);
 const children = [], calls = [], errors = [], stateDirectories = [], messages = [];
 const startupSentinel = join(root, 'untrusted-plugin-started');
 const toolSentinel = join(root, 'untrusted-tool-wrote');
@@ -88,6 +92,17 @@ tls.connect = () => { throw Error('OUTBOUND_TLS_BLOCKED'); };
 syncBuiltinESMExports();
 appendFileSync(${JSON.stringify(guardMarker)}, String(process.pid) + '\\n');
 `);
+  // Read the installed package version without booting its CLI/profile. This
+  // metadata reader is guarded and isolated just like every model worker.
+  const versionProbe = execFileAsync(electron, ['--import', guard, '--input-type=module', '-e',
+    'import {readFileSync} from "node:fs"; console.log(JSON.parse(readFileSync(process.argv[1], "utf8")).version);',
+    join(resources, 'app.asar/dsh/node_modules/@deepseek-ai/dsh-desktop-host/package.json')], {
+    env: { ...env, ELECTRON_RUN_AS_NODE: '1' }, cwd: root, timeout: 5000, killSignal: 'SIGKILL', maxBuffer: 65536,
+  });
+  const versionPid = versionProbe.child.pid;
+  const realVersion = (await versionProbe).stdout.trim();
+  assert.match(realVersion, /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/);
+
   const desktopProfile = join(dshHome, 'profiles/desktop');
   await mkdir(desktopProfile, { recursive: true });
   const profilePackage = { name: 'dsh-profile-desktop', private: true, dependencies: {},
@@ -96,8 +111,15 @@ appendFileSync(${JSON.stringify(guardMarker)}, String(process.pid) + '\\n');
   const patch = join(desktopProfile, 'cordis.patch.yml');
   await writeFile(patch, `- id: llm-deepseek\n  config:\n    apiKeyEnv: CF_LOCAL_FIXTURE_KEY\n    baseURL: ${provider}\n    thinking: disabled\n    reasoningEffort: off\n    maxTokens: 128\n    streamIdleTimeoutMs: 5000\n- id: agent-default-model\n  config:\n    provider: deepseek-official\n    model: deepseek-flash\n- id: session-title-llm\n  disabled: true\n- id: session-telemetry-otel\n  disabled: true\n- id: llm-retry\n  disabled: true\n- id: deepseek-account\n  disabled: true\n- id: llm-deepseek-account\n  disabled: true\n`);
   await writeFile(join(root, 'AGENTS.md'), 'PROJECT_INSTRUCTIONS_MUST_NOT_ENTER_CONNECTION_TEST');
-  runtime = createDshRuntime({ spawnProcess: (command, args, options) => {
+  const storageSentinel = '.contextflow-existing-data';
+  for (const name of ['sessions', 'storages']) {
+    await mkdir(join(dshHome, name));
+    await writeFile(join(dshHome, name, storageSentinel), 'existing Desktop data must stay unchanged');
+  }
+  const originalModelPatch = await readFile(patch, 'utf8');
+  runtime = createDshRuntime({ checkVersion: async () => realVersion, spawnProcess: (command, args, options) => {
     assert.equal(command, electron);
+    assert.equal(options.env.DSH_CLIENT_VERSION, realVersion, 'each carrier must use the detected installed version');
     if (options.env.CONTEXTFLOW_DSH_STATE_DIR) stateDirectories.push(options.env.CONTEXTFLOW_DSH_STATE_DIR);
     const child = spawn(command, ['--import', guard, ...args], options);
     children.push(child);
@@ -108,8 +130,6 @@ appendFileSync(${JSON.stringify(guardMarker)}, String(process.pid) + '\\n');
     });
     return child;
   } });
-  const env = { PATH: process.env.PATH, HOME: home, DSH_HOME: dshHome, LANG: 'en_US.UTF-8', TMPDIR: tmpdir(),
-    USER: 'contextflow-fixture', CF_LOCAL_FIXTURE_KEY: 'fixture-not-a-real-key' };
   const fullOptions = { bin, env, notesDir: root, profile: 'full', contextKey: 'same-article',
     prompt: 'FULL_READING_HISTORY_MUST_NOT_ENTER_CONNECTION_TEST', timeoutMs: 15000,
     contextState: { fresh: { loadedChunks: 1, turns: 1 } } };
@@ -117,7 +137,7 @@ appendFileSync(${JSON.stringify(guardMarker)}, String(process.pid) + '\\n');
   assert.equal(full.answer, 'OK');
   const fullChild = children[0], fullSession = runtime.getSession(fullOptions);
   assert.ok(fullSession);
-  const prepared = { id: 'dsh', label: 'DeepSeek Harness', version: '0.2.1-rc.2', path: bin, env };
+  const prepared = { id: 'dsh', label: 'DeepSeek Harness', version: realVersion, path: bin, env };
   const probeRun = options => runtime.run({ ...options, bin, env });
   mode = 'ok';
   for (let index = 0; index < 2; index++) {
@@ -131,6 +151,7 @@ appendFileSync(${JSON.stringify(guardMarker)}, String(process.pid) + '\\n');
     assert.deepEqual(runtime.getSession(fullOptions), fullSession, 'probing must keep Full context intact');
     assert.equal(runtime.servers.size, 1, 'a connection test must not join the Full worker pool');
   }
+  assert.equal(await readFile(patch, 'utf8'), originalModelPatch, 'probing must preserve model selection and credentials references');
   assert.equal(children.length, 3, 'each probe starts a separate short-lived process');
   assert.equal(fullChild.exitCode, null);
   assert.equal(fullChild.signalCode, null);
@@ -233,12 +254,16 @@ appendFileSync(${JSON.stringify(guardMarker)}, String(process.pid) + '\\n');
   assert.ok(attestedProbes.length >= calls.length - 1, 'each inference probe must attest its fixed, tool-free scope');
   assert.ok(attestedProbes.every(message => message.toolsDisabled === true));
   const guardedPids = (await readFile(guardMarker, 'utf8')).trim().split('\n').map(Number);
-  assert.deepEqual(guardedPids, children.map(child => child.pid));
+  assert.deepEqual(guardedPids, [versionPid, ...children.map(child => child.pid)]);
   for (const directory of stateDirectories) await assert.rejects(access(directory), error => error.code === 'ENOENT');
-  console.log(JSON.stringify({ result: 'PASS', realVersion: '0.2.1-rc.2', realProcesses: children.length,
+  for (const name of ['sessions', 'storages']) {
+    assert.deepEqual(await readdir(join(dshHome, name)), [storageSentinel], 'connection tests must not create Desktop session history');
+    assert.equal(await readFile(join(dshHome, name, storageSentinel), 'utf8'), 'existing Desktop data must stay unchanged');
+  }
+  console.log(JSON.stringify({ result: 'PASS', realVersion, realProcesses: children.length,
     isolatedConnectionTests: true, emptyTools: true, toolExecutionRejected: true, untrustedPluginNotLoaded: true,
     fullSessionUnchanged: true, canceledAfterPartial, timeoutRejected: true,
-    missingAccountGrantRejected: true, accountProviderPassed: true, processesClosed: true, realModelCalls: 0 }));
+    missingAccountGrantRejected: true, accountProviderPassed: true, desktopStorageUnchanged: true, processesClosed: true, realModelCalls: 0 }));
 } catch (error) {
   if (childErr) console.error(childErr);
   throw error;

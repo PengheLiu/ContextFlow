@@ -268,6 +268,7 @@ export function startDesktopUI({ desktop = window.contextflowDesktop, serviceAPI
       }); article.append(title, button); $('recovery-points').append(article);
     }
   }
+  const canTestAgent = row => row.id !== 'gemini' && (row.connectionTestSupported ?? row.safeSupport !== 'unsupported');
   async function chooseCandidate(kind, row) {
     await configuration(); if (!settings?.cfg) throw new Error('请等待本地连接就绪，再选择。');
     if (settings.saving || settings.modelWorking || settings.agentWorking) throw new Error('请先完成当前保存或测试，再切换工具。');
@@ -277,8 +278,16 @@ export function startDesktopUI({ desktop = window.contextflowDesktop, serviceAPI
       field('s-exBackend', 'agent', 'change'); field('s-agent', row.id, 'change');
       // A discovered binary is not a user-entered override. The test resolves
       // that Agent again, rather than forcing a save before it can be tested.
-      field('s-agentExecutable', ''); settings.$('s-testAgent').focus();
-      notice(`已选择 ${row.label}。请先测试连接，通过后保存；没有自动授权笔记目录或提升权限。`);
+      field('s-agentExecutable', '');
+      if (canTestAgent(row)) {
+        settings.$('s-testAgent').focus();
+        notice(`已选择 ${row.label}。请先测试连接，通过后保存；没有自动授权笔记目录或提升权限。`);
+      } else {
+        settings.$('s-agent').focus();
+        notice(row.id === 'dsh'
+          ? '连接测试需要 DeepSeek Harness 桌面版。请选择桌面版入口；若已安装桌面版，请更新 ContextFlow 后重新检测安装。'
+          : `${row.label} 暂不支持连接测试。请选择其他可测试的 Agent；已有配置尚未更改。`, true);
+      }
     } else {
       field('s-backend', row.backend || 'obsidian', 'change');
       const el = field(row.backend === 'markdown' ? 's-mdDir' : 's-vaultPath', row.path); el.focus();
@@ -297,7 +306,7 @@ export function startDesktopUI({ desktop = window.contextflowDesktop, serviceAPI
       for (const row of rows) {
         const article = make('article', 'candidate-row'), copy = make('div', 'candidate-copy'), button = make('button', '', kind === 'agents' ? '填入 AI 设置' : '选用此位置');
         copy.append(make('strong', '', kind === 'agents' ? row.label : row.name));
-        copy.append(make('small', '', kind === 'agents' ? `已发现${row.version ? ` · ${row.version}` : ''} · 尚需你选择并测试` : `${row.path}${row.open ? ' · 当前打开' : ''}`));
+        copy.append(make('small', '', kind === 'agents' ? `已发现${row.version ? ` · ${row.version}` : ''} · ${canTestAgent(row) ? '尚需你选择并测试' : '暂不支持连接测试'}` : `${row.path}${row.open ? ' · 当前打开' : ''}`));
         button.type = 'button'; button.disabled = !productState(current, cfg).running;
         button.setAttribute('aria-label', kind === 'agents' ? `将 ${row.label} 填入 AI 设置` : `选用笔记位置 ${row.name}`);
         button.onclick = () => perform(button, () => chooseCandidate(kind, row)); article.append(copy, button); list.append(article);

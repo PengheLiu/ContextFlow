@@ -972,7 +972,7 @@ export class Settings {
     this.$('s-agent').disabled=!!this.agentWorking;
     if(!this.modelWorking) for(const id of ['s-fetchModels','s-testModel']) this.$(id).disabled=!!(this.agentWorking || this.saving);
     if(!this.agentWorking) this.modelFeedback('s-agentTestStatus',outdated ? '当前本地服务暂不支持 Agent 草稿连接测试，请更新并重启配套服务。无需重新配对，已有配置保留。' : result?.message || (testUnsupported
-      ? selected?.id==='dsh' ? '此 Agent 的当前版本暂不支持受限连接测试，请重新检测安装或更新桌面版。' : '此 Agent 暂不支持受限连接测试，请改选支持受限测试的 Agent。'
+      ? selected?.id==='dsh' ? '连接测试需要 DeepSeek Harness 桌面版。请选择桌面版入口；若已安装桌面版，请更新 ContextFlow 后重新检测安装。' : '此 Agent 暂不支持受限连接测试，请改选支持受限测试的 Agent。'
       : selected?.id==='dsh' ? '连接测试使用独立会话并禁用全部工具，仅验证登录和模型回答。' : this.agentChoiceChanged() ? '测试当前 Agent 草稿，成功后再保存；不会保存配置或授权笔记。' : ''),result && !result.ok && !result.canceled ? true : result?.ok ? false : null);
     this.refreshSaveState();
   }

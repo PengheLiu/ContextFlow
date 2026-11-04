@@ -72,7 +72,7 @@ ContextFlow 是为深度阅读打造的浏览器阅读工作台。读论文、�
 
 ### 需要 AI 或笔记同步时，再连接桌面端
 
-[官网下载页](https://pengheliu.github.io/ContextFlow/download.html)提供 Mac Apple Silicon 桌面端 1.1.1 的 DMG 与 SHA-256 校验文件，要求 macOS 13.5+。桌面端内置本地运行环境，最终用户不需要安装 Node.js、Git 或运行 npm。Mac Intel 和 Windows 暂未开放安装包下载，不要随机选择其他架构。
+[官网下载页](https://pengheliu.github.io/ContextFlow/download.html)提供 Mac Apple Silicon 桌面端 1.1.2 的 DMG 与 SHA-256 校验文件，要求 macOS 13.5+。桌面端内置本地运行环境，最终用户不需要安装 Node.js、Git 或运行 npm。Mac Intel 和 Windows 暂未开放安装包下载，不要随机选择其他架构。
 
 桌面一键连接需要 **ContextFlow Chrome 扩展 1.1.0 或更高版本**。下载前请在扩展「连接与设置」确认有「连接桌面端」入口；商店可安装版本以实际页面为准。没有入口时，可先继续高亮、批注与 Markdown 导出，不要卸载扩展。
 
@@ -124,6 +124,6 @@ ContextFlow 是为深度阅读打造的浏览器阅读工作台。读论文、�
 
 遇到问题或有使用建议，欢迎[提交 Issue](https://github.com/PengheLiu/ContextFlow/issues)。请附上扩展版本、浏览器版本、复现步骤和脱敏截图。
 
-[发行记录](https://github.com/PengheLiu/ContextFlow/releases) · [桌面 v1.1.1](https://github.com/PengheLiu/ContextFlow/releases/tag/v1.1.1) · [开发指南](./docs/DEVELOPMENT.md) · [架构与安全设计](./DESIGN.md) · [MIT License](./LICENSE)
+[发行记录](https://github.com/PengheLiu/ContextFlow/releases) · [桌面 v1.1.2](https://github.com/PengheLiu/ContextFlow/releases/tag/v1.1.2) · [开发指南](./docs/DEVELOPMENT.md) · [架构与安全设计](./DESIGN.md) · [MIT License](./LICENSE)
 
-当前源码与桌面客户端版本为 v1.1.1。Chrome 扩展更新由商店单独审核与分发，可安装版本以商店页面为准。
+当前源码与桌面客户端版本为 v1.1.2。Chrome 扩展更新由商店单独审核与分发，可安装版本以商店页面为准。

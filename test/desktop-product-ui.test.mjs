@@ -19,7 +19,7 @@ const initialStatus = () => ({ version: '1.0.0', platform: 'darwin', architectur
   discovery: { agents: { state: 'done', items: [] }, notes: { state: 'done', items: [] } },
 });
 const tick = async () => { for (let n = 0; n < 8; n++) await new Promise(resolve => setTimeout(resolve, 0)); };
-async function fixture({ state = initialStatus(), config = initialConfig(), actionError } = {}) {
+async function fixture({ state = initialStatus(), config = initialConfig(), actionError, serviceAPI = {} } = {}) {
   state.journey.destination = destinationIdentity(config);
   const dom = new JSDOM(html, { pretendToBeVisual: true, url: 'https://desktop.test/' });
   for (const key of ['window', 'document', 'HTMLElement', 'Node', 'Event']) globalThis[key] = dom.window[key];
@@ -30,6 +30,7 @@ async function fixture({ state = initialStatus(), config = initialConfig(), acti
     listFolders: async () => ({ root: '/isolated', folders: ['/阅读记录'] }), listVaults: async () => ({ vaults: state.discovery.notes.items }),
     health: async () => ({ serviceVersion: '1.0.0', capabilities: ['llm.draft', 'agent.test', 'connection.checks'] }),
     detectAgents: async () => ({ agents: state.discovery.agents.items, connectionChecks: config.connectionChecks }),
+    ...serviceAPI,
   };
   const desktop = {
     status: async () => structuredClone(state), request: async () => { throw new Error('Unexpected network request'); },
@@ -127,6 +128,58 @@ test('discovered Agent stays unselected until explicit click; selection fills bu
     assert.equal(f.ui.settings.$('s-agent').value, 'codex'); assert.equal(f.ui.settings.$('s-agentExecutable').value, '');
     assert.equal(f.ui.settings.$('s-profileSafe').checked, true); assert.equal(f.ui.settings.$('s-notesDir').value, '');
     assert.equal(f.calls.length, 0); assert.match(f.$('toast-message').textContent, /先测试.*保存/);
+  } finally { f.close(); }
+});
+test('rc.5 discovered desktop can test an unsaved choice and save only after an actual successful response', async () => {
+  const state = initialStatus(), config = initialConfig(), tests = [];
+  const agent = { id: 'dsh', label: 'DeepSeek Harness', available: true, source: 'desktop', path: '/isolated/DeepSeek Harness.app/bin/dsh', version: '0.2.1-rc.5', safeSupport: 'unsupported', connectionTestSupported: true };
+  state.discovery.agents.items = [agent];
+  Object.assign(config.agent, { fullWarningVersion: 1, fullWarningHash: 'fixture-warning-hash', fullWarning: 'fixture warning' });
+  const f = await fixture({ state, config, serviceAPI: {
+    health: async () => ({ serviceVersion: 'fixture', capabilities: ['llm.draft', 'agent.test', 'agent.test.draft', 'connection.checks'] }),
+    testAgent: async (id, options) => {
+      tests.push({ id, draft: structuredClone(options.draft) });
+      return { ok: true, agent: id, label: agent.label, path: agent.path, version: agent.version, safeSupport: agent.safeSupport,
+        connectionTestSupported: true, configuredProfile: options.draft.profile, profile: 'safe', scope: 'connection-only' };
+    },
+  } });
+  try {
+    await f.ui.page('ai');
+    f.$('agent-candidates').querySelector('button').click(); await tick();
+    const settings = f.ui.settings;
+    assert.equal(settings.$('s-testAgent').disabled, false, 'the discovered rc.5 choice can be tested before save');
+    assert.equal(settings.$('s-save').disabled, true);
+    assert.equal(tests.length, 0); assert.equal(f.calls.length, 0);
+    // Ordinary DSH use still requires the user's explicit Full choice and acknowledgement.
+    settings.$('s-profileSafe').checked = false; settings.$('s-profileFull').checked = true;
+    settings.$('s-profileFull').dispatchEvent(new Event('change', { bubbles: true }));
+    settings.$('s-fullAck').checked = true;
+    settings.$('s-fullAck').dispatchEvent(new Event('change', { bubbles: true }));
+    settings.$('s-testAgent').click(); await tick();
+    assert.equal(tests.length, 1); assert.equal(tests[0].id, 'dsh'); assert.equal(tests[0].draft.profile, 'full');
+    assert.equal(f.calls.length, 0, 'a successful probe must not save the draft');
+    assert.equal(settings.$('s-agentReady').textContent, '可用');
+    assert.equal(settings.$('s-save').disabled, false);
+    settings.$('s-save').click(); await tick();
+    assert.equal(f.calls.length, 1); assert.equal(f.calls[0].agent.id, 'dsh');
+    assert.equal(f.calls[0].agent.fullAccessAcknowledgement.agentId, 'dsh');
+    assert.equal(f.calls[0].agent.notesDir, '');
+    assert.equal(settings.dirty, false);
+  } finally { f.close(); }
+});
+test('unsupported DSH discovery tells the user to update ContextFlow instead of asking for a disabled test', async () => {
+  const state = initialStatus();
+  state.discovery.agents.items = [{ id: 'dsh', label: 'DeepSeek Harness', available: true, source: 'desktop', version: 'unverified-fixture', safeSupport: 'unsupported', connectionTestSupported: false }];
+  const f = await fixture({ state });
+  try {
+    await f.ui.page('ai');
+    assert.match(f.$('agent-candidates').textContent, /暂不支持连接测试/);
+    f.$('agent-candidates').querySelector('button').click(); await tick();
+    assert.equal(f.ui.settings.$('s-testAgent').disabled, true);
+    assert.match(f.$('toast-message').textContent, /需要 DeepSeek Harness 桌面版.*请更新 ContextFlow/);
+    assert.doesNotMatch(f.$('toast-message').textContent, /请先测试/);
+    assert.equal(f.$('toast').getAttribute('role'), 'alert');
+    assert.equal(f.calls.length, 0);
   } finally { f.close(); }
 });
 test('note candidates and native picker only fill shared fields; defaults need explicit saved-location confirmation', async () => {

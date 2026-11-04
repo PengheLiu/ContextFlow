@@ -2,7 +2,7 @@
   "name": "contextflow",
   "private": true,
   "type": "module",
-  "version": "1.1.1",
+  "version": "1.1.2",
   "description": "浏览器阅读过程 context 采集与笔记库同步",
   "homepage": "https://pengheliu.github.io/ContextFlow/",
   "scripts": {
@@ -48,7 +48,7 @@
     "test:codex": "node --test test/codex-errors.test.mjs test/codex-profile-draft.test.mjs test/codex-home-config.test.mjs test/codex-readiness-config.test.mjs test/codex-readiness-core.test.mjs && node test/codex-note-tools.test.mjs && node test/codex-app-server.test.mjs && node test/codex-reading-session.test.mjs",
     "test:codex:installed": "node --test test/codex-installed-connection.test.mjs",
     "test:stream": "node test/job-stream.test.mjs && node test/job-stream-http.test.mjs && node test/extension-job-stream.test.mjs",
-    "test:dsh": "node test/dsh-installation.test.mjs && node test/dsh-detection.test.mjs && node test/dsh-probe-config.test.mjs && node test/dsh-connection-test.test.mjs && node test/dsh-runtime.test.mjs && node test/dsh-reading-session.test.mjs",
+    "test:dsh": "node test/dsh-installation.test.mjs && node test/dsh-detection.test.mjs && node test/dsh-probe-config.test.mjs && node --test test/dsh-probe-contract.test.mjs && node test/dsh-connection-test.test.mjs && node test/dsh-runtime.test.mjs && node test/dsh-reading-session.test.mjs",
     "test:dsh:installed": "node test/dsh-desktop-installed.test.mjs",
     "test:dsh:connection:installed": "node test/dsh-desktop-connection.test.mjs",
     "test:dsh:legacy:installed": "node test/dsh-installed.test.mjs"

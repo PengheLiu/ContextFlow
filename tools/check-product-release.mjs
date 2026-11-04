@@ -15,7 +15,8 @@ export const UNSIGNED_MAC_RELEASE = Object.freeze({ target: 'darwin-arm64', vers
 // Explicitly reviewed independent distributions; adding a version never
 // authorizes another platform, a signing claim or reuse of a frozen tag.
 export const UNSIGNED_MAC_RELEASES = Object.freeze([UNSIGNED_MAC_RELEASE,
-  Object.freeze({ target: 'darwin-arm64', version: '1.1.1', releaseTag: 'v1.1.1', artifact: 'ContextFlow-1.1.1-mac-arm64.dmg' })]);
+  Object.freeze({ target: 'darwin-arm64', version: '1.1.1', releaseTag: 'v1.1.1', artifact: 'ContextFlow-1.1.1-mac-arm64.dmg' }),
+  Object.freeze({ target: 'darwin-arm64', version: '1.1.2', releaseTag: 'v1.1.2', artifact: 'ContextFlow-1.1.2-mac-arm64.dmg' })]);
 export const EVIDENCE_BOUNDARY = '本检查只核验文件、引用和验收证据的一致性；不亲自执行签名、公证、安装、升级或商店审核，不证明报告不可伪造，也不授权发布。';
 const fail = message => { throw new Error(message); };
 const record = value => value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -157,7 +158,7 @@ export function validateReleaseBundle(manifest, { directory, sourceState, source
   if (!record(manifest) || manifest.schemaVersion !== 1 || !version(manifest.version) || manifest.channel !== 'release') fail('正式发行清单必须声明 schemaVersion=1、正式语义版本和 release 渠道。');
   if (sourceState?.channel !== 'release' || manifest.version !== sourceState.candidateVersion) fail('源码仍为 preview 或版本不匹配，不能提交正式发行。');
   if (!['manual', 'auto'].includes(manifest.updateMode) || manifest.updateMode !== sourceState.desktop?.updateMode) fail('正式清单的更新方式必须与源码公开状态一致。');
-  if (UNSIGNED_MAC_RELEASES.some(release => !later(manifest.version, release.version))) fail('v1.1.0 / v1.1.1 已保留为未签名分发，后续正式签名发行必须使用更高版本，不覆盖既有 tag。');
+  if (UNSIGNED_MAC_RELEASES.some(release => !later(manifest.version, release.version))) fail('既有 tag 已保留为未签名分发，后续正式签名发行必须使用更高版本，不覆盖既有 tag。');
   if (![sourceState.publishedExtension.version, sourceState.publishedGithub.version].every(published => later(manifest.version, published))) fail('必须使用高于已公开版本的新版本，不覆盖冻结发行。');
   if (!gitClean || !commit(manifest.sourceCommit) || manifest.sourceCommit !== sourceCommit || manifest.sourceCommit !== tagCommit
     || manifest.tag !== `v${manifest.version}`) fail('源码必须已提交且干净，HEAD、版本 tag 与清单 commit 必须一致。');

@@ -36,7 +36,7 @@ export async function prepareAgentTest(id, cfg, detect = agent.detect) {
   const installed = (await detect(true, testConfig.agent)).find(row => row.id === id);
   if (!installed?.available) throw error(`${agent.AGENTS[id].label} 未安装或本地服务找不到可执行程序。安装后重新检测；终端别名不等于可执行程序。`, 'NO_AGENT');
   if (!(installed.connectionTestSupported ?? installed.safeSupport !== 'unsupported')) {
-    throw error(`${installed.label} 当前版本暂不支持受限的连接测试。${id === 'dsh' ? '请重新检测安装或更新桌面版。' : '请改选支持受限连接测试的 Agent。'}`, 'AGENT_SAFE_UNSUPPORTED');
+    throw error(id === 'dsh' ? '连接测试需要 DeepSeek Harness 桌面版。请选择桌面版入口，更新 ContextFlow 后重新检测安装。' : `${installed.label} 当前版本暂不支持受限的连接测试。请改选支持受限连接测试的 Agent。`, 'AGENT_SAFE_UNSUPPORTED');
   }
   return { id, label: installed.label, version: installed.version, path: installed.path, identity: installed.identity || '',
     executable: testConfig.agent.executable, profile: testConfig.agent.profile,
@@ -72,7 +72,7 @@ export async function testAgentConnection(prepared, { signal, run = agent.run } 
       CODEX_RPC_TIMEOUT:'连接 Codex 的本地协议超时。请检查 CLI 是否能正常启动，重新检测后重试。',
       CODEX_DISCONNECTED:'Codex 进程已断开。请检查 CLI 与当前配置，重新检测后重试；本次不会自动重放。',
       CODEX_RPC:'Codex 未能完成请求。请查看诊断信息并联系支持。（支持代码：CODEX_RPC）',
-      DSH_DESKTOP_UNSUPPORTED:'桌面版接口不兼容，请更新配套服务后重新检测。',
+      DSH_DESKTOP_UNSUPPORTED:'模型连接接口不兼容。请更新 ContextFlow 后重试，或改用模型 API 连接；不会自动切换到其他 Agent。',
       DSH_PROBE_UNSUPPORTED:'当前默认模型使用了受限测试尚不支持的配置。请在桌面版确认 DeepSeek 官方账号或 API 模型的配置后重试。',
       AGENT_TEST_TOOLS_FORBIDDEN:'模型在连接测试中尝试调用工具，测试已停止。',
       DSH_TEST_ISOLATION:'无法建立禁用工具的测试会话，本次测试已停止。',ABORTED:'测试已取消。'};

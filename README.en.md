@@ -70,7 +70,7 @@ ContextFlow connects the web, AI, and your existing knowledge rather than creati
 
 ### Add AI or note sync when you need them
 
-The [desktop download page](https://pengheliu.github.io/ContextFlow/download.html) provides Desktop 1.1.1 for Apple Silicon as a DMG with a SHA-256 checksum; macOS 13.5+ is required. The package includes its runtime, so end users do not need Node.js, Git, or npm. Intel Mac and Windows installers are not open for download; do not substitute a different architecture.
+The [desktop download page](https://pengheliu.github.io/ContextFlow/download.html) provides Desktop 1.1.2 for Apple Silicon as a DMG with a SHA-256 checksum; macOS 13.5+ is required. The package includes its runtime, so end users do not need Node.js, Git, or npm. Intel Mac and Windows installers are not open for download; do not substitute a different architecture.
 
 Desktop one-click connection requires **ContextFlow Chrome extension 1.1.0 or later**. Before downloading, open the extension's **连接与设置** and confirm that **连接桌面端** (Connect desktop) is available. The actual store page determines which version can be installed. If the entry is absent, continue highlighting, annotating, and exporting Markdown; do not uninstall the extension.
 
@@ -120,6 +120,6 @@ Export or sync regularly. Uninstalling the extension clears its browser records,
 
 [Report a bug or suggest an improvement](https://github.com/PengheLiu/ContextFlow/issues). Include your extension version, browser version, reproduction steps, and a redacted screenshot.
 
-[Releases](https://github.com/PengheLiu/ContextFlow/releases) · [Desktop v1.1.1](https://github.com/PengheLiu/ContextFlow/releases/tag/v1.1.1) · [Development guide](./docs/DEVELOPMENT.md) · [Architecture and security](./DESIGN.md) · [MIT License](./LICENSE)
+[Releases](https://github.com/PengheLiu/ContextFlow/releases) · [Desktop v1.1.2](https://github.com/PengheLiu/ContextFlow/releases/tag/v1.1.2) · [Development guide](./docs/DEVELOPMENT.md) · [Architecture and security](./DESIGN.md) · [MIT License](./LICENSE)
 
-The current source and desktop app version is v1.1.1. Chrome extension updates are reviewed and distributed separately; check the actual store page for the installable version.
+The current source and desktop app version is v1.1.2. Chrome extension updates are reviewed and distributed separately; check the actual store page for the installable version.

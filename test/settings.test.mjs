@@ -59,9 +59,10 @@ await t('DSH 旧命令行与自定义入口显示实际来源', () => {
 });
 
 await t('桌面 DSH 可单独支持禁用工具的连接测试，普通 Safe 权限仍未开放', () => {
+  for(const version of ['0.2.1-rc.2','0.2.1-rc.5','1.0.0-future']) {
   const s = make();
   Object.assign(s.agents.find(agent => agent.id === 'dsh'), {
-    source: 'desktop', version: '0.2.1-rc.2', connectionTestSupported: true,
+    source: 'desktop', version, connectionTestSupported: true,
   });
   s.wantAgent = 'dsh'; s.syncAgentSel();
   assert.equal(s.$('s-testAgent').disabled, false);
@@ -71,6 +72,8 @@ await t('桌面 DSH 可单独支持禁用工具的连接测试，普通 Safe 权
   s.agents.find(agent => agent.id === 'dsh').connectionTestSupported = false;
   s.renderAgentState();
   assert.equal(s.$('s-testAgent').disabled, true);
+  assert.match(s.$('s-agentTestStatus').textContent,/需要 DeepSeek Harness 桌面版.*请更新 ContextFlow/);
+  }
 });
 
 await t('默认安全档可直接保存且不生成完整权限确认', () => {

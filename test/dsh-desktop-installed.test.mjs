@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
-import { spawn } from 'node:child_process';
+import { spawn, execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import { access, mkdtemp, mkdir, readFile, readdir, realpath, writeFile, rm } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
@@ -7,7 +8,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createDshRuntime } from '../server/dsh-runtime.mjs';
 
-// Real Desktop 0.2.1-rc.2 protocol, fake provider only. All child fetches and TCP connections
+// Real installed Desktop protocol, fake provider only. All child fetches and TCP connections
 // are restricted to 127.0.0.1 by a preload, and no personal configuration is used.
 // Opt in with npm run test:dsh:installed; CONTEXTFLOW_DSH_BIN selects another
 // installed macOS Desktop CLI entry. Electron ignores NODE_OPTIONS, so the
@@ -18,6 +19,9 @@ const electron = resolve(resources, '../MacOS/DeepSeek Harness');
 const root = await mkdtemp(join(tmpdir(), 'cf-dsh-desktop-mock-'));
 const home = join(root, 'home'), dshHome = join(root, 'dsh');
 await mkdir(home); await mkdir(dshHome);
+const env = { PATH: process.env.PATH, HOME: home, DSH_HOME: dshHome, LANG: 'en_US.UTF-8', TMPDIR: tmpdir(),
+  USER: 'contextflow-fixture', CF_LOCAL_FIXTURE_KEY: 'fixture-not-a-real-key' };
+const execFileAsync = promisify(execFile);
 let runtime, requests = 0, childErr = '';
 const children = [];
 const privateStateDirectories = [];
@@ -86,6 +90,17 @@ tls.connect = () => { throw Error('OUTBOUND_TLS_BLOCKED'); };
 syncBuiltinESMExports();
 appendFileSync(${JSON.stringify(guardMarker)}, String(process.pid) + '\\n');
 `);
+  // Read the installed package version without booting its CLI/profile. This
+  // metadata reader is guarded and isolated just like every model worker.
+  const versionProbe = execFileAsync(electron, ['--import', guard, '--input-type=module', '-e',
+    'import {readFileSync} from "node:fs"; console.log(JSON.parse(readFileSync(process.argv[1], "utf8")).version);',
+    join(resources, 'app.asar/dsh/node_modules/@deepseek-ai/dsh-desktop-host/package.json')], {
+    env: { ...env, ELECTRON_RUN_AS_NODE: '1' }, cwd: root, timeout: 5000, killSignal: 'SIGKILL', maxBuffer: 65536,
+  });
+  const versionPid = versionProbe.child.pid;
+  const realVersion = (await versionProbe).stdout.trim();
+  assert.match(realVersion, /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/);
+
   const desktopProfile = join(dshHome, 'profiles/desktop');
   await mkdir(desktopProfile, { recursive: true });
   await writeFile(join(desktopProfile, 'package.json'), JSON.stringify({
@@ -101,8 +116,9 @@ appendFileSync(${JSON.stringify(guardMarker)}, String(process.pid) + '\\n');
     await mkdir(join(dshHome, name));
     await writeFile(join(dshHome, name, sentinel), 'existing Desktop data must stay unchanged');
   }
-  runtime = createDshRuntime({ spawnProcess: (command, args, options) => {
+  runtime = createDshRuntime({ checkVersion: async () => realVersion, spawnProcess: (command, args, options) => {
     assert.equal(command, electron, 'the bundled Desktop Host must start, not the CLI Web profile');
+    assert.equal(options.env.DSH_CLIENT_VERSION, realVersion, 'the worker must use the detected installed version');
     assert.ok(args.includes(fileURLToPath(new URL('../server/dsh-desktop-host.mjs', import.meta.url))));
     assert.ok(args.includes(desktopProfile));
     assert.ok(options.stdio.includes('ipc'), 'Desktop readiness must use its owned IPC channel');
@@ -119,8 +135,6 @@ appendFileSync(${JSON.stringify(guardMarker)}, String(process.pid) + '\\n');
     child.stderr.on('data', chunk => { childErr = (childErr + chunk).slice(-4000); });
     return child;
   } });
-  const env = { PATH: process.env.PATH, HOME: home, DSH_HOME: dshHome, LANG: 'en_US.UTF-8', TMPDIR: tmpdir(),
-    USER: 'contextflow-fixture', CF_LOCAL_FIXTURE_KEY: 'fixture-not-a-real-key' };
   const events = [];
   const options = { bin, env, notesDir: root, profile: 'full', timeoutMs: 15000,
     contextKey: 'article-fixture', prompt: '固定测试问题一，直接回答，不调用工具。',
@@ -174,7 +188,7 @@ appendFileSync(${JSON.stringify(guardMarker)}, String(process.pid) + '\\n');
   await runtime.close();
   assert.ok(children.every(child => child.exitCode !== null || child.signalCode !== null));
   const guardedPids = (await readFile(guardMarker, 'utf8')).trim().split('\n').map(Number);
-  assert.deepEqual(guardedPids, children.map(child => child.pid), 'every real Desktop process loaded the network guard');
+  assert.deepEqual(guardedPids, [versionPid, ...children.map(child => child.pid)], 'every real Desktop process loaded the network guard');
   assert.equal(await readFile(patch, 'utf8'), originalProfilePatch, 'worker-only isolation must not edit the Desktop profile');
   assert.equal(new Set(privateStateDirectories).size, children.length, 'each owned process needs separate private storage');
   for (const directory of privateStateDirectories) await assert.rejects(access(directory), error => error.code === 'ENOENT');
@@ -182,7 +196,7 @@ appendFileSync(${JSON.stringify(guardMarker)}, String(process.pid) + '\\n');
     assert.deepEqual(await readdir(join(dshHome, name)), [sentinel], 'the worker must not add files to Desktop storage');
     assert.equal(await readFile(join(dshHome, name, sentinel), 'utf8'), 'existing Desktop data must stay unchanged');
   }
-  console.log(JSON.stringify({ result: 'PASS', realVersion: '0.2.1-rc.2', realProcesses: children.length,
+  console.log(JSON.stringify({ result: 'PASS', realVersion, realProcesses: children.length,
     resumed: second.resumed, sameSession: first.sessionId === second.sessionId, localModelRequests: requests,
     incrementalAnswer: events.some(event => event.type === 'answer' && event.text === '隔离'), usage: second.usage,
     errorRejected: true, canceledAfterPartial: partialSeen, processesClosed: true,

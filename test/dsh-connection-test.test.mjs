@@ -15,7 +15,8 @@ const base = { bin, env: {}, profile: 'safe', connectionTest: true,
   notesDir: '', prompt: DSH_CONNECTION_PROMPT, timeoutMs: 1000 };
 let count = 0;
 const test = async (name, fn) => { await fn(); count++; console.log('  ok   ' + name); };
-function fixture({ scope = 'connection-only', hang = false, ignoreTerm = false, onRun, checkVersion } = {}) {
+function fixture({ contract = 1, scope = 'connection-only', toolsDisabled = true, exitBeforeReady = false,
+  hang = false, ignoreTerm = false, onRun, checkVersion } = {}) {
   const children = [];
   const tester = createDshConnectionTester({ interruptMs: 10, checkVersion: checkVersion || (async () => '0.2.1-rc.2'),
     spawnProcess(command, argv, options) {
@@ -39,7 +40,7 @@ function fixture({ scope = 'connection-only', hang = false, ignoreTerm = false, 
         close(null, signal);
       };
       children.push(child);
-      setImmediate(() => child.emit('message', { type: 'ready', scope, toolsDisabled: true }));
+      setImmediate(() => exitBeforeReady ? close(1) : child.emit('message', { type: 'ready', contract, scope, toolsDisabled }));
       return child;
     },
   });
@@ -47,6 +48,23 @@ function fixture({ scope = 'connection-only', hang = false, ignoreTerm = false, 
 }
 
 try {
+  await test('new desktop releases use their installed version and qualify by capability instead of a version list', async () => {
+    for (const version of ['0.2.1-rc.2', '0.2.1-rc.5', '0.2.1-rc.6', '0.2.2-alpha.3', '1.0.0-future']) {
+      const f = fixture({ checkVersion: async () => version });
+      try {
+        assert.equal((await f.tester.run(base)).answer, 'OK');
+        assert.equal(f.children[0].options.env.DSH_CLIENT_VERSION, version);
+        assert.deepEqual(f.children[0].sent, [{ type: 'run' }]);
+      } finally { await f.tester.close(); }
+    }
+    for (const version of ['', null, '1.0.0\r\ninvalid', 'x'.repeat(201)]) {
+      const rejected = fixture({ checkVersion: async () => version });
+      try {
+        await assert.rejects(rejected.tester.run(base), e => e.code === 'DSH_DESKTOP_UNSUPPORTED' && e.submitted === false);
+        assert.equal(rejected.children.length, 0);
+      } finally { await rejected.tester.close(); }
+    }
+  });
   await test('model-only probes always use new owned children and transmit only a run marker', async () => {
     const f = fixture();
     for (let i = 0; i < 2; i++) {
@@ -72,10 +90,19 @@ try {
     assert.equal(f.children.length, 0); await f.tester.close();
   });
   await test('invalid child capability handshake cannot submit the fixed model request', async () => {
-    const f = fixture({ scope: 'full' });
-    await assert.rejects(f.tester.run(base), e => e.code === 'AGENT_ERROR');
+    for(const handshake of [{scope:'full'},{contract:0},{toolsDisabled:false}]) {
+    const f = fixture(handshake);
+    await assert.rejects(f.tester.run(base), e => e.code === 'DSH_TEST_ISOLATION');
     assert.equal(f.children[0].sent.length, 0);
     assert.deepEqual(f.children[0].kills, ['SIGTERM']); await f.tester.close();
+    }
+  });
+  await test('a runtime that exits before attesting compatibility never receives the model run marker', async () => {
+    const f = fixture({ exitBeforeReady: true, checkVersion: async () => '1.0.0-future' });
+    try {
+      await assert.rejects(f.tester.run(base), e => e.code === 'DSH_DESKTOP_UNSUPPORTED');
+      assert.deepEqual(f.children[0].sent, []);
+    } finally { await f.tester.close(); }
   });
   await test('abort waits for owned child SIGKILL and never retries the model request', async () => {
     const controller = new AbortController();

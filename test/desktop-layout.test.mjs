@@ -208,9 +208,24 @@ test('Isolated Electron verifies the shared theme, keyboard, pages, notices and 
       assert.equal(await evaluate('window.layoutFixture.ui.settings.$("s-codexHomeField").hidden'),false,'Codex configuration directory is visible in the actual shared form');
       assert.equal(await evaluate('window.layoutFixture.ui.settings.$("s-codexHome").placeholder'),'/Users/Example/.codex','The actual default directory must be visible');
       assert.equal(await evaluate('window.layoutFixture.ui.settings.$("s-codexHome").disabled'),false,'A supported service permits editing the unsaved Codex directory');
+      // Reproduce selection of the installed rc.5 desktop in the native renderer.
+      // This checks discovery -> unsaved form state only: no model call, service,
+      // personal profile, or saved configuration participates in this fixture.
+      await evaluate('(()=>{const f=window.layoutFixture;f.state.discovery.agents.items=[{id:"dsh",label:"DeepSeek Harness",available:true,source:"desktop",path:"/isolated/DeepSeek Harness.app/Contents/Resources/runtime/cli/bin/dsh",version:"0.2.1-rc.5",safeSupport:"unsupported",connectionTestSupported:true}];return f.ui.refresh()})()');
+      await evaluate('window.layoutFixture.ui.settings.detectAgents(true)');
+      await evaluate('document.getElementById("agent-candidates").querySelector("button").click()');
+      for(let n=0;n<30&&(await evaluate('window.layoutFixture.ui.settings.$("s-agent").value'))!=='dsh';n++)await new Promise(resolve=>setTimeout(resolve,10));
+      await frames();
+      const agentCompatibility=await evaluate('(()=>{const f=window.layoutFixture,s=f.ui.settings;return {id:s.$("s-agent").value,option:s.$("s-agent").selectedOptions[0].textContent,installed:s.$("s-agentInstalled").textContent,version:s.$("s-agentVersion").textContent,testEnabled:!s.$("s-testAgent").disabled,hint:s.$("s-agentTestStatus").textContent,toast:document.getElementById("toast-message").textContent,savedId:f.config.agent.id}})()');
+      assert.equal(agentCompatibility.id,'dsh');assert.match(agentCompatibility.option,/DeepSeek Harness · 桌面版 · 已安装/);
+      assert.equal(agentCompatibility.installed,'已找到桌面版');assert.equal(agentCompatibility.version,'版本：0.2.1-rc.5');
+      assert.equal(agentCompatibility.testEnabled,true,'Installed rc.5 permits a connection test before saving');
+      assert.match(agentCompatibility.hint,/独立会话.*禁用全部工具/);assert.doesNotMatch(agentCompatibility.hint,/不支持|尚未适配/);
+      assert.match(agentCompatibility.toast,/请先测试连接/);assert.equal(agentCompatibility.savedId,'','Selecting the installed rc.5 must not save the draft');
+      await evaluate('window.layoutFixture.ui.settings.$("s-agentVersion").scrollIntoView({block:"center"})');await frames();await overflow('DSH rc.5 settings');await capture('wide-page-ai-dsh-rc5.png');
       for(const step of ['connect','tools','notes']){await evaluate('window.layoutFixture.state.journey.step='+JSON.stringify(step)+';window.layoutFixture.ui.refresh()');await evaluate('window.layoutFixture.ui.page("setup")');await frames();const nav=await navigation('setup');await overflow('setup '+step);await capture('wide-page-setup-'+step+'.png');pages.push({size:'wide',page:'setup-'+step,navigation:nav})}
       win.webContents.debugger.detach();
-      assert.deepEqual(issues,[]);fs.writeFileSync(path.join(evidence,'layout-report.json'),JSON.stringify({format:'ContextFlowDesktopLayout',isolated:true,serviceStarted:false,cases:reports,themes,motion,pages},null,2));
+      assert.deepEqual(issues,[]);fs.writeFileSync(path.join(evidence,'layout-report.json'),JSON.stringify({format:'ContextFlowDesktopLayout',isolated:true,serviceStarted:false,cases:reports,themes,motion,pages,agentCompatibility},null,2));
       win.destroy();app.quit();
     }).catch(error=>{console.error(error);if(win&&!win.isDestroyed())win.destroy();app.exit(1)});
   `);
@@ -228,5 +243,6 @@ test('Isolated Electron verifies the shared theme, keyboard, pages, notices and 
   assert.equal(report.cases.length, 3); assert.equal(report.serviceStarted, false);
   assert.deepEqual(report.themes.map(value => value.appearance), ['light', 'dark']);
   assert.equal(report.motion.reduce, true); assert.equal(report.pages.length, 18);
+  assert.equal(report.agentCompatibility.version, '版本：0.2.1-rc.5'); assert.equal(report.agentCompatibility.testEnabled, true);
   console.log('Electron layout evidence: '+evidence);
 });
