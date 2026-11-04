@@ -2,7 +2,7 @@
 
 ## 当前边界
 
-当前源码版本为 **1.1.1**，配套桌面端与官网已发布；2026-10-26 通过 Chrome 原生界面核实商店 1.1.0 已发布，1.1.1 精确 ZIP 于当日 10:16（北京时间）提交成功，当前待审核，保留通过后自动发布。Chrome 审核为单独流程，本次提交成功不代表已获批或上线。公开版本及资源以 `product/release.json` 中的已发布记录为准，本地构建成功不会自动改变官网链接。
+当前源码、桌面客户端和配套服务版本为 **1.1.3**，本轮公开分发冻结功能源码为 `211b5849e6bd6f9db9c30649948ce149e974a74c`。2026-11-04 核实 Chrome 商店公开版本为 **1.1.1**；1.1.3 正在准备上传并提交审核，未收到后台成功回执前不标记已送审，未确认公开版本前不标记已上线。GitHub、官网和 Chrome 商店分别核对；当前公开版本及资源以 `product/release.json` 的渠道记录、实际附件和后台为准。
 
 历史分发记录（2026-10-23）：公开商店与 GitHub 冻结正式发行均为 1.0.0；Mac ARM64 桌面端、companion、Chrome 与网站 ZIP 在 tag `v1.1.0` 分发，GitHub 标为 prerelease、非 latest。Mac 包未 Developer ID 签名 / Apple 公证，不能宣传为受系统信任的签名包。官网不加“预览版”标签，但须保留安装安全说明和验证范围。其他桌面架构未开放下载。初次审查时线上下载页为 404；没有完成部署及公开验证前，不报告“官网已更新”。后续发行使用新版本，不覆盖此次 tag 或旧 v1.0.0。本文件末尾的早期 0.3.x 记录不代表当前最新版本。当前门禁与未完成事项见[发布准备清单](../docs/RELEASE_READINESS.md)。
 
@@ -39,6 +39,7 @@ python3 -m http.server 7339 --bind 127.0.0.1 --directory release/website
 - `site.css`：官网桌面与窄屏样式。
 - `privacy.html`：完整隐私政策。
 - `demo.html`：不含真实个人数据的阅读示例。
+- `updates.json`：由已发布渠道记录生成的公开版本清单，分别记录插件和已开放桌面平台，不将待审核插件冒充已发布版本。
 - `assets/mark.svg`、`assets/inline-annotation.png`、`assets/reading-library.png`：品牌标记与 1.0 真实产品截图，从仓库资产目录复制，不依赖远程图床。
 
 有仓库写权限并已登录 GitHub CLI 的维护者，在测试与浏览器检查通过后执行：
@@ -55,7 +56,7 @@ gh api repos/PengheLiu/ContextFlow/pages/builds/latest
 
 部署后验收：
 
-先运行 `npm run check:public-surface`：检查冻结公开版本的 companion / SHA、独立桌面 DMG / SHA 及摘要绑定，以及官网首页、`download.html`、隐私与练习页。默认 `npm run check:release-links` 检查源码候选版本的正式 companion 下载，不会把已公开 1.0 的成功误当成 1.1 扩展已上线；可追加 `-- --website` 检查官网入口。
+先运行 `npm run check:public-surface`：检查冻结公开版本的 companion / SHA、独立桌面 DMG / SHA 及摘要绑定，以及官网首页、`download.html`、隐私、练习页与公开版本清单。默认 `npm run check:release-links` 检查源码候选版本的正式 companion 下载，不会把已公开 1.0 的成功误当成 1.1 扩展已上线；可追加 `-- --website` 检查官网入口。
 
 1. 使用未登录环境打开首页及 `privacy.html`，确认返回 HTML 内容而不是源码下载、登录页或 404。
 2. 核对隐私政策标题和更新日期，并检查所有站内链接。

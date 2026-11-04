@@ -16,7 +16,8 @@ export const UNSIGNED_MAC_RELEASE = Object.freeze({ target: 'darwin-arm64', vers
 // authorizes another platform, a signing claim or reuse of a frozen tag.
 export const UNSIGNED_MAC_RELEASES = Object.freeze([UNSIGNED_MAC_RELEASE,
   Object.freeze({ target: 'darwin-arm64', version: '1.1.1', releaseTag: 'v1.1.1', artifact: 'ContextFlow-1.1.1-mac-arm64.dmg' }),
-  Object.freeze({ target: 'darwin-arm64', version: '1.1.2', releaseTag: 'v1.1.2', artifact: 'ContextFlow-1.1.2-mac-arm64.dmg' })]);
+  Object.freeze({ target: 'darwin-arm64', version: '1.1.2', releaseTag: 'v1.1.2', artifact: 'ContextFlow-1.1.2-mac-arm64.dmg' }),
+  Object.freeze({ target: 'darwin-arm64', version: '1.1.3', releaseTag: 'v1.1.3', artifact: 'ContextFlow-1.1.3-mac-arm64.dmg' })]);
 export const EVIDENCE_BOUNDARY = '本检查只核验文件、引用和验收证据的一致性；不亲自执行签名、公证、安装、升级或商店审核，不证明报告不可伪造，也不授权发布。';
 const fail = message => { throw new Error(message); };
 const record = value => value !== null && typeof value === 'object' && !Array.isArray(value);

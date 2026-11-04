@@ -151,7 +151,7 @@ test('unsigned download binding rejects other architectures, altered URLs/tags, 
 });
 
 test('reviewed unsigned desktop fixes bind exact files without approving future versions or a later signing overwrite', () => {
-  for (const version of ['1.1.1', '1.1.2']) {
+  for (const version of ['1.1.1', '1.1.2', '1.1.3']) {
   const f = sourceFixture(version), state = unsignedState(version), directory = join(f.root, 'unsigned'); mkdirSync(directory);
   const row = state.desktop.platforms['darwin-arm64'];
   try {
@@ -160,7 +160,7 @@ test('reviewed unsigned desktop fixes bind exact files without approving future 
     writeFileSync(join(directory, row.artifact), 'unsigned fixture bytes');
     writeFileSync(join(directory, `${row.artifact}.sha256`), `${row.sha256}  ${row.artifact}\n`);
     assert.equal(checkUnsignedDesktopFiles(directory, state).version, version);
-    putJSON(join(f.root, 'product/release.json'), unsignedState('1.1.3'));
+    putJSON(join(f.root, 'product/release.json'), unsignedState('1.1.4'));
     assert.throws(() => sourceReleaseState(f.root), /未签名下载/);
     const older = { ...state, candidateVersion: '1.1.0' };
     putJSON(join(f.root, 'product/release.json'), older);
