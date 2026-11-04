@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "extension": {
+    "version": "1.1.1",
+    "url": "https://chromewebstore.google.com/detail/contextflow/aemncphfnlpbhlddifhohpgegejjejfm",
+    "releaseNotesUrl": "https://github.com/PengheLiu/ContextFlow/releases/tag/v1.1.1"
+  },
+  "desktop": {
+    "darwin-arm64": {
+      "version": "1.1.2",
+      "url": "https://pengheliu.github.io/ContextFlow/download.html",
+      "releaseNotesUrl": "https://github.com/PengheLiu/ContextFlow/releases/tag/v1.1.2"
+    }
+  }
+}
