@@ -1,5 +1,15 @@
 # 1.1 独立桌面分发与当前状态
 
+## 当前状态（2026-11-04）
+
+- Chrome 商店实际页面已核实为 **1.1.1**；本次只发布桌面与配套服务 1.1.2，不提交新的商店版本。
+- [GitHub v1.1.2](https://github.com/PengheLiu/ContextFlow/releases/tag/v1.1.2) 已公开为 latest，冻结源码为 `19e0db250e1c523aa30eb9212597263ed5005d35`。原 v1.1.1 的 tag 和附件均保留，附件摘要与更新前一致。
+- Mac ARM64 DMG、SHA-256、companion 与官网 ZIP 共六项附件的上传摘要与本地冻结文件一致。匿名 HTTPS 下载完整 DMG 后重算 SHA-256 为 `4d7deb1f2dbacab8616e1daed57bf864b2a7aee1a90b93f8c7d5abd604978827`，与公开校验文件及状态记录一致。
+- 当前源码、桌面清单、README 与官网下载引用为 1.1.2；Chrome 与桌面保持独立分发。功能与验证边界见 [1.1.2 更新说明](./RELEASE_1_1_2.md)。
+- 本地 `test:release`、真实 DSH rc.5 的隔离连接测试、最终安装包内置服务启动和内容完整性检查通过；冻结源码的 GitHub 核心质量 CI 成功。官网桌面与窄屏、明暗系统外观的浏览器检查通过。以上不代表 Windows / Intel 实机安装、Developer ID 签名或 Apple 公证。
+
+## 1.1.1 历史发行与验收记录
+
 核查日期：2026-10-26。本页区分源码候选、公开产品和待验证条件，不把本机可用写成 Chrome 已审核通过。
 
 ## 当前可用的版本
