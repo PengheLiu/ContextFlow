@@ -7,7 +7,7 @@
 // 与 userscript 入口（src/skill/main.js）的唯一差别就是**传输层**：
 // 那边直接 fetch 并把 token 编译进产物；这边转发给 service worker，token 只在 SW 里。
 import { initializePrivateStorage } from './storage.js';
-import { request } from './rpc.js';
+import { request, sendRuntimeMessage, extensionRuntime, runtimeFailure } from './rpc.js';
 import { setTransport, setStreamTransport } from '../core/api.js';
 import { boot } from '../skill/main.js';
 import { blockedScope, showUnblockChip } from '../skill/blocklist.js';
@@ -19,32 +19,10 @@ import { createContentStartup, startupFailureNotice } from './startup.js';
  * 刻意不抛异常，把"服务不可达"表示成 status 0 —— api.js 的 call() 据此判定失败，
  * 上层的 outbox 逻辑就与 userscript 路径完全一致，不必为扩展另写一套。
  */
-setTransport((path, init = {}) => new Promise((resolve) => {
-  let done = false;
-  const finish = (v) => { if (!done) { done = true; resolve(v); } };
-
-  // service worker 可能正在冷启动；给一个上限，别让界面无限等
-  const timer = setTimeout(() => finish({
-    status: 0, body: { error: 'service worker 无响应' },
-  }), 30000);
-
-  try {
-    chrome.runtime.sendMessage(
-      { type: 'cf-fetch', path, init: { method: init.method, body: init.body, headers: init.headers } },
-      (res) => {
-        clearTimeout(timer);
-        // 扩展被重载/更新后旧的 content script 会失去通道，这里必须接住，
-        // 否则表现为静默失败（chrome.runtime.lastError 不读就会变成未捕获警告）
-        const err = chrome.runtime.lastError;
-        if (err) return finish({ status: 0, body: { error: `扩展通道断开：${err.message}` } });
-        finish(res || { status: 0, body: { error: 'service worker 未返回' } });
-      },
-    );
-  } catch (e) {
-    clearTimeout(timer);
-    finish({ status: 0, body: { error: `无法联系 service worker：${e.message}` } });
-  }
-}));
+setTransport((path, init = {}) => sendRuntimeMessage({ type: 'cf-fetch', path,
+  init: { method: init.method, body: init.body, headers: init.headers } })
+  .then(response => response || { status: 0, body: { error: '扩展后台未返回，请保留未保存内容后重试。' } })
+  .catch(error => ({ status: 0, body: { error: error.message, code: error.code } })));
 
 setStreamTransport((id, onJob, signal) => new Promise((resolve, reject) => {
   let port, done = false, timer;
@@ -59,7 +37,8 @@ setStreamTransport((id, onJob, signal) => new Promise((resolve, reject) => {
   if (signal?.aborted) { abort(); return; }
   signal?.addEventListener('abort', abort, { once: true });
   try {
-    port = chrome.runtime.connect({ name: 'cf-job-stream' });
+    const runtime = extensionRuntime('connect');
+    port = runtime.connect({ name: 'cf-job-stream' });
     port.onMessage.addListener((message) => {
       if (done) return;
       arm();
@@ -68,14 +47,16 @@ setStreamTransport((id, onJob, signal) => new Promise((resolve, reject) => {
       else if (message.type === 'error') finish(new Error(message.error));
     });
     port.onDisconnect.addListener(() => {
-      const error = chrome.runtime.lastError;
-      finish(new Error(error?.message || '扩展事件通道断开'));
+      try {
+        extensionRuntime('connect');
+        finish(runtimeFailure(runtime.lastError || '扩展事件通道断开'));
+      } catch (error) { finish(runtimeFailure(error)); }
     });
     arm(); port.postMessage({ id });
-  } catch (error) { finish(error); }
+  } catch (error) { finish(runtimeFailure(error)); }
 }));
 
-let app;
+let app, updates;
 const notice=startupFailureNotice({retry:()=>startup.retry(),help:()=>request({type:'cf-open-settings',view:'support'})});
 const startup=createContentStartup({
   initialize:initializePrivateStorage,
@@ -86,6 +67,11 @@ const startup=createContentStartup({
   if (app) {
     app.openConnectionSettings = () => request({ type: 'cf-open-settings' });
     app.openReadingLibrary = () => request({type:'cf-open-library'});
+    app.openUpdateSettings = () => request({ type: 'cf-open-update' });
+    app.getExtensionUpdates = () => updates;
+    request({ type: 'cf-update-status' }).then(value => {
+      updates = value; app?.panel?.renderUpdates?.();
+    }).catch(() => {});
     app.panel?.renderStatus();
   }
   return app;
@@ -98,6 +84,10 @@ void startup.start();
 // 实例不存在且页面在停用名单里时，图标点击就是恢复入口 —— 扩展载体没有
 // userscript那种"重复执行"的手势，用户主动点图标是唯一明确的敲门信号。
 chrome.runtime.onMessage.addListener((msg, sender, reply) => {
+  if (msg?.type === 'cf-update-state' && sender.id === chrome.runtime.id) {
+    updates = msg.updates; app?.panel?.renderUpdates?.();
+    return;
+  }
   if(msg?.type==='cf-flush-edits') {
     if(!app){reply({contextflow:true,ok:startup.ready});return;}
     Promise.resolve(app.ready).then(ready=>{

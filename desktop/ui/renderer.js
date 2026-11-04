@@ -14,6 +14,7 @@ const ICONS = {
   reading: '<path d="M12 6C8 3 4 4 2 5v15c3-1 7-1 10 1 3-2 7-2 10-1V5c-2-1-6-2-10 1zM12 6v15"/><path d="M5 9h4M5 12h4M16 9h3M16 12h3"/>',
   info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7h.01"/>',
   close: '<path d="m6 6 12 12M18 6 6 18"/>',
+  update: '<path d="M20 7v5h-5M4 17v-5h5"/><path d="M6 7a7 7 0 0 1 12-1l2 3M4 15l2 3a7 7 0 0 0 12-1"/>',
 };
 // Desktop changes only the shared form's density and placement. Brand colors,
 // focus states and status meanings come from the same tokens as the extension.
@@ -52,7 +53,7 @@ export function startDesktopUI({ desktop = window.contextflowDesktop, serviceAPI
   const disposeInputModality = installInputModality({ root });
   serviceAPI.setTransport?.((path, init) => desktop.request(path, { method: init?.method, body: init?.body }));
   let current, cfg, settings, loadingSettings, refreshing, refreshAgain = false, activePage = 'home', initialized = false, disposed = false;
-  let pairingSignature = '', recoverySignature = '', discoverySignature = '', explicitPageRequested = false;
+  let pairingSignature = '', recoverySignature = '', discoverySignature = '', explicitPageRequested = false, liveUpdates;
   const busyButtons = new Set();
   let refreshQueued = false;
   function requestRefresh() {
@@ -169,6 +170,18 @@ export function startDesktopUI({ desktop = window.contextflowDesktop, serviceAPI
     return result;
   }
   for (const button of root.querySelectorAll('[data-action]')) button.onclick = () => perform(button, () => action(button.dataset.action));
+  async function showUpdates() {
+    await page('support');
+    $('updates-card').scrollIntoView?.({ block: 'center', behavior: 'auto' });
+    $('updates-card').focus({ preventScroll: true });
+  }
+  $('update-prompt').onclick = () => perform($('update-prompt'), showUpdates);
+  $('check-updates').onclick = () => perform($('check-updates'), async () => {
+    if (current) { current.updates = { ...current.updates, checking: true }; renderUpdates(); }
+    const result = await desktop.updates('check');
+    if (result && current) { current.updates = result; renderUpdates(); }
+  });
+  $('download-update').onclick = () => perform($('download-update'), () => desktop.updates('download'));
   for (const button of root.querySelectorAll('[data-discover]')) button.onclick = () => perform(button, async () => { await desktop.discover({ fresh: true }); notice('已重新检查本机工具；发现结果不代表已经授权或测试通过。'); });
   $('home-primary').onclick = () => perform($('home-primary'), async () => {
     const kind = productState(current, cfg).action.kind;
@@ -314,12 +327,36 @@ export function startDesktopUI({ desktop = window.contextflowDesktop, serviceAPI
     }
     for (const button of root.querySelectorAll('[data-discover]')) button.disabled = !productState(current, cfg).running || ['agents', 'notes'].some(key => current.discovery?.[key]?.state === 'running');
   }
+  function renderUpdates() {
+    const updates = current?.updates || {}, available = updates.state === 'available';
+    const checking = !!updates.checking, failed = updates.state === 'error' || !!updates.checkError;
+    const version = updates.currentVersion || current?.version || '';
+    $('update-prompt').hidden = !available;
+    $('update-prompt-label').textContent = `更新至 v${updates.latestVersion || ''}`;
+    $('update-prompt').setAttribute('aria-label', `发现 ContextFlow 新版本 ${updates.latestVersion || ''}，查看更新`);
+    $('update-prompt').title = `发现新版本 ${updates.latestVersion || ''}，点击查看更新方式`;
+    $('update-versions').textContent = `当前 v${version}${updates.latestVersion ? ` · 已发布 v${updates.latestVersion}` : ''}`;
+    badge('update-badge', available ? '有新版本' : checking ? '正在检查' : failed ? '检查未完成' : updates.state === 'current' ? '已是最新' : updates.state === 'unsupported' ? '暂无匹配版本' : '尚未检查', available ? 'ok' : failed ? 'bad' : '');
+    $('update-status').textContent = checking && !available ? '正在检查已发布版本…' : updates.stale && !available ? '暂时无法确认最新版本，请稍后重新检查。' : updates.message || '会定期检查官网发布的新版本；也可以手动检查。';
+    $('download-update').hidden = !available;
+    $('download-update').textContent = available ? `下载 v${updates.latestVersion} ↗` : '前往官网下载更新 ↗';
+    $('check-updates').disabled = checking || busyButtons.has($('check-updates'));
+    $('check-updates').querySelector('span:last-child').textContent = checking ? '正在检查…' : failed ? '重新检查' : '检查更新';
+    $('check-updates').setAttribute('aria-busy', String(checking));
+    const checked = Number.isFinite(updates.checkedAt) && updates.checkedAt > 0
+      ? `上次成功检查：${new Date(updates.checkedAt).toLocaleString('zh-CN')}。` : '';
+    const detail = [updates.checkError || '', checked, updates.stale && available ? '保留上次发现的新版本；可重新检查后下载。' : ''].filter(Boolean).join(' ');
+    $('update-check-detail').hidden = !detail;
+    $('update-check-detail').textContent = detail;
+    $('update-check-detail').dataset.error = String(failed);
+  }
   async function refresh() {
     if (disposed) return;
     if (refreshing) { refreshAgain = true; return refreshing; }
     refreshing = (async () => {
       try {
         current = await desktop.status();
+        if (liveUpdates) current.updates = liveUpdates;
         if (current.service?.state === 'running') cfg = current.configuration || await serviceAPI.getConfig();
         const state = productState(current, cfg);
         $('version').textContent = `v${current.version} · ${current.platform === 'win32' ? 'Windows' : 'macOS'} ${current.architecture}`;
@@ -341,7 +378,7 @@ export function startDesktopUI({ desktop = window.contextflowDesktop, serviceAPI
         badge('browser-badge', state.browser.label, state.browser.ok ? 'ok' : state.browser.error ? 'bad' : ''); $('browser-summary').textContent = state.browser.detail;
         badge('model-badge', state.ai.label, state.ai.ok ? 'ok' : state.ai.checked && state.running ? 'bad' : ''); $('model-summary').textContent = state.ai.detail;
         badge('notes-badge', state.notes.label, state.notes.verified ? 'ok' : ''); $('notes-summary').textContent = state.notes.detail;
-        $('update-status').textContent = current.updates?.message || '可以手动检查经过签名发布的新版本。';
+        renderUpdates();
         renderPairings(current.pairings || [], current.pairingError); renderRecovery(current.recoveryPoints || []); renderDiscovery(); renderJourney(); renderConfirmation();
         if (!initialized) { initialized = true; if (current.startupWarning) notice(current.startupWarning, true); if (!explicitPageRequested) await page(current.journey?.dismissed ? 'home' : 'setup', { focus: false }); }
         else if (['ai', 'notes', 'setup'].includes(activePage)) await placeWorkspace();
@@ -350,17 +387,22 @@ export function startDesktopUI({ desktop = window.contextflowDesktop, serviceAPI
     try { await refreshing; } finally { refreshing = null; if (refreshAgain) { refreshAgain = false; queueMicrotask(refresh); } }
   }
   const unsubscribeStatus = desktop.onStatusChange?.(requestRefresh);
+  const unsubscribeUpdates = desktop.onUpdatesChange?.(updates => {
+    if (disposed || !updates || typeof updates !== 'object') return;
+    liveUpdates = updates;
+    if (current) { current.updates = updates; renderUpdates(); }
+  });
   const unsubscribeNavigate = desktop.onNavigate?.(name => {
-    if (name !== 'support' || disposed) return;
+    if (!['support', 'updates'].includes(name) || disposed) return;
     explicitPageRequested = true;
-    page(name).catch(error => notice(error.message, true));
+    (name === 'updates' ? showUpdates() : page(name)).catch(error => notice(error.message, true));
   });
   const onFocus = async () => { await refresh(); if (['ai', 'notes', 'setup'].includes(activePage)) await placeWorkspace({ force: true }); };
   win.addEventListener('focus', onFocus);
   const timer = poll ? win.setInterval(() => { if (!root.hidden) refresh(); }, desktop.onStatusChange ? 15000 : 1000) : null;
   const ready = refresh();
   return { ready, refresh, page, get settings() { return settings; }, get state() { return current; },
-    dispose() { disposed = true; if (timer) win.clearInterval(timer); unsubscribeStatus?.(); unsubscribeNavigate?.(); disposeInputModality(); root.removeEventListener('focusin', skipFocus); win.removeEventListener('focus', onFocus); if (settings) { clearTimeout(settings.toastTimer); clearTimeout(settings.messageTimer); } },
+    dispose() { disposed = true; if (timer) win.clearInterval(timer); unsubscribeStatus?.(); unsubscribeUpdates?.(); unsubscribeNavigate?.(); disposeInputModality(); root.removeEventListener('focusin', skipFocus); win.removeEventListener('focus', onFocus); if (settings) { clearTimeout(settings.toastTimer); clearTimeout(settings.messageTimer); } },
   };
 }
 if (typeof window !== 'undefined' && window.contextflowDesktop) startDesktopUI();

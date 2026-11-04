@@ -79,7 +79,7 @@ if (built) {
   // 本地服务、且不带 token，症状是"扩展装上了但一直连不上服务"。
   t('app.js 确实把传输层换成了走 service worker', () => {
     const s = read('app.js');
-    assert.ok(s.includes('chrome.runtime.sendMessage'), '没有 sendMessage —— 传输层没换');
+    assert.ok(s.includes('runtime.sendMessage'), '没有受保护的 sendMessage —— 传输层没换');
     assert.ok(s.includes('cf-fetch'), '没有 cf-fetch 消息类型');
   });
 
@@ -105,9 +105,9 @@ if (built) {
 
   t('只申请必要权限：没有 tabs / <all_urls> / webRequest 这类大权限', () => {
     const m = mf();
-    assert.deepEqual(m.permissions, ['storage', 'nativeMessaging']);
-    assert.deepEqual(m.host_permissions, ['http://127.0.0.1:7317/*'],
-      'host_permissions 应只含本地服务');
+    assert.deepEqual(m.permissions, ['storage', 'nativeMessaging', 'alarms']);
+    assert.deepEqual(m.host_permissions, ['http://127.0.0.1:7317/*', 'https://pengheliu.github.io/ContextFlow/*'],
+      'host_permissions 只允许本地服务及官方版本清单');
     assert.ok(!JSON.stringify(m).includes('<all_urls>'),
       'content_scripts 用 http/https 通配即可，不必申请 <all_urls>');
   });

@@ -8,7 +8,7 @@
 </head>
 <body>
   <main>
-    <header><img src="toolbar-48.png" alt=""><span>ContextFlow <small>你的阅读，留下自己的理解</small></span><span class="installed-badge"><span aria-hidden="true">✓</span> 扩展已安装</span><a href="https://pengheliu.github.io/ContextFlow/" target="_blank" rel="noreferrer">官网与指南 ↗</a></header>
+    <header><img src="toolbar-48.png" alt=""><span>ContextFlow <small>你的阅读，留下自己的理解</small></span><span class="installed-badge"><span aria-hidden="true">✓</span> 扩展已安装</span><a id="update-indicator" class="update-indicator" href="#updates" title="有可用更新" hidden><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M12 16V4m-4 4 4-4 4 4M5 14v5a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-5"/></svg><span>可更新</span></a><a href="https://pengheliu.github.io/ContextFlow/" target="_blank" rel="noreferrer">官网与指南 ↗</a></header>
     <nav class="page-nav" aria-label="ContextFlow 导航"><a href="#start" data-view="start">开始使用</a><a href="#connect" data-view="connect">连接与设置</a><a href="#library" data-view="library">我的阅读库</a><a href="#support" data-view="support">帮助与诊断</a></nav>
     <section id="support" class="support" hidden aria-labelledby="support-title">
       <p class="eyebrow">HELP & SUPPORT</p><h1 id="support-title">让问题有迹可循</h1>
@@ -17,7 +17,20 @@
       <p id="support-status" role="status" aria-live="polite">点击后仅检查本地服务健康状态与扩展存储计数。</p>
       <details><summary>报告里包含什么？</summary><p>扩展、Chromium 与服务版本，连接状态、支持能力及记录 / 图片 / 待发送操作的数量。不包含网址、文章、笔记、密钥、配对码、模型地址、文件路径或完整日志。下方可预览全部报告内容。</p></details>
       <pre id="support-report" tabindex="0" aria-label="脱敏诊断报告"></pre>
-      <h2>下一步怎么做？</h2><ul><li>文章里打不开插件：先刷新原页面，或查看<a href="#reading-help">阅读帮助</a>。</li><li>模型或 Agent 不能回答：前往<a href="#connect">连接与设置</a>单独测试。测试会使用你自己的额度，诊断不会自动测试。</li><li>待发送操作一直不减少：启动本地服务、打开对应文章；保存成功不等于已同步到笔记软件。</li><li>需要帮助：在 <a href="https://github.com/PengheLiu/ContextFlow/issues/new" target="_blank" rel="noreferrer">GitHub 反馈问题 ↗</a>，附上脱敏报告、复现步骤和不含私人内容的截图。</li></ul>
+      <p><a href="#updates">检查应用更新 →</a></p>
+      <h2>下一步怎么做？</h2><ul><li>文章里打不开插件：先备份未保存内容再刷新原页面，或查看<a href="#reading-help">阅读帮助</a>。</li><li>模型或 Agent 不能回答：前往<a href="#connect">连接与设置</a>单独测试。测试会使用你自己的额度，诊断不会自动测试。</li><li>待发送操作一直不减少：启动本地服务、打开对应文章；保存成功不等于已同步到笔记软件。</li><li>需要帮助：在 <a href="https://github.com/PengheLiu/ContextFlow/issues/new" target="_blank" rel="noreferrer">GitHub 反馈问题 ↗</a>，附上脱敏报告、复现步骤和不含私人内容的截图。</li></ul>
+    </section>
+    <section id="updates" class="update-center" hidden aria-labelledby="updates-title">
+      <p class="eyebrow">APPLICATION UPDATES</p><h1 id="updates-title">保持阅读体验常新</h1>
+      <p>扩展从 Chrome 商店更新，桌面端从官网下载。两者分别检查，不影响你的阅读记录与已保存配置。</p>
+      <article class="update-card"><div class="section-head"><h2>Chrome 扩展</h2><span class="small">自动检查公开发行版本</span></div>
+        <dl class="update-versions"><div><dt>当前版本</dt><dd id="update-current"></dd></div><div><dt>最新公开版本</dt><dd id="update-latest">尚未确认</dd></div><div><dt>上次检查</dt><dd id="update-checked">尚未检查</dd></div></dl>
+        <p id="update-message" role="status" aria-live="polite">正在读取更新状态…</p>
+        <div class="actions"><button id="check-updates" type="button">检查更新</button><button id="update-manage" type="button" class="secondary" hidden>打开扩展管理 ↗</button><button id="update-store" type="button" class="secondary">Chrome 商店 ↗</button></div>
+        <p id="update-install-help" class="small">Chrome 会自动安装商店更新。更新后先确认草稿已保存，再刷新原文章。</p>
+      </article>
+      <article class="update-card"><h2>桌面客户端</h2><p>在桌面端左下角或「设置与帮助」查看版本和更新状态；有适配版本时会显示更新入口。</p><a href="https://pengheliu.github.io/ContextFlow/download.html" target="_blank" rel="noreferrer">查看桌面端下载与更新说明 ↗</a></article>
+      <p class="small">版本检查仅请求公开版本清单，不发送文章、笔记、模型配置或浏览器授权信息。检查失败时可以稍后重试，基础阅读仍可用。</p>
     </section>
     <div id="reading-library" hidden></div>
     <section id="reading-help" class="first-note" hidden aria-labelledby="reading-help-title">

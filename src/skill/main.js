@@ -33,7 +33,7 @@ import {
   migrateArticleIdentity,
 } from '../core/offline-store.js';
 import { renderArticleMarkdown, safeMarkdownFilename } from '../core/markdown.js';
-import { assetIds, inlineAssetTokens } from '../core/assets.js';
+import { assetIds, inlineAssetTokens, splitAssetDocument } from '../core/assets.js';
 import { urlKey, articleIdentity, eventIdentityKey } from '../core/urlkey.js';
 import { articleSession } from './article-session.js';
 import { browserStorage } from '../core/browser-storage.js';
@@ -158,6 +158,19 @@ export class App {
     await Promise.all(this.localSaves || []);
   }
 
+  guardUnsavedUnload(event) {
+    const editors = [this.commentPop?.composer, this.panel?.noteComposer,
+      ...(this.panel?.composers?.values?.() || []), ...(this.panel?.lookupComposers?.values?.() || [])];
+    const unsaved = this.commentDrafts?.size || this.failedLocalEvents?.size || this.localSaves?.size
+      || this.noteDraft != null || this.commentPop?.recoveryError || this.commentPop?.hasUnsettledAssets
+      || editors.some(editor => editor?.dirty || editor?.blocks?.some(block => block.pending || block.error));
+    if (!unsaved) return false;
+    // Let the browser warn on an explicit reload/close; never refresh a host
+    // page automatically to repair an invalidated extension context.
+    event.preventDefault(); event.returnValue = '';
+    return true;
+  }
+
   navigationFailed(error) {
     if (this.panel?.sh?.host) { this.panel.sh.host.inert = false; this.panel.sh.host.removeAttribute('aria-busy'); }
     this.panel?.syncMsg?.(`上一页草稿尚未保存，暂未切换阅读记录：${error.message}。请保留此页，完成图片保存或复制内容备份。`, 'bad');
@@ -211,6 +224,8 @@ export class App {
       onOpenConnection: () => this.openConnectionSettings?.(),
       canOpenLibrary: () => typeof this.openReadingLibrary==='function',
       onOpenLibrary: () => this.openReadingLibrary?.(),
+      getUpdateState: () => this.getExtensionUpdates?.(),
+      onOpenUpdate: () => this.openUpdateSettings?.(),
       onConfigurationSaved: () => this.refreshConnection(),
       outbox: () => this.pendingCount,
       positionOf: (id) => this.pos.get(id) ?? Number.MAX_SAFE_INTEGER,
@@ -499,6 +514,8 @@ export class App {
       onCommit: (id, v) => this.commitCommentDraft(id, v, 'popover'),
       onAsset: (file) => this.addAsset(file),
       resolveAsset: (id) => this.resolveAsset(id),
+      onCopyDraft: (id, value) => this.copyCommentDraft(id, value),
+      onDownloadDraft: (id, value) => this.downloadCommentDraft(id, value),
       onClose: (id) => {
         if (this.editingCommentId === id) this.editingCommentId = null;
         this.panel?.markCommentEditing(id, false);
@@ -630,6 +647,7 @@ export class App {
     this.pageListeners = [];
     const listen = (target, type, fn, options) => { target.addEventListener(type, fn, options); this.pageListeners.push([target, type, fn, options]); };
     const win = document.defaultView || globalThis;
+    listen(win, 'beforeunload', event => this.guardUnsavedUnload(event));
     listen(document, 'mouseup', () => setTimeout(() => {
       if (!this.isCurrentArticle()) return;
       const sel = getSelection();
@@ -1402,9 +1420,46 @@ export class App {
       const ta = document.createElement('textarea');
       ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
       document.body.appendChild(ta); ta.select();
-      if (!document.execCommand?.('copy')) throw new Error('浏览器不允许复制，请使用下载');
-      ta.remove();
+      try {
+        if (!document.execCommand?.('copy')) throw new Error('浏览器不允许复制，请使用下载');
+      } finally { ta.remove(); }
     }
+  }
+
+  commentDraftBackup(id, value) {
+    // Emergency text recovery must work after chrome.runtime disappears. Do
+    // not flush or resolve attachment data through the disconnected channel.
+    const blocks = splitAssetDocument(String(value ?? ''));
+    const images = blocks.filter(block => block.type === 'image').length;
+    const text = blocks.map(block => block.type === 'text' ? block.value : `[图片未包含：${block.alt || '图片'}]`).join('');
+    const source = this.items.find(item => item.id === id)?.text || '';
+    return { text, images, markdown: [
+      '# 未保存的批注草稿',
+      '这是一份手动恢复用的文字草稿，尚未确认写入 ContextFlow 阅读库。',
+      `文章：${String(this.articleTitle || '').replace(/[\r\n]+/g, ' ')}`,
+      `来源：${this.articleUrl || ''}`,
+      ...(source ? ['## 引用原文', String(source).split('\n').map(line => `> ${line}`).join('\n')] : []),
+      '## 批注', text,
+      ...(images ? [`注意：${images} 张图片未包含在本草稿中，请另外保留图片。`] : []),
+    ].join('\n\n') + '\n' };
+  }
+
+  async copyCommentDraft(id, value) {
+    const draft = this.commentDraftBackup(id, value);
+    await this.copyText(draft.text);
+    return draft.images ? '批注文字已复制，图片未包含，请另行保留。复制不代表阅读库保存成功。'
+      : '批注文字已复制，请先粘贴备份。复制不代表阅读库保存成功。';
+  }
+
+  downloadCommentDraft(id, value) {
+    const draft = this.commentDraftBackup(id, value);
+    const blob = new Blob([draft.markdown], { type: 'text/markdown;charset=utf-8' });
+    const href = URL.createObjectURL(blob), link = document.createElement('a');
+    try {
+      link.href = href; link.download = `未保存批注-${safeMarkdownFilename(this.articleTitle, this.key)}`;
+      document.body.appendChild(link); link.click();
+    } finally { link.remove(); setTimeout(() => URL.revokeObjectURL(href), 1000); }
+    return `已发起文字草稿下载，请确认文件已保存${draft.images ? '；图片未包含，请另行保留' : ''}。这不代表阅读库保存成功。`;
   }
 
   async downloadMarkdown() {

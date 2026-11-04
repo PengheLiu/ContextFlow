@@ -5,8 +5,9 @@ import { checkReleaseLinks, checkWebsiteLinks, checkDesktopDownloadLinks, releas
 test('public surface checks include the desktop download landing page, not just the old privacy URL', async () => {
   const seen = [];
   const urls = await checkWebsiteLinks(async (url, options) => { seen.push(url); assert.equal(options.method, 'HEAD'); return { ok: true }; });
-  assert.equal(urls.length, 4);
+  assert.equal(urls.length, 5);
   assert.ok(seen.includes('https://pengheliu.github.io/ContextFlow/download.html'));
+  assert.ok(seen.includes('https://pengheliu.github.io/ContextFlow/updates.json'));
   await assert.rejects(checkWebsiteLinks(async url => ({ ok: !url.endsWith('/download.html'), status: 404 })), /请先部署完整官网/);
 });
 

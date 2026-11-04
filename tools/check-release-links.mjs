@@ -15,7 +15,7 @@ export async function checkReleaseLinks(version, fetcher = fetch) {
 }
 
 export async function checkWebsiteLinks(fetcher = fetch) {
-  const urls = ['', 'download.html', 'privacy.html', 'demo.html'].map(path => `https://pengheliu.github.io/ContextFlow/${path}`);
+  const urls = ['', 'download.html', 'privacy.html', 'demo.html', 'updates.json'].map(path => `https://pengheliu.github.io/ContextFlow/${path}`);
   for (const url of urls) {
     const response = await fetcher(url, { method: 'HEAD', signal: AbortSignal.timeout(20000) });
     if (!response.ok) throw new Error(`官网公开入口不可用（${response.status}）：${url}。请先部署完整官网，再推广对应安装流程。`);

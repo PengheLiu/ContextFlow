@@ -57,7 +57,7 @@ if (isHost) {
 } else {
   let window, tray, menuBar, statusTimer, service, bridge, discovery, lastConfig = {}, quitting = false, pairing = false, bridgeReady = false, recovering = false, exitPending = false;
   let pendingShow = false, secondInstanceEvents = 0;
-  let healthResponding = true, healthRefresh, nativeMenu;
+  let healthResponding = true, healthRefresh, nativeMenu, updateChecker, updateTimer;
   const visibility = createVisibility({ app, getTray: () => menuBar?.getTray() || tray });
   let preferences, preferencesWarning = '';
   try {
@@ -67,7 +67,8 @@ if (isHost) {
     preferences = { openAtLogin: false };
     preferencesWarning = '启动偏好无法读取，原文件已保留；首次准备进度暂不可用。配置与阅读记录没有重置，可在设置与帮助中检查或恢复。';
   }
-  const updateState = { state: 'manual', message: '桌面端通过官网下载更新。任务结束后退出旧版，再覆盖安装；现有配置与阅读数据保留。Chrome 扩展由商店单独更新。' };
+  const initialUpdateState = { state: 'idle', currentVersion: app.getVersion(), checking: false, checkedAt: null,
+    message: '会定期检查官网发布的新版本；更新时由你下载并覆盖安装，现有配置与阅读数据保留。' };
   const core = app.isPackaged ? join(process.resourcesPath, 'core') : join(ROOT, 'build', 'core');
   const runtime = app.isPackaged ? join(process.resourcesPath, 'runtime', process.platform === 'win32' ? 'node.exe' : 'node')
     : join(ROOT, 'build', 'runtime', process.platform === 'win32' ? 'node.exe' : 'node');
@@ -76,6 +77,7 @@ if (isHost) {
   const { terminateTree } = await import(pathToFileURL(join(core, 'server', 'platform.mjs')));
   const { transformSecrets } = await import(pathToFileURL(join(core, 'server', 'secrets.mjs')));
   const { acquireDataOwner } = await import(pathToFileURL(join(core, 'src', 'core', 'data-owner.mjs')));
+  const { createUpdateChecker, UPDATE_DOWNLOAD_URL } = await import(pathToFileURL(join(core, 'src', 'core', 'updates.js')));
   const execute = promisify(execFile);
 
   function show() {
@@ -89,6 +91,7 @@ if (isHost) {
       window.webContents.on('will-navigate', event => event.preventDefault());
       window.webContents.session.setPermissionRequestHandler((_wc, _permission, callback) => callback(false));
       window.on('close', event => { if (!quitting) { event.preventDefault(); visibility.closeToBackground(window); } });
+      window.on('focus', () => { if (!smoke) updateChecker?.check().catch(() => {}); });
       window.loadFile(join(ROOT, 'ui', 'index.html'));
       window.once('ready-to-show', () => { visibility.present(window, { focus: !smoke }).catch(() => {}); });
     } else { visibility.present(window, { focus: !smoke }).catch(() => {}); }
@@ -119,7 +122,7 @@ if (isHost) {
       }
     }
     return { version: app.getVersion(), platform: process.platform, architecture: process.arch, service: snapshot,
-      ...browserPairingState(() => listPairings(paths.data)), bridgeReady, preferences, updates: updateState, dataDir: paths.data,
+      ...browserPairingState(() => listPairings(paths.data)), bridgeReady, preferences, updates: updateChecker?.snapshot() || initialUpdateState, dataDir: paths.data,
       discovery: discovery.snapshot(), journey: journeyView(preferences, destinationKey(lastConfig), service.lastHealth?.syncStatus, destinationIdentity(lastConfig)),
       recoveryPoints: await listRecoveryPoints(paths), packaged: app.isPackaged,
       systemIntegration: systemIntegration(), configuration: snapshot.state === 'running' ? lastConfig : null,
@@ -144,13 +147,14 @@ if (isHost) {
     if (!menuBar || !service) return;
     const snapshot = service.snapshot();
     if (snapshot.state === 'running' && !healthResponding) snapshot.state = 'unavailable';
-    const template = trayMenuTemplate({ service: snapshot, onOpen: show,
+    const template = trayMenuTemplate({ service: snapshot, updates: updateChecker?.snapshot() || initialUpdateState, onOpen: show,
       onSettings: () => {
         show();
         if (!window || window.isDestroyed()) return;
         const navigate = () => { if (!window.isDestroyed()) window.webContents.send('desktop:page', 'support'); };
         if (window.webContents.isLoading()) window.webContents.once('did-finish-load', navigate); else navigate();
       },
+      onUpdates: () => { showUpdateSettings(); if (!smoke) updateChecker?.check({ force: true }).catch(() => {}); },
       onRestart: () => service.restart().catch(error => dialog.showErrorBox('暂时无法重启', error.message)), onQuit: () => app.quit() });
     if (!nativeMenu) {
       nativeMenu = Menu.buildFromTemplate(template);
@@ -164,6 +168,12 @@ if (isHost) {
       }
     }
     menuBar.setMenu(nativeMenu, `ContextFlow · ${template.find(item => item.id === 'service-status').label}`);
+  }
+  function showUpdateSettings() {
+    show();
+    if (!window || window.isDestroyed()) return;
+    const navigate = () => { if (!window.isDestroyed()) window.webContents.send('desktop:page', 'updates'); };
+    if (window.webContents.isLoading()) window.webContents.once('did-finish-load', navigate); else navigate();
   }
   async function refreshNativeStatus() {
     if (quitting || healthRefresh) return healthRefresh;
@@ -247,7 +257,7 @@ if (isHost) {
       if (service && !await confirmExit()) return;
       await service?.stop(); quitting = true;
       if (readJSON(paths.bridge).pid === process.pid) { try { unlinkSync(paths.bridge); } catch {} }
-      clearInterval(statusTimer); bridge?.close(); menuBar?.destroy();
+      clearInterval(statusTimer); clearInterval(updateTimer); updateChecker?.dispose(); bridge?.close(); menuBar?.destroy();
       // Native Dock/activation transitions must not strand a utility process
       // after its core and bridge are already closed. All owned work has ended.
       const exitFallback = setTimeout(() => app.exit(0), 3000); exitFallback.unref();
@@ -282,6 +292,19 @@ if (isHost) {
   }
   if (app.isPackaged) preferences.openAtLogin = app.getLoginItemSettings({ path: app.getPath('exe'), args: ['--hidden'] }).openAtLogin;
   mkdirSync(paths.state, { recursive: true, mode: 0o700 });
+  if (!smoke) {
+    const cacheFile = join(paths.state, 'update-cache.json');
+    updateChecker = createUpdateChecker({ currentVersion: app.getVersion(), kind: 'desktop', platform: process.platform, architecture: process.arch,
+      fetch: globalThis.fetch, loadCache: () => { try { return readJSON(cacheFile, null); } catch { return null; } },
+      saveCache: cache => atomicJSON(cacheFile, cache),
+      onChange: updates => {
+        if (quitting) return;
+        trayMenu();
+        if (window && !window.isDestroyed()) window.webContents.send('desktop:updates', updates);
+      } });
+    updateTimer = setInterval(() => updateChecker.check().catch(() => {}), 6 * 60 * 60 * 1000); updateTimer.unref();
+    void updateChecker.check().catch(() => {});
+  }
   const credentials = smoke ? { key: randomBytes(32).toString('base64') } : loadProtectedSecret(paths, safeStorage);
   const secretKey = credentials.key;
   service = new ServiceManager({ paths, runtime, core, secretKey, terminateTree });
@@ -385,10 +408,14 @@ if (isHost) {
     throw new Error('不支持的桌面操作');
   });
   handler('updates', async action => {
-    // The first desktop release uses explicit, signed installer downloads.
-    // Do not stop a working service for an unverified Squirrel/NSIS hand-off.
-    if (action === 'check') return updateState;
-    throw new Error('请从官网下载匹配版本，任务结束后退出旧版并覆盖安装。此版本不执行应用内自动安装。');
+    if (action === 'check') return updateChecker ? updateChecker.check({ force: true }) : initialUpdateState;
+    if (action === 'download') {
+      if (updateChecker?.snapshot().state !== 'available') throw new Error('尚未发现适合本机的新版本，请先检查更新。');
+      // The public feed never supplies an executable shell target. Installation
+      // remains explicit; checking/opening downloads cannot stop active work.
+      return shell.openExternal(UPDATE_DOWNLOAD_URL);
+    }
+    throw new Error('不支持的更新操作');
   });
   handler('recovery', async (action, id) => {
     if (recovering) throw new Error('恢复点操作正在进行，请稍候。');
@@ -458,7 +485,7 @@ if (isHost) {
     tray = menuBar.getTray();
     const displayChanged = () => menuBar.refresh({ reloadGeometry: true, repair: true }).catch(() => {});
     screen.on('display-added', displayChanged); screen.on('display-removed', displayChanged); screen.on('display-metrics-changed', displayChanged);
-    powerMonitor.on('resume', () => { displayChanged(); refreshNativeStatus().catch(() => {}); });
+    powerMonitor.on('resume', () => { displayChanged(); refreshNativeStatus().catch(() => {}); if (!smoke) updateChecker?.check().catch(() => {}); });
     statusTimer = setInterval(() => refreshNativeStatus().catch(() => {}), 10000); statusTimer.unref();
   } catch (error) { console.warn('System tray unavailable:', error.message); }
   if (quitting) return;

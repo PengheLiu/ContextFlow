@@ -139,6 +139,18 @@ CONTEXTFLOW_PLAYWRIGHT_DIR=/path/to/runtime node test/extension-load-browser.tes
 
 此测试使用隔离 Chromium 配置，分别加载开发包和商店构建，验证 service worker、阅读页注入和设置页；不会读取个人浏览器资料、配对码或调用模型。构建同时检查 Chrome 的严格 UTF-8 要求，拒绝未转义的 Unicode 非字符（例如公式库可能包含的 U+FFFF）。
 
+修改扩展通信或批注保存后，还需验证旧阅读页在扩展重载后的恢复流程：
+
+```bash
+CONTEXTFLOW_PLAYWRIGHT_DIR=/path/to/runtime node test/extension-reload-browser.test.mjs
+```
+
+此测试真实重载临时扩展，检查未保存批注仍可编辑、下载文字草稿、刷新前的未保存提醒，以及恢复后重新保存。测试只使用临时浏览器资料和模拟文章，不读取个人资料或调用模型。命令行加载的扩展在重载后可能被 Chromium 停用，测试通过重启同一个临时浏览器资料恢复扩展，再核对原有私有记录；不会卸载扩展或清空记录。
+
+版本检查的渠道记录、更新清单生成与用户升级流程见[版本更新说明](./UPDATES.md)。修改公开版本后执行 `npm run updates:sync`；官网部署前会检查 `updates.json` 是否只包含已公开版本。共享检查器测试、扩展后台更新测试在 `test:session`，桌面更新 UI 与推送测试在 `test:desktop`。
+
+更新入口的真实扩展验收：`CONTEXTFLOW_PLAYWRIGHT_DIR=/path/to/runtime node test/updates-browser.test.mjs`。它使用临时构建和隔离浏览器，仅将固定公开清单响应替换为测试版本，验证后台检查、文章更新图标、新设置页与手动检查全链路，并核对未保存批注、窄屏及深浅色布局；不读取个人浏览器资料或调用真实服务。
+
 ## README 产品截图
 
 首页使用真实扩展界面，不在 HTML 中仿制功能面板。原创样文位于 `assets/readme/reading-article.html`，截图脚本会创建临时扩展与浏览器配置，实际输入批注，验证侧栏镜像和 Markdown 导出，然后生成 `assets/readme/inline-annotation.png`。

@@ -13,6 +13,7 @@ const CSS = `${FLOAT}${RICH_COMPOSER_CSS}
         background-image:radial-gradient(circle at 1px 1px,var(--cf-grain) .65px,transparent .75px);background-size:5px 5px}
   .card::before{content:'';position:absolute;top:0;left:17px;width:42px;height:2px;background:${T.accent}}
   .card.on{display:flex}
+  .card.recovering{max-height:calc(100vh - 16px);max-height:calc(100dvh - 16px);overflow-y:auto}
   .hd{display:flex;align-items:center;justify-content:space-between;min-height:52px;padding:9px 9px 8px 14px;
       border-bottom:1px solid ${T.line};background:${T.paper}}
   .hd-lock{display:flex;align-items:center;gap:9px;min-width:0}
@@ -46,6 +47,13 @@ const CSS = `${FLOAT}${RICH_COMPOSER_CSS}
         border-radius:var(--cf-radius-control);background:${T.accent};color:${T.onAccent};font-size:13px;font-weight:680;white-space:nowrap}
   .done:hover:not(:disabled){background:${T.accentHover};color:${T.onAccent}}
   .done .ico{width:14px;height:14px}
+  .draft-recovery{margin:12px 16px 0;padding:10px 11px;border:1px solid ${T.line};border-radius:6px;background:${T.paperRaised}}
+  .draft-recovery[hidden]{display:none}.draft-actions{display:flex;flex-wrap:wrap;gap:8px}
+  .draft-actions button{display:inline-flex;align-items:center;gap:5px;padding:6px 9px;min-height:32px;
+    border:1px solid ${T.line};border-radius:var(--cf-radius-control);background:${T.paper};color:${T.ink};font-size:12px}
+  .draft-actions button:hover:not(:disabled){background:${T.hover}}.draft-actions .ico{width:14px;height:14px}
+  .draft-backup-status{margin:7px 0 0;font-size:11.5px;line-height:1.6;color:${T.quote};overflow-wrap:anywhere}
+  .draft-backup-status.bad{color:${T.bad}}
   @media (max-width:420px){
     .hd-copy small{display:none}.source{margin-left:14px;margin-right:14px}.edit{padding-left:14px;padding-right:14px}
     .ft{padding-left:14px;padding-right:14px}.state{max-width:220px}
@@ -53,7 +61,7 @@ const CSS = `${FLOAT}${RICH_COMPOSER_CSS}
 `;
 
 export class CommentPopover {
-  /** @param {{onInput?:function,onCommit?:function,onClose?:function}} o */
+  /** @param {{onInput?:function,onCommit?:function,onClose?:function,onCopyDraft?:function,onDownloadDraft?:function}} o */
   constructor(o = {}) {
     this.o = o;
     this.events = new EventScope();
@@ -66,6 +74,11 @@ export class CommentPopover {
       </div>
       <section class="source"><div class="eyebrow">引用原文</div><div class="src" id="src"></div></section>
       <div class="edit"><label>你的想法</label><div id="q"></div></div>
+      <section class="draft-recovery" id="draftRecovery" aria-label="备份未保存的批注" hidden>
+        <div class="draft-actions"><button id="copyDraft" type="button">${icon('copy')}<span>复制批注</span></button>
+          <button id="downloadDraft" type="button">${icon('download')}<span>下载草稿</span></button></div>
+        <p class="draft-backup-status" id="draftBackupStatus" role="status" aria-live="polite">草稿仅保留在当前页面内存中。请先备份，再刷新页面恢复连接。</p>
+      </section>
       <div class="ft"><span class="state" id="state" role="status">${icon('sync')}<span>与右侧栏实时同步</span></span>
         <button class="done" id="done" type="button">${icon('check')}<span>完成</span></button></div>
     </section>`;
@@ -76,6 +89,7 @@ export class CommentPopover {
       placeholder: '写下你的想法…', debounce: 500,
       onInput: (value) => {
         this.dirty = true;
+        if (this.recoveryError) this.$('draftBackupStatus').textContent = '内容已修改，请重新复制或下载当前草稿；尚未保存到浏览器。';
         try {
           this.o.onInput?.(this.id, value);
           this.status('正在保存到浏览器…');
@@ -92,10 +106,12 @@ export class CommentPopover {
     this.$('done').onclick = () => {
       const id = this.id, value = this.composer.value();
       const done = (ok) => { if (ok && this.id === id && !this.dirty && this.composer.value() === value) this.close(false); };
-      const result = this.commit();
+      const result = this.commit({ retry: true });
       if (result?.then) result.then(done);
       else done(result);
     };
+    this.$('copyDraft').onclick = () => { void this.backupDraft('copy'); };
+    this.$('downloadDraft').onclick = () => { void this.backupDraft('download'); };
 
     this.$('q').addEventListener('keydown', (e) => {
       if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
@@ -114,6 +130,12 @@ export class CommentPopover {
   /** @param {DOMRect|object} rect @param {{id:string,source?:string,value?:string}} data */
   open(rect, data) {
     if (this.disposed) return this;
+    if (this.recoveryError && this.id) {
+      // The old content script cannot restore its runtime by changing selection.
+      // Keep the only editable copy available until a real save is confirmed.
+      this.el.classList.add('on'); this.status('');
+      return this;
+    }
     if (this.hasUnsettledAssets) {
       this.el.classList.add('on');
       this.status('', '', '图片处理完成后再切换批注，原位草稿已保留。');
@@ -127,11 +149,16 @@ export class CommentPopover {
     // 极端情况下用户没关上一条就用键盘重新划选：先提交旧草稿，不能因复用组件丢字。
     if (this.open$ && this.id && this.id !== data.id) {
       const previous = this.id;
-      this.commit();
+      const result = this.commit();
+      if (result === false || this.pendingSave) {
+        this.status(this.pendingSave ? '批注正在保存，请完成后再切换，当前草稿已保留。' : '批注尚未保存成功，请先重试或复制备份。', this.pendingSave ? '' : 'bad');
+        return this;
+      }
       clearTimeout(this.saveTimer);
       this.o.onClose?.(previous);
     }
     this.id = data.id;
+    this.anchorRect = rect;
     this.$('src').textContent = data.source ? `「${data.source}」` : '';
     this.composer.setValue(String(data.value ?? ''), true);
     this.dirty = false;
@@ -153,25 +180,42 @@ export class CommentPopover {
       return this;
     }
     this.composer.setValue(String(value ?? ''));
-    this.dirty = false;             // 侧栏自己负责它那一侧的 500ms 持久化
+    this.dirty = !!this.recoveryError; // A mirrored edit is not proof of durability.
     this.status('已同步侧栏修改', 'saved');
     return this;
   }
 
   markSaved(id, value) {
-    if (this.open$ && id === this.id && (value === undefined || value === this.composer.value())) this.status('已保存在浏览器', 'saved');
+    if (this.open$ && id === this.id && (value === undefined || value === this.composer.value())) {
+      // Unqualified asset status notifications cannot clear a failed text save.
+      if (this.recoveryError && value === undefined) return this;
+      if (this.recoveryError) this.dirty = false;
+      this.recoveryError = null;
+      this.el.classList.remove('recovering');
+      this.$('draftRecovery').hidden = true;
+      this.status('已保存在浏览器', 'saved');
+    }
     return this;
   }
 
   get hasUnsettledAssets() { return !!this.composer?.blocks?.some(block => block.pending || block.error); }
 
+  preserveDisconnectedDraft(error) {
+    if (error?.code !== 'EXTENSION_CONTEXT_INVALIDATED') return;
+    this.recoveryError = error; this.dirty = true;
+    this.$('draftRecovery').hidden = false;
+    this.el.classList.add('on', 'recovering'); this.status(''); this.place(this.anchorRect);
+  }
+
   status(text, cls = '', assetContext = '') {
     if (this.disposed) return;
     const pending = this.composer?.blocks?.some(block => block.pending);
     const failed = this.composer?.blocks?.find(block => block.error);
-    if (pending) { text = `正在保存图片…${assetContext}`; cls = 'saving'; }
+    if (this.recoveryError) { text = `保存失败：${this.recoveryError.message}`; cls = 'bad'; }
+    else if (pending) { text = `正在保存图片…${assetContext}`; cls = 'saving'; }
     else if (failed) { text = `图片保存失败：${failed.error}。请移除后重新粘贴。${assetContext}`; cls = 'bad'; }
     this.$('done').disabled = !!(pending || failed);
+    this.$('done').querySelector('span').textContent = this.recoveryError ? '重试保存' : '完成';
     const el = this.$('state');
     el.className = `state${cls ? ` ${cls}` : ''}`;
     el.querySelector('span').textContent = text;
@@ -182,7 +226,10 @@ export class CommentPopover {
     this.status('正在保存图片…');
     let result;
     try { result = this.o.onAsset?.(file); } catch (error) { result = Promise.reject(error); }
-    return Promise.resolve(result).finally(() => {
+    return Promise.resolve(result).catch(error => {
+      if (!this.disposed && this.id === id) this.preserveDisconnectedDraft(error);
+      throw error;
+    }).finally(() => {
       if (this.disposed) return;
       // RichComposer applies pending/error and triggers its commit after the
       // asset promise settles. Refresh after that work, including failures
@@ -197,9 +244,50 @@ export class CommentPopover {
     });
   }
 
-  commit() {
+  async backupDraft(kind) {
+    if (this.disposed || !this.recoveryError || this.backupWorking) return false;
+    const id = this.id, value = this.composer.value();
+    const focus = this.sh.activeElement;
+    const button = this.$(kind === 'copy' ? 'copyDraft' : 'downloadDraft');
+    const hint = this.$('draftBackupStatus');
+    this.backupWorking = true;
+    for (const control of [this.$('copyDraft'), this.$('downloadDraft')]) control.disabled = true;
+    button.setAttribute('aria-busy', 'true');
+    hint.classList.remove('bad'); hint.textContent = kind === 'copy' ? '正在复制当前批注草稿…' : '正在准备草稿文件…';
+    try {
+      const action = kind === 'copy' ? this.o.onCopyDraft : this.o.onDownloadDraft;
+      if (typeof action !== 'function') throw new Error('backup unavailable');
+      const result = await action(id, value);
+      if (result === false) throw new Error('backup unavailable');
+      if (this.disposed || this.id !== id) return false;
+      hint.textContent = this.composer.value() !== value
+        ? `${kind === 'copy' ? '已复制' : '已准备下载'}操作时的草稿；当前内容又有修改，请再次备份。尚未保存到浏览器。`
+        : typeof result === 'string' && result.trim() ? result
+          : kind === 'copy' ? '已复制当前批注草稿，尚未保存到浏览器。请确认备份后再刷新。'
+            : '草稿文件已准备下载，尚未保存到浏览器。请确认文件后再刷新。';
+      if (this.hasUnsettledAssets) hint.textContent += ' 尚未保存的图片不会包含在此次文字备份中。';
+      return true;
+    } catch {
+      if (!this.disposed && this.id === id) {
+        hint.classList.add('bad');
+        hint.textContent = kind === 'copy' ? '复制未完成。请选中上方文字手动复制，或使用「下载草稿」；不要直接刷新。'
+          : '草稿下载未完成。请使用「复制批注」或手动复制上方文字；不要直接刷新。';
+      }
+      return false;
+    } finally {
+      this.backupWorking = false;
+      if (!this.disposed) {
+        for (const control of [this.$('copyDraft'), this.$('downloadDraft')]) control.disabled = false;
+        button.removeAttribute('aria-busy');
+        if (!this.sh.activeElement && focus?.isConnected) focus.focus({ preventScroll: true });
+      }
+    }
+  }
+
+  commit({ retry = false } = {}) {
     clearTimeout(this.saveTimer);
     if (this.disposed) return this.pendingSave || true;
+    if (this.recoveryError && !retry) { this.status(''); return false; }
     if (this.hasUnsettledAssets) { this.status(''); return false; }
     if (!this.dirty || !this.id) return this.pendingSave || true;
     const id = this.id, value = this.composer.value();
@@ -209,8 +297,9 @@ export class CommentPopover {
       const result = this.o.onCommit?.(id, value);
       const success = () => { if (id === this.id && !this.dirty) this.markSaved(id, value); return true; };
       const failure = (e) => {
-        if (id === this.id && value === this.composer.value()) {
+        if (id === this.id && (value === this.composer.value() || e?.code === 'EXTENSION_CONTEXT_INVALIDATED')) {
           this.dirty = true;
+          this.preserveDisconnectedDraft(e);
           this.status(`保存失败：${e?.message || e}`, 'bad');
         }
         return false;
@@ -221,6 +310,7 @@ export class CommentPopover {
       return pending;
     } catch (e) {
       this.dirty = true;
+      this.preserveDisconnectedDraft(e);
       this.status(`保存失败：${e?.message || e}`, 'bad');
       return false;
     }
@@ -246,11 +336,22 @@ export class CommentPopover {
   close(commit = true) {
     clearTimeout(this.focusTimer);
     if (!this.open$) return;
+    if (this.recoveryError) { this.status(''); return false; }
     if (commit && this.hasUnsettledAssets) {
       this.status('', '', '图片处理完成后再收起，原位草稿已保留。');
       return false;
     }
-    if (commit) this.commit();
+    if (commit) {
+      const result = this.commit();
+      if (result === false) return false;
+      if (result?.then) {
+        const id = this.id, value = this.composer.value();
+        return result.then(ok => {
+          if (ok && this.id === id && !this.dirty && this.composer.value() === value) this.close(false);
+          return ok;
+        });
+      }
+    }
     clearTimeout(this.saveTimer);
     const id = this.id;
     const restoreFocus = !!this.sh.activeElement;

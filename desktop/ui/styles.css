@@ -191,6 +191,15 @@ details>summary .badge{margin-left:auto}
 .details-body>p{font-size:12px;color:var(--cf-quote)}
 #settings-workspace,#configuration{min-width:0;max-width:100%}
 .connect-card{padding:26px}
+.update-prompt{width:100%;justify-content:flex-start;gap:8px;margin:2px 0 12px;padding:9px 10px;border-color:var(--cf-accent);background:var(--cf-accent-wash);color:var(--cf-accent);font-size:11px}
+.update-prompt:hover{background:var(--cf-accent-soft)}
+.update-prompt>[data-icon]{flex:none}.update-prompt .icon{width:16px;height:16px}
+#update-prompt-label{flex:1;min-width:0;text-align:left;overflow-wrap:anywhere}
+.update-dot{width:6px;height:6px;border-radius:50%;background:var(--cf-accent);flex:none}
+.update-check-detail{font-size:11px!important;color:var(--cf-quote)!important}
+.update-check-detail[data-error=true]{color:var(--cf-bad)!important}
+#updates-card:focus{outline:2px solid var(--cf-focus-line);outline-offset:3px}
+#check-updates .icon{width:15px;height:15px}
 
 /* Keep notices in their own layout row: visible without covering the form. */
 #toast{
@@ -245,6 +254,7 @@ html[data-input-modality=keyboard] .skip-link:focus-visible{
   .sidebar-bottom{padding:20px 2px 0}
   .sidebar-bottom p{justify-content:center}
   .sidebar-bottom p>span:last-child{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
+  .update-prompt{justify-content:center;padding:9px 5px;margin-top:6px}.update-prompt #update-prompt-label,.update-prompt .update-dot{display:none}
   nav{margin-top:35px}
   nav button{justify-content:center;padding:13px 8px}
   .brand img{width:30px;height:30px}

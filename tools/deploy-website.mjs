@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { websiteFiles } from './build-website.mjs';
+import { checkUpdateFeed } from './update-feed.mjs';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 const repository = 'PengheLiu/ContextFlow';
@@ -16,6 +17,7 @@ const api = (route, body, method) => JSON.parse(execFileSync('gh', [
 if (!process.argv.includes('--publish')) {
   console.log(`官网：https://pengheliu.github.io/ContextFlow/\n目标：${repository} / gh-pages\n发布白名单：\n${websiteFiles.map(([, target]) => `  ${target}`).join('\n')}\n检查后运行 npm run deploy:website -- --publish；不会覆盖 Release 附件。`);
 } else {
+  checkUpdateFeed();
   const pages = api('pages');
   if (pages.source?.branch !== 'gh-pages' || pages.source?.path !== '/') throw new Error('Pages 来源与预期不同，请先核对部署配置。');
   const base = api('git/ref/heads/gh-pages').object.sha;

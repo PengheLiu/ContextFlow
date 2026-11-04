@@ -82,6 +82,8 @@ const PANEL_CSS = `
   .title .icon-action{width:30px;height:30px;padding:0;display:grid;place-items:center;color:${T.quote}}
   .title .icon-action .ico{width:15px;height:15px}
   .title .icon-action > span{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
+  .title .icon-action[hidden]{display:none}
+  .title .update-action{color:${T.accent};background:${T.accentWash};border:1px solid ${T.lineStrong}}
 
   .tabs{display:flex;align-items:stretch;gap:0;margin:17px -16px 0;padding:0 9px;
         border-bottom:1px solid ${T.line};overflow-x:auto;scrollbar-width:none}
@@ -242,6 +244,7 @@ ${Object.entries(MARKS).map(([k, m]) => `  .item.k-${k} .src.lk{text-decoration-
     .brand-sub{display:none}.brand-seal{width:29px;height:29px}.brand-seal .mk{width:17px;height:17px}
     .title .r{gap:0}.brand{gap:6px}.brand-seal{width:24px;height:24px}.brand-name{font-size:13px}
     .title .icon-action{width:28px;height:28px}.body{padding-left:14px;padding-right:14px}
+    .title.has-update .brand-seal{display:none}
     footer{padding-left:13px;padding-right:13px}.tab{gap:4px;padding-left:3px;padding-right:3px;font-size:12px}
     .foot-actions .label{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}.foot-actions button{width:28px;height:28px;justify-content:center;padding:0}
   }
@@ -298,6 +301,7 @@ export class Panel {
               <span class="brand-copy"><span class="brand-name">Context<em>Flow</em></span><span class="brand-sub" id="brandSub">READING MARGIN</span></span>
             </span>
             <span class="r">
+              <button class="icon-action update-action" id="update" type="button" title="有可用更新" aria-label="查看可用更新" hidden>${icon('update')}<span>有可用更新</span></button>
               <button class="icon-action" id="library" type="button" title="跨文章搜索、回顾与备份" aria-label="我的阅读库" hidden>${icon('folder')}<span>我的阅读库</span></button>
               <button class="icon-action" id="cfg" title="配置翻译、解释与笔记同步" aria-label="配置">${icon('settings')}<span>配置</span></button>
               <button class="icon-action" id="mode" title="切换面板布局" aria-label="切换面板布局"></button>
@@ -364,6 +368,9 @@ export class Panel {
       ? this.h.onOpenConnection?.() : this.toggleSettings());
     this.$('connectService').onclick = this.guard(() => this.h.onOpenConnection?.());
     this.$('library').onclick=this.guard(async()=>{await this.flushEdits();await this.h.onOpenLibrary?.();});
+    // Reviewing an update opens a separate extension page. Keep this article's
+    // editor/draft in place even if its save channel is already disconnected.
+    this.$('update').onclick = this.guard(() => this.h.onOpenUpdate?.());
     this.$('mode').onclick = () => this.setMode(this.ui.mode === 'push' ? 'float' : 'push');
     for (const k of TAB_KEYS) {
       const button = this.$(`t-${k}`);
@@ -757,7 +764,19 @@ export class Panel {
     if (configure) configure.onclick = this.guard(() => this.toggleSettings());
   }
 
+  renderUpdates() {
+    if (this.disposed) return;
+    const state = this.h.getUpdateState?.();
+    const available = typeof this.h.onOpenUpdate === 'function' && (state?.available === true || state?.state === 'available');
+    const button = this.$('update');
+    button.hidden = !available;
+    const label = `查看可用更新${state?.latestVersion && /^\d+\.\d+\.\d+(?:\.\d+)?$/.test(state.latestVersion) ? ` v${state.latestVersion}` : ''}`;
+    button.title = label; button.setAttribute('aria-label', label);
+    this.sh.querySelector('.title').classList.toggle('has-update', available);
+  }
+
   renderStatus() {
+    this.renderUpdates();
     this.$('library').hidden=!this.h.canOpenLibrary?.();
     const s = this.h.getStats(), n = this.h.getItems().length;
     const ok = s.position + s.quote + s.fuzzy;

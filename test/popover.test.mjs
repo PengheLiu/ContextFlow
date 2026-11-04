@@ -326,6 +326,125 @@ await t('异步落盘前不误报成功，完成等待落盘；失败保留编�
   assert.equal(comments.open$, false);
 });
 
+const disconnected = () => Object.assign(new Error('扩展已更新或重载，本页保存通道已断开。请先复制或下载未保存内容，再刷新页面恢复。'), { code: 'EXTENSION_CONTEXT_INVALIDATED' });
+const settle = async () => { for (let n = 0; n < 4; n++) await Promise.resolve(); };
+
+await t('扩展上下文失效时所有收起入口及切换批注均保留原位草稿，不重复后台保存', async () => {
+  let commits = 0, closed = 0;
+  const comments = new CommentPopover({ onCommit: async () => { commits++; throw disconnected(); }, onClose: () => closed++ });
+  try {
+    comments.open(rect, { id: 'disconnected-note', source: 'Super-agent', value: '' });
+    comments.input.value = '有个疑问：\n团队共享一个还是每个人一个？';
+    comments.input.dispatchEvent(new window.Event('input', { bubbles: true }));
+    comments.$('done').click(); await comments.pendingSave; await settle();
+    assert.equal(comments.open$, true); assert.equal(comments.dirty, true);
+    assert.equal(comments.$('draftRecovery').hidden, false);
+    assert.match(comments.$('state').textContent, /扩展已更新.*先复制或下载.*再刷新/);
+    assert.doesNotMatch(comments.$('state').textContent, /已保存在浏览器/);
+    assert.equal(comments.close(), false); assert.equal(comments.close(false), false);
+    comments.$('x').click();
+    comments.input.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    comments.openedAt = -Infinity; document.body.click();
+    comments.open(rect, { id: 'other-note', source: 'Other', value: 'must not replace the draft' });
+    assert.equal(comments.id, 'disconnected-note'); assert.equal(comments.open$, true);
+    assert.equal(comments.input.value, '有个疑问：\n团队共享一个还是每个人一个？');
+    assert.equal(commits, 1); assert.equal(closed, 0);
+    assert.equal(comments.commit(), false, 'blur and debounce do not resubmit an irrecoverable context');
+  } finally { comments.dispose(); }
+});
+
+await t('失联后的侧栏镜像不冒充保存，复制和下载使用最新草稿且不依赖保存通道', async () => {
+  let commits = 0, finishCopy; const backups = [];
+  const comments = new CommentPopover({
+    onCommit: async () => { commits++; throw disconnected(); },
+    onCopyDraft: (id, value) => { backups.push(['copy', id, value]); return new Promise(resolve => { finishCopy = resolve; }); },
+    onDownloadDraft: async (id, value) => { backups.push(['download', id, value]); return '已发起草稿下载，请确认文件已保存；这不代表阅读库保存成功。'; },
+  });
+  try {
+    comments.open(rect, { id: 'backup-note', value: '原文中的草稿' });
+    comments.input.value = '未保存的第一版'; comments.input.dispatchEvent(new window.Event('input', { bubbles: true }));
+    await comments.commit();
+    comments.setValue('backup-note', '侧栏同步过来的最新草稿');
+    assert.equal(comments.dirty, true); assert.equal(comments.$('draftRecovery').hidden, false);
+    assert.match(comments.$('state').textContent, /保存失败/); assert.doesNotMatch(comments.$('state').textContent, /已同步侧栏修改/);
+    comments.markSaved('backup-note');
+    assert.equal(comments.$('draftRecovery').hidden, false, 'an unqualified asset notification cannot certify text durability');
+    const input = comments.input; input.focus(); input.setSelectionRange(2, 4);
+    const copy = comments.backupDraft('copy');
+    assert.equal(await comments.backupDraft('download'), false, 'parallel backup clicks are coalesced');
+    assert.equal(backups.length, 1);
+    finishCopy('已复制当前批注草稿；这不代表阅读库保存成功。'); await copy;
+    assert.equal(comments.input, input); assert.equal(comments.sh.activeElement, input);
+    assert.equal(input.selectionStart, 2); assert.equal(input.selectionEnd, 4);
+    assert.match(comments.$('draftBackupStatus').textContent, /已复制.*不代表阅读库保存成功/);
+    assert.equal(await comments.backupDraft('download'), true);
+    assert.deepEqual(backups, [['copy', 'backup-note', '侧栏同步过来的最新草稿'], ['download', 'backup-note', '侧栏同步过来的最新草稿']]);
+    assert.match(comments.$('draftBackupStatus').textContent, /已发起草稿下载.*不代表阅读库保存成功/);
+    assert.equal(comments.open$, true); assert.equal(comments.dirty, true); assert.equal(commits, 1);
+    assert.match(comments.$('state').textContent, /保存失败/);
+  } finally { comments.dispose(); }
+});
+
+await t('备份失败保留错误和草稿并给出手动复制退路，不泄漏异常原文', async () => {
+  const comments = new CommentPopover({ onCommit: () => { throw disconnected(); }, onCopyDraft: async () => { throw new Error('PRIVATE_RAW_ERROR'); }, onDownloadDraft: async () => false });
+  try {
+    comments.open(rect, { id: 'failed-backup', value: '' }); comments.input.value = '唯一一份文字';
+    comments.input.dispatchEvent(new window.Event('input', { bubbles: true })); comments.commit();
+    assert.equal(await comments.backupDraft('copy'), false);
+    assert.match(comments.$('draftBackupStatus').textContent, /手动复制.*下载草稿.*不要直接刷新/);
+    assert.doesNotMatch(comments.$('draftBackupStatus').textContent, /PRIVATE_RAW_ERROR/);
+    assert.equal(await comments.backupDraft('download'), false);
+    assert.match(comments.$('draftBackupStatus').textContent, /复制批注.*不要直接刷新/);
+    assert.equal(comments.input.value, '唯一一份文字'); assert.equal(comments.open$, true);
+    assert.equal(comments.$('copyDraft').disabled, false); assert.equal(comments.$('downloadDraft').disabled, false);
+    assert.match(comments.$('state').textContent, /保存失败/);
+  } finally { comments.dispose(); }
+});
+
+await t('只有匹配当前文字的真实持久化成功能退出失联恢复态', async () => {
+  let restored = false, commits = 0;
+  const comments = new CommentPopover({ onCommit: async () => { commits++; if (!restored) throw disconnected(); } });
+  try {
+    comments.open(rect, { id: 'recovered-note', value: '' }); comments.input.value = '保留下来的草稿';
+    comments.input.dispatchEvent(new window.Event('input', { bubbles: true })); await comments.commit();
+    comments.markSaved('recovered-note', '过时文字');
+    assert.equal(comments.$('draftRecovery').hidden, false);
+    restored = true; comments.$('done').click(); await comments.pendingSave; await settle();
+    assert.equal(commits, 2); assert.equal(comments.recoveryError, null);
+    assert.equal(comments.$('draftRecovery').hidden, true); assert.equal(comments.open$, false);
+  } finally { comments.dispose(); }
+});
+
+await t('首次保存尚未返回时收起或切换也要等待结果，失联后继续显示原草稿', async () => {
+  let reject;
+  const comments = new CommentPopover({ onCommit: () => new Promise((_resolve, fail) => { reject = fail; }) });
+  try {
+    comments.open(rect, { id: 'pending-disconnect', value: '' }); comments.input.value = '等待保存的文字';
+    comments.input.dispatchEvent(new window.Event('input', { bubbles: true }));
+    const closing = comments.close();
+    comments.open(rect, { id: 'new-note', value: '另外一条' });
+    assert.equal(comments.id, 'pending-disconnect'); assert.equal(comments.open$, true);
+    reject(disconnected()); await closing;
+    assert.equal(comments.id, 'pending-disconnect'); assert.equal(comments.open$, true);
+    assert.equal(comments.input.value, '等待保存的文字'); assert.equal(comments.$('draftRecovery').hidden, false);
+  } finally { comments.dispose(); }
+});
+
+await t('失联导致图片无法保存时仍可备份文字，并明确说明未保存图片不在备份中', async () => {
+  let copied;
+  const comments = new CommentPopover({ onAsset: async () => { throw disconnected(); }, onCopyDraft: async (_id, value) => { copied = value; return '已复制文字草稿；尚未保存到浏览器。'; } });
+  try {
+    comments.open(rect, { id: 'disconnected-image', value: '文字仍在这里' });
+    await comments.composer.insertImage(0, 6, 6, new window.File(['image'], 'fixture.png', { type: 'image/png' }));
+    assert.equal(comments.$('draftRecovery').hidden, false); assert.equal(comments.close(), false);
+    assert.equal(comments.el.classList.contains('recovering'), true);
+    assert.equal(await comments.backupDraft('copy'), true);
+    assert.match(copied, /文字仍在这里/);
+    assert.match(comments.$('draftBackupStatus').textContent, /尚未保存的图片不会包含/);
+    assert.match(comments.$('state').textContent, /保存失败.*扩展已更新/);
+  } finally { comments.dispose(); }
+});
+
 await t('批注图片仍在保存时不误报已保存，完成入口等待图片与文字一起落盘', async () => {
   let release;
   const values = [];

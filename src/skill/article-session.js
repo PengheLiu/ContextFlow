@@ -97,7 +97,7 @@ export function articleSession({ create, keyOf, href, host = globalThis.window, 
       return typeof value === 'function' ? value.bind(current) : value;
     },
     set(_target, name, value) {
-      if (['openConnectionSettings', 'openReadingLibrary'].includes(name)) {
+      if (['openConnectionSettings', 'openReadingLibrary', 'openUpdateSettings', 'getExtensionUpdates'].includes(name)) {
         hooks.set(name, value); for (const app of sessions.values()) app[name] = value;
       }
       current[name] = value; return true;

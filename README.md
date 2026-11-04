@@ -126,4 +126,6 @@ ContextFlow 是为深度阅读打造的浏览器阅读工作台。读论文、�
 
 [发行记录](https://github.com/PengheLiu/ContextFlow/releases) · [桌面 v1.1.2](https://github.com/PengheLiu/ContextFlow/releases/tag/v1.1.2) · [开发指南](./docs/DEVELOPMENT.md) · [架构与安全设计](./DESIGN.md) · [MIT License](./LICENSE)
 
-当前源码与桌面客户端版本为 v1.1.2。Chrome 扩展更新由商店单独审核与分发，可安装版本以商店页面为准。
+更新入口和保留草稿的升级步骤见[版本更新说明](./docs/UPDATES.md)。
+
+当前源码候选版本为 v1.1.3，官网下载的桌面客户端为 v1.1.2。Chrome 扩展更新由商店单独审核与分发，可安装版本以商店页面为准。

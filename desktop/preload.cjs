@@ -8,9 +8,15 @@ contextBridge.exposeInMainWorld('contextflowDesktop', Object.freeze({
     ipcRenderer.on('desktop:changed', listener);
     return () => ipcRenderer.removeListener('desktop:changed', listener);
   },
+  onUpdatesChange: (callback) => {
+    if (typeof callback !== 'function') throw new TypeError('Update listener must be a function');
+    const listener = (_event, updates) => callback(updates);
+    ipcRenderer.on('desktop:updates', listener);
+    return () => ipcRenderer.removeListener('desktop:updates', listener);
+  },
   onNavigate: (callback) => {
     if (typeof callback !== 'function') throw new TypeError('Navigation listener must be a function');
-    const listener = (_event, page) => { if (page === 'support') callback(page); };
+    const listener = (_event, page) => { if (page === 'support' || page === 'updates') callback(page); };
     ipcRenderer.on('desktop:page', listener);
     return () => ipcRenderer.removeListener('desktop:page', listener);
   },

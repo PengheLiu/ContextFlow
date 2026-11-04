@@ -3,6 +3,7 @@ import { encodeMessage, decodeMessage } from '../src/ext/rpc.js';
 import { companionInfo } from '../src/core/companion-info.js';
 import { readJobStream } from '../src/core/job-stream.js';
 import { randomUUID } from '../src/core/uuid.js';
+import { createExtensionUpdates } from '../src/ext/updates.js';
 
 const BASE = 'http://127.0.0.1:7317';
 const TOKEN = typeof __CONTEXTFLOW_TOKEN__ === 'string' ? __CONTEXTFLOW_TOKEN__ : '';
@@ -17,6 +18,9 @@ const offlineMethods = new Set([
   'migrateArticleIdentity',
 ]);
 const storageReady = chrome.storage.local.setAccessLevel({ accessLevel: 'TRUSTED_CONTEXTS' });
+const updates = typeof chrome.runtime.getManifest === 'function'
+  ? createExtensionUpdates({ chrome, storageReady }) : null;
+if (updates) void updates.check();
 
 async function connectionToken() {
   await storageReady;
@@ -104,6 +108,12 @@ async function notifyConnectionChanged() {
 
 async function handleMessage(message, sender, kind) {
   await storageReady;
+  if (['cf-update-status', 'cf-check-updates', 'cf-open-update'].includes(message.type)) {
+    if (!updates) throw new Error('当前扩展不支持版本检查，请重新打开设置页。');
+    if (message.type === 'cf-check-updates') return updates.check({ force: true });
+    if (message.type === 'cf-open-update') return updates.open(message.operation || 'details');
+    await updates.ready; return updates.snapshot();
+  }
   if (message.type === 'cf-offline') {
     if (kind !== 'page' || !offlineMethods.has(message.method) || !Array.isArray(message.args)) {
       throw new Error('不允许的存储操作');

@@ -75,7 +75,7 @@ test('the real desktop state function still returns recovery and safe diagnostic
     const code = main.slice(main.indexOf('async function state() {'), main.indexOf('  function systemIntegration()')) + '\nstate;';
     const readState = runInNewContext(code, { service: { snapshot: () => ({ state: 'error', message: 'Fixture core is stopped' }), lastHealth: null },
       app: { getVersion: () => '1.1.1', isPackaged: true }, paths: f.paths, process: { platform: 'darwin', arch: 'arm64' },
-      listPairings, browserPairingState, bridgeReady: true, preferences: {}, updateState: {}, discovery: { snapshot: () => ({}) },
+      listPairings, browserPairingState, bridgeReady: true, preferences: {}, updateChecker: null, initialUpdateState: {}, discovery: { snapshot: () => ({}) },
       journeyView: () => ({}), destinationKey: () => '', destinationIdentity: () => '', lastConfig: {}, systemIntegration: () => ({}), listRecoveryPoints, preferencesWarning: '' });
     const snapshot = await readState();
     assert.equal(snapshot.pairings, null); assert.equal(snapshot.pairingError, PAIRING_READ_ERROR);

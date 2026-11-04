@@ -102,8 +102,8 @@ async function buildExtension() {
     version: JSON.parse(readFileSync('package.json', 'utf8')).version,
     description: '在网页原文旁批注、追问与 Markdown 导出；按需连接自己的 AI 和笔记。',
     minimum_chrome_version: '111',
-    permissions: ['storage', 'nativeMessaging'],
-    host_permissions: ['http://127.0.0.1:7317/*'],
+    permissions: ['storage', 'nativeMessaging', 'alarms'],
+    host_permissions: ['http://127.0.0.1:7317/*', 'https://pengheliu.github.io/ContextFlow/*'],
     background: { service_worker: 'sw.js', type: 'module' },
     options_ui: { page: 'options.html', open_in_tab: true },
     action: {

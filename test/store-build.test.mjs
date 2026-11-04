@@ -49,9 +49,9 @@ try {
   assert.match(policy.body.textContent,/设置与帮助.*浏览器授权/,'隐私撤销指引必须可在真实桌面界面找到');
   policy.defaultView?.close();sourcePolicy.defaultView?.close();
   assert.equal(manifest.manifest_version, 3);
-  assert.deepEqual(manifest.permissions,['storage','nativeMessaging'],'本轮权限与公开资料保持一致，不添加历史/标签/剪贴板权限');
+  assert.deepEqual(manifest.permissions,['storage','nativeMessaging','alarms'],'只补版本检查定时器，不添加历史/标签/剪贴板权限');
   assert.equal(manifest.key, undefined);
-  assert.deepEqual(manifest.host_permissions, ['http://127.0.0.1:7317/*']);
+  assert.deepEqual(manifest.host_permissions, ['http://127.0.0.1:7317/*', 'https://pengheliu.github.io/ContextFlow/*']);
   assert.equal(manifest.options_ui.page, 'options.html');
   for (const file of ['options.html', 'options.js', 'options.css', 'privacy.html']) assert.ok(files.includes(file));
   assert.ok(!readFileSync(join(output, 'options.js'), 'utf8').includes('__CONTEXTFLOW_TOKEN__'));

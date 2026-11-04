@@ -2,6 +2,7 @@ import { copyFileSync, lstatSync, mkdirSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { checkDesignTokens } from './design-tokens.mjs';
+import { checkUpdateFeed } from './update-feed.mjs';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 
@@ -12,6 +13,7 @@ export const websiteFiles = [
   ['store/site.css', 'site.css'],
   ['store/privacy.html', 'privacy.html'],
   ['store/demo.html', 'demo.html'],
+  ['store/updates.json', 'updates.json'],
   ['assets/mark.svg', 'assets/mark.svg'],
   ['assets/readme/inline-annotation.png', 'assets/inline-annotation.png'],
   ['assets/readme/reading-library.png', 'assets/reading-library.png'],
@@ -19,6 +21,7 @@ export const websiteFiles = [
 
 export function stageWebsite(destination) {
   checkDesignTokens();
+  checkUpdateFeed();
   const output = resolve(destination);
   for (const [source, target] of websiteFiles) {
     const input = join(root, source);

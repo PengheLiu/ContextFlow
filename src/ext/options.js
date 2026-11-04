@@ -1,4 +1,4 @@
-import { request } from './rpc.js';
+import { request, sendRuntimeMessage } from './rpc.js';
 import { companionCommands } from './setup-commands.js';
 import * as api from '../core/api.js';
 import { Settings, SETTINGS_CSS } from '../skill/settings.js';
@@ -6,6 +6,7 @@ import { BASE } from '../skill/theme.js';
 import { wireDisclosure } from '../core/disclosure.js';
 import { ReadingLibrary } from './library.js';
 import { setupSupport } from './support.js';
+import { setupUpdatePage } from './updates.js';
 
 const $ = (id) => document.getElementById(id);
 const input = $('pair-token');
@@ -31,16 +32,19 @@ for (const [id, command] of Object.entries({
 })) $(id).textContent = command;
 const version = chrome.runtime.getManifest().version;
 setupSupport({request,version});
+setupUpdatePage({ request, version });
 let library;
 function libraryView() {
   const selected=location.hash==='#library';
   const support=location.hash==='#support';
-  document.body.dataset.view=selected ? 'library' : support ? 'support' : location.hash==='#connect' ? 'connect' : 'start';
+  const updates=location.hash==='#updates';
+  document.body.dataset.view=selected ? 'library' : support ? 'support' : updates ? 'updates' : location.hash==='#connect' ? 'connect' : 'start';
   $('support').hidden=!support;
+  $('updates').hidden=!updates;
   $('reading-library').hidden=!selected;
-  document.title=selected ? '我的阅读库 · ContextFlow' : support ? '帮助与诊断 · ContextFlow' : location.hash==='#connect' ? '连接你的 AI 与笔记 · ContextFlow' : '欢迎使用 ContextFlow · 从第一条批注开始';
+  document.title=selected ? '我的阅读库 · ContextFlow' : support ? '帮助与诊断 · ContextFlow' : updates ? '应用更新 · ContextFlow' : location.hash==='#connect' ? '连接你的 AI 与笔记 · ContextFlow' : '欢迎使用 ContextFlow · 从第一条批注开始';
   for(const link of document.querySelectorAll('.page-nav a')) {
-    if(link.dataset.view===(selected ? 'library' : support ? 'support' : location.hash==='#connect' ? 'connect' : 'start'))link.setAttribute('aria-current','page');
+    if(link.dataset.view===document.body.dataset.view)link.setAttribute('aria-current','page');
     else link.removeAttribute('aria-current');
   }
   if(selected && !library) {
@@ -94,14 +98,10 @@ $('jump-connect').addEventListener('click', () => {
   $('desktop-consent').focus({ preventScroll: true });
 });
 
-api.setTransport((path, init = {}) => new Promise((resolve) => {
-  const timer = setTimeout(() => resolve({ status: 0, body: { error: '本地服务响应超时，请检查连接后重试' } }), 25000);
-  chrome.runtime.sendMessage({ type: 'cf-fetch', path, init: { method: init.method, body: init.body } }, (result) => {
-    clearTimeout(timer);
-    const error = chrome.runtime.lastError;
-    resolve(error ? { status: 0, body: { error: '扩展通道断开，请重新打开本页' } } : result || { status: 0, body: { error: '本地服务未响应' } });
-  });
-}));
+api.setTransport((path, init = {}) => sendRuntimeMessage({ type: 'cf-fetch', path,
+  init: { method: init.method, body: init.body } }, { timeoutMs: 25000 })
+  .then(result => result || { status: 0, body: { error: '本地服务未响应' } })
+  .catch(error => ({ status: 0, body: { error: error.message, code: error.code } })));
 
 let paired = false;
 let pairingSource = '';

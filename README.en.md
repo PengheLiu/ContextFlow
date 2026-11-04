@@ -122,4 +122,6 @@ Export or sync regularly. Uninstalling the extension clears its browser records,
 
 [Releases](https://github.com/PengheLiu/ContextFlow/releases) · [Desktop v1.1.2](https://github.com/PengheLiu/ContextFlow/releases/tag/v1.1.2) · [Development guide](./docs/DEVELOPMENT.md) · [Architecture and security](./DESIGN.md) · [MIT License](./LICENSE)
 
-The current source and desktop app version is v1.1.2. Chrome extension updates are reviewed and distributed separately; check the actual store page for the installable version.
+See the [update guide (Chinese)](./docs/UPDATES.md) for version checks and preserving drafts during upgrades.
+
+The current source candidate is v1.1.3; the published desktop download is v1.1.2. Chrome extension updates are reviewed and distributed separately; check the actual store page for the installable version.
