@@ -1,16 +1,16 @@
-# 1.1.3 审核指引（已提交，待审核）
+# 1.1.4 审核指引
 
-2026-11-04 20:24（北京时间，12:24 UTC），1.1.3 精确 ZIP 已在原商店条目提交，后台显示「已将您的扩展程序提交送审」及「状态：待审核」。提交前已确认「在 ContextFlow 通过审核后自动发布它」选项保持勾选。该回执确认已送审，不代表已经获批或上线；Chrome 已公开版本仍为 1.1.1，`product/release.json` 和公开更新清单的扩展版本保持不变。
+2026-11-13，1.1.4 已在 ContextFlow 原商店条目提交。后台显示「已将您的扩展程序提交送审」及「状态：待审核」。提交时勾选审核通过后自动发布。公开更新清单记录的扩展版本为已核实公开的 1.1.3。
 
-冻结功能源码为 `211b5849e6bd6f9db9c30649948ce149e974a74c`。实际上传文件为 `contextflow-chrome-1.1.3.zip`，SHA-256 为 `bb4f8cccfaef0e4afedfeab036737e3ea22f6981a13ed06b52ccf76b134a2f88`。最终包、批注断线恢复、更新提示、完整回归与公开下载已经验收，见[更新说明](../docs/RELEASE_1_1_3.md)和[发布准备清单](../docs/RELEASE_READINESS.md)。
+冻结功能源码为 `6917096ba37d4311ba9f81c792eff2a2c7506c32`。上传文件为 `contextflow-chrome-1.1.4.zip`，SHA-256 为 `fc22b8271bb969e40068fb0dbac38da16290ef39dafe1d35c229428e7f1ef815`。本版兼容性修复和验证范围见[更新说明](../docs/RELEASE_1_1_4.md)和[发布准备清单](../docs/RELEASE_READINESS.md)。
 
-此前 1.1.1 的实际回执和原 490 字说明见[历史归档](./archive/REVIEW_INSTRUCTIONS_1_1_1.md)；不将本轮新增权限说明追写成历史提交内容。
+历史回执见 [1.1.3 发布记录](../docs/RELEASE_1_1_3.md)和 [1.1.1 审核归档](./archive/REVIEW_INSTRUCTIONS_1_1_1.md)。
 
-后台已保存并跨页回读本轮权限理由；实际审核说明为以下 479 字符文本，用户名与密码字段留空。上传草稿版本已核对为 1.1.3，包含 `alarms`；不复用旧版“已发布”状态作为本次通过证据。
+后台保存的审核说明如下，用户名与密码字段留空。上传草稿已核对为 1.1.4，manifest 除版本号外与公开版 1.1.3 一致。
 
 ## 可粘贴说明
 
-基础高亮、批注和 Markdown 导出无需账号、模型或桌面端。打开 https://pengheliu.github.io/ContextFlow/demo.html ，选正文点「批注」，写想法或贴图；侧栏回看，刷新确认保留，底部「下载」导出。「我的阅读库」可搜索及备份恢复。设置页「应用更新」可检查版本；有新版时阅读面板右上角显示更新图标。新增 alarms 和官网 HTTPS 权限仅获取公开版本 JSON，不发送文章、笔记、密钥或设备标识，不加载远程代码，不自动重载插件或刷新文章。旧页面连接失效时可复制或下载文字草稿后刷新；文字草稿不包含图片。AI / 笔记同步需官网下载并连接可选客户端，由用户批准本机连接；模型使用用户账号和额度，不提供测试账号。Mac 包仅支持 macOS 13.5+ Apple Silicon，未 Developer ID 签名或 Apple 公证。不支持 Chrome 内部页、商店、内置 PDF 或文件页。指南：https://pengheliu.github.io/ContextFlow/download.html
+无需账号即可测试基础功能。打开 https://pengheliu.github.io/ContextFlow/demo.html ，选择正文点「批注」，输入内容或贴图，刷新确认批注保留，在侧栏点「下载」导出 Markdown。「我的阅读库」可搜索与备份恢复。1.1.4 权限与 1.1.3 一致。可选 DSH 验证：从 https://pengheliu.github.io/ContextFlow/download.html 安装 macOS 13.5+ Apple Silicon 桌面端，在扩展内点「连接桌面端」并在客户端批准。使用已登录的 DeepSeek Harness 0.2.2-rc.2，在设置页选择本地 Agent 并测试连接、保存，再回练习页选中文字点击「解释」，可继续追问。「模型连接」只验证固定短消息；若检测到尚未适配的 DSH 版本，设置页会提示网页回答需更新。AI 使用用户的账号和额度，基础功能无此要求。Mac 安装包未使用 Developer ID 签名或 Apple 公证。
 
 ## 权限与远程代码理由
 
@@ -23,9 +23,9 @@
 
 ## 提交前及提交后核对
 
-- 继续使用原商店 ID `aemncphfnlpbhlddifhohpgegejjejfm`；核对上传包版本、11 个顶层文件、SHA-256，以及 manifest 无 `key` 和维护者凭据。不覆盖旧版冻结文件。
-- 新增 `alarms` 和官网主机权限必须填写本轮理由，不能沿用“无新增权限”的旧结论；已有 `storage`、`nativeMessaging` 和本机 HTTP 范围按实际构建说明。
+- 原商店 ID 为 `aemncphfnlpbhlddifhohpgegejjejfm`。已核对上传包版本、11 个顶层文件、SHA-256，以及 manifest 无 `key` 和维护者凭据。
+- `alarms`、官网主机权限、`storage`、`nativeMessaging` 和本机 HTTP 权限与 1.1.3 一致，继续使用现有权限说明。
 - 隐私政策为 https://pengheliu.github.io/ContextFlow/privacy.html 。网站内容、功能涉及的 URL / 标题及认证信息按真实用途披露；不勾选“不处理任何用户数据”，不宣称所有 AI 请求离线，也不提供私人账号、API key、配对码或 Agent 凭据。
 - 基础功能可直接使用官网练习文章验证。桌面端与模型属于可选配置；AI 使用用户账号及额度。Mac ARM64 安装要求、未 Developer ID 签名 / 未 Apple 公证等限制在官网如实说明，未开放平台不提供假下载。
-- 保存后台权限理由、审核说明和隐私申报，确认无未解决错误，再在原条目提交审核。刷新后核对 **1.1.3** 与“待审核 / 审核中”等明确状态；只上传成功不表示已送审，旧版“已发布”不表示本版通过。
-- 记录最终后台回执和审核发布选择后，才更新本文件及相关发布记录；不因 GitHub 发布提前将 `publishedExtension.version` 改为 1.1.3。
+- 保存后台审核说明，在原条目提交审核。提交后核对 **1.1.4** 和审核状态。
+- 实际公开后再更新 `publishedExtension.version` 和官网更新清单。
