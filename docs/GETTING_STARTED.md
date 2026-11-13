@@ -43,7 +43,7 @@
 
 ### 1. 从官网选择 Mac Apple Silicon 安装包
 
-打开 [ContextFlow 桌面端下载页](https://pengheliu.github.io/ContextFlow/download.html)。当前提供 **macOS Apple Silicon（M 系列芯片）1.1.3 DMG** 与对应 SHA-256 校验文件，要求 macOS 13.5+。先在「关于本机」核对芯片，不凭浏览器名称猜测；Mac Intel 和 Windows 尚未开放安装包，不使用其他架构代替。
+打开 [ContextFlow 桌面端下载页](https://pengheliu.github.io/ContextFlow/download.html)。当前提供 **macOS Apple Silicon（M 系列芯片）1.1.4 DMG** 与对应 SHA-256 校验文件，要求 macOS 13.5+。先在「关于本机」核对芯片，不凭浏览器名称猜测；Mac Intel 和 Windows 尚未开放安装包，不使用其他架构代替。
 
 桌面一键连接需要 **ContextFlow Chrome 扩展 1.1.0 或更高版本**。下载前请在扩展「连接与设置」确认有「连接桌面端」入口；商店可安装版本以实际页面为准。没有入口时，可先继续高亮、批注与 Markdown 导出，不要卸载扩展。
 

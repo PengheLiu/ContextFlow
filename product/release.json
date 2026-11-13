@@ -3,16 +3,16 @@
   "candidateVersion": "1.1.4",
   "channel": "preview",
   "publishedExtension": {
-    "version": "1.1.1",
+    "version": "1.1.3",
     "status": "published",
-    "checkedAt": "2026-11-04",
+    "checkedAt": "2026-11-13",
     "storeId": "aemncphfnlpbhlddifhohpgegejjejfm"
   },
   "publishedGithub": {
-    "version": "1.1.3",
-    "tag": "v1.1.3",
-    "commit": "211b5849e6bd6f9db9c30649948ce149e974a74c",
-    "checkedAt": "2026-11-04"
+    "version": "1.1.4",
+    "tag": "v1.1.4",
+    "commit": "6917096ba37d4311ba9f81c792eff2a2c7506c32",
+    "checkedAt": "2026-11-13"
   },
   "desktop": {
     "updateMode": "manual",
@@ -20,14 +20,14 @@
       "darwin-arm64": {
         "status": "available-unsigned",
         "validation": "local-package-verified",
-        "version": "1.1.3",
-        "releaseTag": "v1.1.3",
-        "artifact": "ContextFlow-1.1.3-mac-arm64.dmg",
-        "sha256": "6807bbbe9948c8d0d37b419b33b028ff0f2378d2bdf930ce5472b8adef9c043e",
-        "checkedAt": "2026-11-04",
+        "version": "1.1.4",
+        "releaseTag": "v1.1.4",
+        "artifact": "ContextFlow-1.1.4-mac-arm64.dmg",
+        "sha256": "c49bc3f4d82ea1aa9bc6251b26f06d55d43d3a01bf6c156e16930aa7262b2a89",
+        "checkedAt": "2026-11-13",
         "signing": "unsigned-unnotarized",
-        "downloadUrl": "https://github.com/PengheLiu/ContextFlow/releases/download/v1.1.3/ContextFlow-1.1.3-mac-arm64.dmg",
-        "checksumUrl": "https://github.com/PengheLiu/ContextFlow/releases/download/v1.1.3/ContextFlow-1.1.3-mac-arm64.dmg.sha256"
+        "downloadUrl": "https://github.com/PengheLiu/ContextFlow/releases/download/v1.1.4/ContextFlow-1.1.4-mac-arm64.dmg",
+        "checksumUrl": "https://github.com/PengheLiu/ContextFlow/releases/download/v1.1.4/ContextFlow-1.1.4-mac-arm64.dmg.sha256"
       },
       "darwin-x64": {
         "status": "unpublished",
