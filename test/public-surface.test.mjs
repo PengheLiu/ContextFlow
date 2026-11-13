@@ -30,11 +30,11 @@ test('available desktop downloads require actual installer and exact public chec
   assert.deepEqual(await checkDesktopDownloadLinks({ desktop: { platforms: { mac: { status: 'unpublished' } } } }, () => { throw new Error('must not fetch'); }), []);
 });
 test('reviewed desktop fixes are checked without allowing arbitrary future versions or architectures', async () => {
-  for (const version of ['1.1.1', '1.1.2', '1.1.3']) {
+  for (const version of ['1.1.1', '1.1.2', '1.1.3', '1.1.4']) {
   const state = desktop(version), row = state.desktop.platforms['darwin-arm64'];
   const urls = await checkDesktopDownloadLinks(state, async () => ({ ok: true, text: async () => `${row.sha256}  ${row.artifact}\n` }));
   assert.deepEqual(urls, [row.downloadUrl, row.checksumUrl]);
-  await assert.rejects(checkDesktopDownloadLinks(desktop('1.1.4'), () => { throw new Error('must not fetch'); }), /下载状态或资源地址无效/);
+  await assert.rejects(checkDesktopDownloadLinks(desktop('1.1.5'), () => { throw new Error('must not fetch'); }), /下载状态或资源地址无效/);
   const other = { desktop: { platforms: { 'darwin-x64': { ...row } } } };
   await assert.rejects(checkDesktopDownloadLinks(other, () => { throw new Error('must not fetch'); }), /下载状态或资源地址无效/);
   }

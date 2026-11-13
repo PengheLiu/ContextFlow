@@ -124,4 +124,4 @@ Export or sync regularly. Uninstalling the extension clears its browser records,
 
 See the [update guide (Chinese)](./docs/UPDATES.md) for version checks and preserving drafts during upgrades.
 
-The source and desktop download are v1.1.3. Chrome Web Store 1.1.1 is published; 1.1.3 was submitted for review on 2026-11-04 at 20:24 (UTC+8), with automatic publication enabled after approval. Extension updates are reviewed and distributed separately; check the store page for the installable version.
+The source version is v1.1.4. The desktop download is v1.1.3. Check the Chrome Web Store page for the installable extension version.

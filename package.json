@@ -2,7 +2,7 @@
   "name": "contextflow",
   "private": true,
   "type": "module",
-  "version": "1.1.3",
+  "version": "1.1.4",
   "description": "浏览器阅读过程 context 采集与笔记库同步",
   "homepage": "https://pengheliu.github.io/ContextFlow/",
   "scripts": {

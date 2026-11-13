@@ -150,6 +150,7 @@ appendFileSync(${JSON.stringify(guardMarker)}, String(process.pid) + '\\n');
   assert.deepEqual(readiness, [{ profile: 'desktop', backgroundScheduling: false }]);
   assert.equal(bodies[0].max_tokens, 128, 'the owned worker must inherit Desktop profile model overrides');
   assert.ok(!bodies[0].tools.some(tool => tool.name.startsWith('schedule_')), 'the model must not receive scheduling tools');
+  assert.ok(bodies[0].tools.some(tool => tool.name === 'load_workspace_dependencies'), 'the worker must retain the bundled Office dependency tool');
   const ownedServer = [...runtime.servers.values()][0];
   await assert.rejects(ownedServer.rpc('schedule.list', { sessionId: first.sessionId }),
     error => error.code === 'DSH_RPC' && /404|not.found|unknown.*method|method.*not/i.test(`${error.rpcCode || ''} ${error.message}`),

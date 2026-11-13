@@ -130,17 +130,17 @@ test('discovered Agent stays unselected until explicit click; selection fills bu
     assert.equal(f.calls.length, 0); assert.match(f.$('toast-message').textContent, /先测试.*保存/);
   } finally { f.close(); }
 });
-test('rc.5 discovered desktop can test an unsaved choice and save only after an actual successful response', async () => {
+test('DSH can test and save an unsaved choice while showing separate reading compatibility', async () => {
   const state = initialStatus(), config = initialConfig(), tests = [];
-  const agent = { id: 'dsh', label: 'DeepSeek Harness', available: true, source: 'desktop', path: '/isolated/DeepSeek Harness.app/bin/dsh', version: '0.2.1-rc.5', safeSupport: 'unsupported', connectionTestSupported: true };
+  const agent = { id: 'dsh', label: 'DeepSeek Harness', available: true, source: 'desktop', path: '/isolated/DeepSeek Harness.app/bin/dsh', version: '0.2.1-rc.5', safeSupport: 'unsupported', connectionTestSupported: true, readingRuntimeSupported: true };
   state.discovery.agents.items = [agent];
   Object.assign(config.agent, { fullWarningVersion: 1, fullWarningHash: 'fixture-warning-hash', fullWarning: 'fixture warning' });
   const f = await fixture({ state, config, serviceAPI: {
     health: async () => ({ serviceVersion: 'fixture', capabilities: ['llm.draft', 'agent.test', 'agent.test.draft', 'connection.checks'] }),
     testAgent: async (id, options) => {
       tests.push({ id, draft: structuredClone(options.draft) });
-      return { ok: true, agent: id, label: agent.label, path: agent.path, version: agent.version, safeSupport: agent.safeSupport,
-        connectionTestSupported: true, configuredProfile: options.draft.profile, profile: 'safe', scope: 'connection-only' };
+      return { ok: true, agent: id, label: agent.label, path: agent.path, version: '1.0.0-future', safeSupport: agent.safeSupport,
+        connectionTestSupported: true, readingRuntimeSupported: false, configuredProfile: options.draft.profile, profile: 'safe', scope: 'connection-only' };
     },
   } });
   try {
@@ -158,7 +158,10 @@ test('rc.5 discovered desktop can test an unsaved choice and save only after an 
     settings.$('s-testAgent').click(); await tick();
     assert.equal(tests.length, 1); assert.equal(tests[0].id, 'dsh'); assert.equal(tests[0].draft.profile, 'full');
     assert.equal(f.calls.length, 0, 'a successful probe must not save the draft');
-    assert.equal(settings.$('s-agentReady').textContent, '可用');
+    assert.equal(settings.$('s-agentReady').textContent, '连接通过');
+    assert.equal(settings.$('s-agentConnectionLabel').textContent, '模型连接');
+    assert.equal(settings.$('s-state-explain').textContent, '网页回答需更新');
+    assert.match(settings.$('s-agentRuntimeStatus').textContent, /尚未适配.*网页解释和速览.*切换为 LLM/);
     assert.equal(settings.$('s-save').disabled, false);
     settings.$('s-save').click(); await tick();
     assert.equal(f.calls.length, 1); assert.equal(f.calls[0].agent.id, 'dsh');

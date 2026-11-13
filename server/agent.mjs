@@ -24,7 +24,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { runCodex, getCodexSession, closeCodexServers, resolveCodexExecutable, codexConfigurationIdentity } from './codex-app-server.mjs';
 import { runDsh, getDshSession, closeDshServers } from './dsh-runtime.mjs';
 import { resolveDshInstallation } from './dsh-installation.mjs';
-import { canTestDshConnection } from './dsh-compatibility.mjs';
+import { canTestDshConnection, DSH_LEGACY_WEB_VERSION, supportsDshDesktop } from './dsh-compatibility.mjs';
 import { findExecutable, agentEnvironment, execAgent, spawnAgent, terminateTree, invocation } from './platform.mjs';
 import { tmpdir } from 'node:os';
 import { realpathSync, statSync } from 'node:fs';
@@ -183,7 +183,16 @@ async function probe(baseEnv, configuredAgent) {
     } catch (e) {
       row.version = '(取版本失败)';
     }
-    if (id === 'dsh') row.connectionTestSupported = canTestDshConnection(row);
+    if (id === 'dsh') {
+      row.connectionTestSupported = canTestDshConnection(row);
+      // The Desktop connection probe and the reading worker use different APIs.
+      // An undetected version or an unqualified CLI fallback has no verdict.
+      row.readingRuntimeSupported = null;
+      if (row.version === DSH_LEGACY_WEB_VERSION) row.readingRuntimeSupported = true;
+      else if (row.appPath && row.version && row.version !== '(取版本失败)') {
+        row.readingRuntimeSupported = supportsDshDesktop(row.version);
+      }
+    }
     return row;
   }));
 }

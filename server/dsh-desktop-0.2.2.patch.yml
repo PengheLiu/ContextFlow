@@ -1,0 +1,5 @@
+# Keep converted Office documents in the ContextFlow-owned worker.
+- id: office-kit
+  name: '@deepseek-ai/dsh-office-kit'
+  config:
+    outputDirectory: !!js "process.env.CONTEXTFLOW_DSH_STATE_DIR + '/office-outputs'"

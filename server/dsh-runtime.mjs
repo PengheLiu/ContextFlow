@@ -7,7 +7,7 @@ import { statSync, mkdtempSync, rmSync } from 'node:fs';
 import { rm } from 'node:fs/promises';
 import WebSocket from 'ws';
 import { resolveDshInstallation } from './dsh-installation.mjs';
-import { supportsDshDesktop } from './dsh-compatibility.mjs';
+import { DSH_LEGACY_WEB_VERSION, supportsDshDesktop } from './dsh-compatibility.mjs';
 import { createDshConnectionTester } from './dsh-connection-test.mjs';
 import { join, resolve } from 'node:path';
 import { homedir, tmpdir } from 'node:os';
@@ -398,9 +398,9 @@ export function createDshRuntime({ spawnProcess = spawnAgent, fetcher = fetch,
         runtime.probes.add(probe);
         checking.then(() => runtime.probes.delete(probe), () => runtime.probes.delete(probe));
         const version = await Promise.race([checking, interrupted.promise]);
-        if (version !== '0.1.0-rc.6' && !supportsDshDesktop(version)) throw fail('当前 ContextFlow 尚未适配此 DeepSeek Harness 版本，请更新 ContextFlow 后重新检测安装', id.source === 'desktop' ? 'DSH_DESKTOP_UNSUPPORTED' : 'DSH_UNSUPPORTED', { submitted: false });
         id.version = version;
         id.modern = supportsDshDesktop(version);
+        if (version !== DSH_LEGACY_WEB_VERSION && !id.modern) throw fail('当前 ContextFlow 尚未适配此 DeepSeek Harness 版本，请更新 ContextFlow 后重新检测安装', id.source === 'desktop' ? 'DSH_DESKTOP_UNSUPPORTED' : 'DSH_UNSUPPORTED', { submitted: false });
         if (id.modern && !id.appPath) throw fail('请安装并选择 DeepSeek Harness 桌面版', 'DSH_DESKTOP_UNSUPPORTED', { submitted: false });
         if (runtime.closed || options.signal?.aborted) throw fail('已取消', 'ABORTED');
         for (const old of runtime.servers.values()) {

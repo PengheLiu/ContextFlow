@@ -101,7 +101,7 @@ Codex 默认通过本地 `codex app-server` 的 stdio JSON-RPC 接口运行。�
 
 Safe 保持只读沙箱和禁止提升权限。由于 app-server 没有 `exec --ignore-rules` 的等效开关，此路径关闭内置 shell、代码执行、子 Agent 和电脑操作，通过 `contextflow_search_notes` / `contextflow_read_note` 读取显式授权目录中的文本笔记；工具检查路径、符号链接、文件大小与返回内容上限。既有 Codex 服务配置仍用于认证；Full 继承用户沙箱配置，本版没有交互审批界面，不自动批准额外授权请求。
 
-DSH 以桌面版为主要接入目标，目前验证 macOS DeepSeek Harness `0.2.1-rc.2`。检测和实际调用共用安装发现逻辑，默认优先 `/Applications/DeepSeek Harness.app`，其次 `~/Applications/DeepSeek Harness.app`，最后才是 PATH 中的独立 CLI。无需另装命令行版或修改 PATH；设置页会显示当前使用的来源和版本。`CONTEXTFLOW_DSH_BIN`（或 `agent.env.CONTEXTFLOW_DSH_BIN`）可指定自定义安装入口；显式入口不存在时不会偷偷切换安装。
+DSH 以桌面版为主要接入目标。macOS DeepSeek Harness `0.2.1-rc.2`、`0.2.1-rc.5` 和 `0.2.2-rc.2` 已验证完整阅读会话。检测和实际调用共用安装发现逻辑，默认优先 `/Applications/DeepSeek Harness.app`，其次 `~/Applications/DeepSeek Harness.app`，最后才是 PATH 中的独立 CLI。设置页会显示当前使用的来源和版本。`CONTEXTFLOW_DSH_BIN`（或 `agent.env.CONTEXTFLOW_DSH_BIN`）可指定自定义安装入口。显式入口不存在时会报告安装不可用。
 
 桌面版使用应用包内的 Electron/Node 和 profile-boot 接口启动独立后台进程，继承原 `desktop` profile 的账号、模型与工具配置。ContextFlow 的小型启动入口仅追加工作进程隔离设置：禁用定时任务与产品遥测，将会话、存储和索引放入独立临时目录/内存；不会修改原 profile。后台在 `127.0.0.1` 随机端口提供认证 HTTP 请求和 WebSocket 事件；连接使用该子进程提供的认证信息。同一配置复用进程，同一文章复用会话，不会连接、操控或关闭用户正在使用的桌面窗口。DSH 仍仅支持 Full；连接不提供额外交互授权。会话映射只在 ContextFlow 内存中保存，工作进程退出时清理临时状态；空闲五分钟或异常退出后，从 ContextFlow 阅读记录重建新会话。
 

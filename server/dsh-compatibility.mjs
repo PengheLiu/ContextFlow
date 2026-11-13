@@ -1,6 +1,8 @@
 // Reading workers use a private session protocol, qualified separately from
 // the model-only connection probe. Passing the latter grants no tool access.
-const DESKTOP_VERSIONS = new Set(['0.2.1-rc.2', '0.2.1-rc.5']);
+export const DSH_PROFILE_OFFICE_VERSION = '0.2.2-rc.2';
+export const DSH_LEGACY_WEB_VERSION = '0.1.0-rc.6';
+const DESKTOP_VERSIONS = new Set(['0.2.1-rc.2', '0.2.1-rc.5', DSH_PROFILE_OFFICE_VERSION]);
 
 export function supportsDshDesktop(version) {
   return DESKTOP_VERSIONS.has(version);

@@ -12,6 +12,7 @@ export const runtimeFiles = [
   'server/codex-app-server.mjs', 'server/codex-note-tools.mjs',
   'server/platform.mjs', 'server/secrets.mjs',
   'server/dsh-runtime.mjs', 'server/dsh-installation.mjs', 'server/dsh-compatibility.mjs', 'server/dsh-desktop-host.mjs', 'server/dsh-desktop.patch.yml',
+  'server/dsh-desktop-0.2.2.patch.yml',
   'server/dsh-connection-test.mjs', 'server/dsh-connection-child.mjs', 'server/dsh-probe-config.mjs',
   'server/db.mjs', 'server/extension-pairing.mjs', 'server/index.mjs', 'server/jobs.mjs',
   'server/layout.mjs', 'server/llm.mjs', 'server/lookup.mjs', 'server/mdfile.mjs', 'server/paths.mjs',

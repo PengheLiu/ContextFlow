@@ -193,10 +193,11 @@ const FORM = `
             <p id="s-agentDiscoveryStatus" class="hint model-feedback" role="status" aria-live="polite"></p>
             <div class="agent-health">
               <div class="agent-health-title"><strong id="s-agentName">选择要使用的 Agent</strong><span class="chapter-state" id="s-agentReady">待选择</span></div>
-              <dl class="agent-checks"><dt>程序安装</dt><dd id="s-agentInstalled">尚未检测</dd><dt>实际回答</dt><dd id="s-agentConnection">尚未测试</dd></dl>
+              <dl class="agent-checks"><dt>程序安装</dt><dd id="s-agentInstalled">尚未检测</dd><dt id="s-agentConnectionLabel">实际回答</dt><dd id="s-agentConnection">尚未测试</dd></dl>
               <div class="agent-version" id="s-agentVersion"></div>
               <div class="agent-actions"><button class="quiet-action" id="s-testAgent" type="button" disabled>测试 Agent 连接</button><button class="quiet-action" id="s-cancelAgentTest" type="button" hidden>取消测试</button></div>
               <p id="s-agentTestStatus" class="hint model-feedback" role="status" aria-live="polite" aria-atomic="true"></p>
+              <p id="s-agentRuntimeStatus" class="hint model-feedback" role="status" aria-live="polite"></p>
               <p id="s-agentSaveHint" class="hint model-feedback" role="status" aria-live="polite"></p>
               <span class="hint">仅向所选 Agent 发送固定短消息，验证登录与模型回答；不发送文章或笔记、不保存配置，可能产生少量费用。测试不验证笔记读取或完整权限。</span>
             </div>
@@ -505,8 +506,12 @@ export class Settings {
     const tested = this.modelTest?.fingerprint === JSON.stringify(this.modelDraft());
     this.chapterState('translate', tested ? this.modelTest.ok ? '连接已通过' : '连接失败' : modelReady ? '已填写 · 待测试' : '待配置', tested ? this.modelTest.ok ? 'ok':'bad' : '');
     const result = this.agentResult();
-    this.chapterState('explain', !isAgent ? '使用模型连接' : this.agentWorking ? '测试中' : result?.ok ? '连接已通过' : result ? '测试未通过' : selected?.available ? '已安装 · 待测试' : '待检测',
-      isAgent && result ? result.ok ? 'ok' : 'bad' : '');
+    if (isAgent && selected?.readingRuntimeSupported === false && !this.agentWorking) {
+      this.chapterState('explain', '网页回答需更新', 'bad');
+    } else {
+      this.chapterState('explain', !isAgent ? '使用模型连接' : this.agentWorking ? '测试中' : result?.ok ? '连接已通过' : result ? '测试未通过' : selected?.available ? '已安装 · 待测试' : '待检测',
+        isAgent && result ? result.ok ? 'ok' : 'bad' : '');
+    }
     this.chapterState('archive', destination ? '已选择位置' : '待配置');
     this.chapterState('scope', pageCount ? `${pageCount} 个已停用` : '当前可用');
     const dest = this.$('s-destination');
@@ -949,13 +954,20 @@ export class Settings {
     const homePicker=home.nextElementSibling;
     if(homePicker?.tagName==='BUTTON') homePicker.disabled=home.disabled;
     this.$('s-agentName').textContent=selected?.label || id || '选择要使用的 Agent';
-    const source=selected?.id==='dsh' ? ({desktop:'桌面版',cli:'命令行兼容版',explicit:'自定义入口'})[selected.source] : '';
+    const isDsh = id === 'dsh';
+    const source=isDsh ? ({desktop:'桌面版',cli:'命令行兼容版',explicit:'自定义入口'})[selected?.source] : '';
     this.$('s-agentInstalled').textContent=this.detecting ? '正在检测…' : selected ? selected.available ? source ? `已找到${source}` : '已找到可执行程序' : '未找到可执行程序' : '尚未检测';
-    this.$('s-agentConnection').textContent=this.agentWorking ? '正在验证实际回答…' : result?.ok ? `已通过${result.checkedAt ? ` · ${checkTime(result.checkedAt)}` : ' · 登录与模型回应正常'}` : result ? result.canceled ? '已取消，可重新测试' : '未通过，请按下方提示处理' : '尚未测试 · 安装不等于可用';
+    this.$('s-agentConnectionLabel').textContent = isDsh ? '模型连接' : '实际回答';
+    this.$('s-agentConnection').textContent=this.agentWorking ? (isDsh ? '正在验证模型连接…' : '正在验证实际回答…') : result?.ok ? `已通过${result.checkedAt ? ` · ${checkTime(result.checkedAt)}` : ' · 登录与模型回应正常'}` : result ? result.canceled ? '已取消，可重新测试' : '未通过，请按下方提示处理' : '尚未测试 · 安装不等于可用';
     this.$('s-agentVersion').textContent=selected?.version ? `版本：${selected.version}` : '';
     const badge=this.$('s-agentReady');
-    badge.textContent=this.agentWorking ? '测试中' : result?.ok ? '可用' : result ? result.canceled ? '已取消' : '需处理' : selected?.available ? '待测试' : '待检测';
+    const passedLabel = isDsh ? '连接通过' : '可用';
+    badge.textContent=this.agentWorking ? '测试中' : result?.ok ? passedLabel : result ? result.canceled ? '已取消' : '需处理' : selected?.available ? '待测试' : '待检测';
     badge.dataset.state=result && !this.agentWorking ? result.ok ? 'ok' : result.canceled ? '' : 'bad' : '';
+    const readingIncompatible = isDsh && selected?.readingRuntimeSupported === false;
+    this.modelFeedback('s-agentRuntimeStatus', readingIncompatible
+      ? '当前 ContextFlow 尚未适配检测到的 DeepSeek Harness 版本。使用网页解释和速览前，请更新 ContextFlow，或将回答方式切换为 LLM。'
+      : '', readingIncompatible ? true : null);
     const button=this.$('s-testAgent');
     const outdated=this.service?.agentTestSupported===false || this.service?.agentDraftTestSupported===false && this.agentChoiceChanged();
     const explicit=!!this.$('s-agentExecutable').value.trim();
@@ -1001,8 +1013,10 @@ export class Settings {
       const path=result.path ?? selected?.path ?? '',version=result.version ?? selected?.version ?? '',identity=result.identity ?? selected?.identity ?? '';
       if(!changed) {
         const support=result.safeSupport ?? selected?.safeSupport ?? ({claude:'best-effort',codex:'verified',dsh:'unsupported',gemini:'unsupported'})[id] ?? 'unsupported';
-        if(!this.agents?.some(row=>row.id===id)) this.agents=[...(this.agents || []),{id,label:result.label || id,available:true,path,version,identity,safeSupport:support,connectionTestSupported:result.connectionTestSupported ?? true}];
-        else this.agents=this.agents.map(row=>row.id===id ? {...row,path,version,identity,available:true,safeSupport:support,connectionTestSupported:result.connectionTestSupported ?? row.connectionTestSupported} : row);
+        const installation = { available: true, path, version, identity, safeSupport: support };
+        if (id === 'dsh') installation.readingRuntimeSupported = result.readingRuntimeSupported ?? null;
+        if(!this.agents?.some(row=>row.id===id)) this.agents=[...(this.agents || []),{id,label:result.label || id,...installation,connectionTestSupported:result.connectionTestSupported ?? true}];
+        else this.agents=this.agents.map(row=>row.id===id ? {...row,...installation,connectionTestSupported:result.connectionTestSupported ?? row.connectionTestSupported} : row);
         if(typeof result.executable==='string') this.$('s-agentExecutable').value=result.executable;
         this.syncProfileUi();
       }

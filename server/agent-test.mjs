@@ -41,6 +41,7 @@ export async function prepareAgentTest(id, cfg, detect = agent.detect) {
   return { id, label: installed.label, version: installed.version, path: installed.path, identity: installed.identity || '',
     executable: testConfig.agent.executable, profile: testConfig.agent.profile,
     safeSupport: installed.safeSupport, connectionTestSupported: installed.connectionTestSupported ?? installed.safeSupport !== 'unsupported',
+    readingRuntimeSupported: installed.readingRuntimeSupported,
     // Never send one CLI's explicitly configured credentials to another CLI.
     env: { ...testConfig.agent.env } };
 }
@@ -87,5 +88,6 @@ export async function testAgentConnection(prepared, { signal, run = agent.run } 
   return { ok: true, agent: prepared.id, label: prepared.label, version: prepared.version,
     path: prepared.path || '', identity: prepared.identity || '', executable: prepared.executable || '', configuredProfile: prepared.profile || 'safe',
     safeSupport: prepared.safeSupport, connectionTestSupported: prepared.connectionTestSupported,
+    readingRuntimeSupported: prepared.readingRuntimeSupported,
     profile: 'safe', scope: 'connection-only', checkedAt: Date.now(), ms: Date.now() - started };
 }

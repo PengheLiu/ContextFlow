@@ -5,7 +5,7 @@ import { realpathSync } from 'node:fs';
 import { join, sep } from 'node:path';
 import { homedir } from 'node:os';
 import { pathToFileURL } from 'node:url';
-import { DSH_CONNECTION_PROMPT, readDshProbeConfig } from './dsh-probe-config.mjs';
+import { DSH_CONNECTION_PROMPT, dshProbeAccountPackage, readDshProbeConfig } from './dsh-probe-config.mjs';
 
 const runtimeDir = process.argv[2];
 const requireRuntime = createRequire(join(runtimeDir, 'package.json'));
@@ -69,7 +69,8 @@ async function main() {
   compatible(typeof Context === 'function' && typeof llm.createUserMessage === 'function'
     && typeof yaml.parseDocument === 'function');
   const dshHome = process.env.DSH_HOME || join(process.env.HOME || homedir(), '.dsh');
-  const config = readDshProbeConfig({ dshHome, parseYaml: yaml.parseDocument });
+  const desktopVersion = process.env.DSH_CLIENT_VERSION;
+  const config = readDshProbeConfig({ dshHome, desktopVersion, parseYaml: yaml.parseDocument });
   // Match the desktop credential fallback without reading any project .env.
   const { loadLayeredEnv } = await fromRuntime('@deepseek-ai/dsh-app-boot');
   compatible(typeof loadLayeredEnv === 'function');
@@ -88,7 +89,7 @@ async function main() {
   if (config.selection.provider === 'deepseek-account') {
     await context.plugin(authorization.default);
     const [account, adapter] = await Promise.all([
-      fromRuntime('@deepseek-ai/dsh-deepseek-account-platform'), fromRuntime('@deepseek-ai/dsh-llm-deepseek-account'),
+      fromRuntime(dshProbeAccountPackage(desktopVersion)), fromRuntime('@deepseek-ai/dsh-llm-deepseek-account'),
     ]);
     await context.plugin(account.default, { desktopPlatform: process.platform, ...config.configs['deepseek-account'] });
     await context.plugin(adapter, config.configs['llm-deepseek-account']);

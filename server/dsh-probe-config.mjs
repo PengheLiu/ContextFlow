@@ -7,11 +7,18 @@ export const DSH_CONNECTION_PROMPT = 'Connection check only. Do not use tools, r
 
 const UNSAFE = Symbol('unsupported configuration');
 const MAX_BYTES = 512 * 1024;
+const ACCOUNT_PACKAGE_BY_VERSION = new Map([
+  ['0.2.2-rc.2', '@deepseek-ai/dsh-deepseek-account'],
+]);
+export function dshProbeAccountPackage(desktopVersion) {
+  return ACCOUNT_PACKAGE_BY_VERSION.get(desktopVersion) || '@deepseek-ai/dsh-deepseek-account-platform';
+}
+
 const NAMES = {
   'agent-default-model': '@deepseek-ai/dsh-agent-default-model',
   'llm-deepseek': '@deepseek-ai/dsh-llm-deepseek',
   'llm-deepseek-account': '@deepseek-ai/dsh-llm-deepseek-account',
-  'deepseek-account': '@deepseek-ai/dsh-deepseek-account-platform',
+  'deepseek-account': dshProbeAccountPackage(),
 };
 const PROVIDERS = {
   'deepseek-official': ['llm-deepseek'],
@@ -87,7 +94,7 @@ function parseRows(source, parseYaml) {
  * parseYaml must be a non-executing parser, normally the installed Desktop's
  * yaml.parseDocument. A plain JSON parser is also accepted for unit fixtures.
  */
-export function readDshProbeConfig({ dshHome, parseYaml, readFile = readFileSync } = {}) {
+export function readDshProbeConfig({ dshHome, desktopVersion, parseYaml, readFile = readFileSync } = {}) {
   if (typeof dshHome !== 'string' || !dshHome || typeof parseYaml !== 'function') throw error();
   // A custom bundle can replace the model defaults before the user's patch.
   // Only verified official non-model additions may follow the core pair;
@@ -119,7 +126,8 @@ export function readDshProbeConfig({ dshHome, parseYaml, readFile = readFileSync
       if (typeof row.id !== 'string') throw error();
       if (!Object.hasOwn(NAMES, row.id)) continue;
       const state = rows.get(row.id);
-      if (Object.hasOwn(row, 'name') && row.name !== NAMES[row.id]) state.unsafe = true;
+      const name = row.id === 'deepseek-account' ? dshProbeAccountPackage(desktopVersion) : NAMES[row.id];
+      if (Object.hasOwn(row, 'name') && row.name !== name) state.unsafe = true;
       if (Object.hasOwn(row, 'disabled')) {
         if (typeof row.disabled !== 'boolean') state.unsafe = true;
         else state.disabled = row.disabled;

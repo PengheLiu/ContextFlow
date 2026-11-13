@@ -66,11 +66,12 @@ await test('桌面 DSH 连接测试能力独立于普通 Safe，不提升为 Ful
   const cfg={agent:{id:'dsh',profile:'full',notesDir:'/private/notes',env:{DSH_HOME:'/profiles/desktop'}}};
   const original=JSON.stringify(cfg);
   const detect=async()=>[{id:'dsh',label:'DeepSeek Harness',version:'0.2.1-rc.2',available:true,
-    safeSupport:'unsupported',connectionTestSupported:true,source:'desktop'}];
+    safeSupport:'unsupported',connectionTestSupported:true,readingRuntimeSupported:false,source:'desktop'}];
   const prepared=await prepareAgentTest('dsh',cfg,detect);
   let options;
   const result=await testAgentConnection(prepared,{run:async o=>{options=o;return {answer:'OK'};}});
   assert.equal(result.ok,true);assert.equal(options.profile,'safe');assert.equal(options.connectionTest,true);
+  assert.equal(result.readingRuntimeSupported,false,'连接通过不能覆盖新路径的网页回答兼容性');
   assert.equal(options.notesDir,'');assert.equal(options.prompt,CONNECTION_PROMPT);
   assert.equal(JSON.stringify(cfg),original);
   await assert.rejects(()=>prepareAgentTest('dsh',cfg,async()=>[{

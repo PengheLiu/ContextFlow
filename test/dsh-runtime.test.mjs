@@ -10,7 +10,7 @@ import { createDshRuntime } from '../server/dsh-runtime.mjs';
 // without loading user profiles, starting a browser, or calling a model.
 function fixture({ handler, version = '0.1.0-rc.6', idleMs = 1000, timeoutMs = 1000,
   ignoreTerm = false, maxSessions = 32, onSpawn, connectFailure = false } = {}) {
-  const modern = ['0.2.1-rc.2', '0.2.1-rc.5'].includes(version);
+  const modern = ['0.2.1-rc.2', '0.2.1-rc.5', '0.2.2-rc.2'].includes(version);
   const children = [], requests = [], sockets = [], versions = [];
   const options = { bin: modern ? '/fixture/DeepSeek Harness.app/Contents/Resources/runtime/cli/bin/dsh' : '/fixture/dsh', env: {}, profile: 'full', contextKey: 'article-A',
     prompt: 'full history', continuationPrompt: 'next question', timeoutMs,
@@ -391,7 +391,7 @@ await test('concurrent submissions serialize and shutdown waits for SIGKILL esca
 });
 
 await test('desktop Host uses its bundled runtime and profile, private IPC, API authentication, and reusable streams', async () => {
-  for (const version of ['0.2.1-rc.2', '0.2.1-rc.5']) {
+  for (const version of ['0.2.1-rc.2', '0.2.1-rc.5', '0.2.2-rc.2']) {
   const f = fixture({ version });
   try {
     const events = [], first = await f.runtime.run({ ...f.options, onEvent: e => events.push(e) });

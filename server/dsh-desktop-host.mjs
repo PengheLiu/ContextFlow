@@ -5,6 +5,7 @@ import { createRequire, registerHooks } from 'node:module';
 import { basename, delimiter, dirname, isAbsolute, join, relative } from 'node:path';
 import { realpathSync } from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { DSH_PROFILE_OFFICE_VERSION } from './dsh-compatibility.mjs';
 
 const [runtimeDir, projectDir, primaryRuntime, pnpm, nodeBin] = process.argv.slice(2);
 const requireRuntime = createRequire(join(runtimeDir, 'package.json'));
@@ -31,20 +32,46 @@ function installOfficeResolution() {
   } });
 }
 
+async function mountLegacyOffice(ctx) {
+  const [officeSkills, workspaceDependencies, { resolveDshHome }] = await Promise.all([
+    fromRuntime('@deepseek-ai/dsh-skill-office'),
+    fromRuntime('@deepseek-ai/dsh-tool-workspace-dependencies'),
+    fromRuntime('@deepseek-ai/dsh-home-paths'),
+  ]);
+  await ctx.plugin(workspaceDependencies, {
+    runtimeDir, source: primaryRuntime, root: join(resolveDshHome(), 'dsh-runtimes/dsh-primary-runtime'),
+  });
+  const archive = dirname(realpathSync(runtimeDir));
+  const manifest = requireRuntime.resolve('@deepseek-ai/libreoffice-kit/package.json');
+  const packageRoot = dirname(join(`${archive}.unpacked`, relative(archive, manifest)));
+  await ctx.plugin(officeSkills, {
+    assetRoot: join(dirname(primaryRuntime), 'office-skills'),
+    node: join(primaryRuntime, 'dependencies/node/bin', process.platform === 'win32' ? 'node.exe' : 'node'),
+    cli: join(packageRoot, 'lib/cli.js'),
+  });
+}
+
 async function main() {
-  if (!process.env.CONTEXTFLOW_DSH_STATE_DIR || !isAbsolute(process.env.CONTEXTFLOW_DSH_STATE_DIR)) {
-    throw Error('Missing private worker storage');
+  const stateDir = process.env.CONTEXTFLOW_DSH_STATE_DIR;
+  if (!stateDir || !isAbsolute(stateDir)) throw Error('Missing private worker storage');
+  const profileProvidesOffice = process.env.DSH_CLIENT_VERSION === DSH_PROFILE_OFFICE_VERSION;
+  const patchFiles = [fileURLToPath(new URL('./dsh-desktop.patch.yml', import.meta.url))];
+  if (profileProvidesOffice) {
+    // The newer Desktop profile registers its own Office skills and dependency
+    // tool. Supply the bundled runtime before boot so it uses the same Python.
+    process.env.DSH_PRIMARY_RUNTIME = primaryRuntime;
+    patchFiles.push(fileURLToPath(new URL('./dsh-desktop-0.2.2.patch.yml', import.meta.url)));
   }
   installOfficeResolution();
-  const [{ loadLayeredEnv, loadProfileDirectory, reportSkippedBundles }, { runProfile }, { resolveDshHome }] = await Promise.all([
-    fromRuntime('@deepseek-ai/dsh-app-boot'), fromRuntime('@deepseek-ai/dsh/profile-boot'), fromRuntime('@deepseek-ai/dsh-home-paths'),
+  const [{ loadLayeredEnv, loadProfileDirectory, reportSkippedBundles }, { runProfile }] = await Promise.all([
+    fromRuntime('@deepseek-ai/dsh-app-boot'), fromRuntime('@deepseek-ai/dsh/profile-boot'),
   ]);
   const installAnchor = requireRuntime.resolve('@deepseek-ai/dsh/package.json');
   const profile = loadProfileDirectory('dsh', projectDir, installAnchor);
   reportSkippedBundles('dsh', profile);
   const application = runProfile({
     environment: loadLayeredEnv('dsh'), profile: 'desktop', resolvedProfile: { profile, installAnchor },
-    patchFiles: [fileURLToPath(new URL('./dsh-desktop.patch.yml', import.meta.url))],
+    patchFiles,
     args: ['--no-open', '--host', '127.0.0.1', '--port', '0'],
     packageManager: { command: process.execPath, args: ['--expose-internals', pnpm], env: {
       ELECTRON_RUN_AS_NODE: '1', DSH_DESKTOP_NODE_EXECUTABLE: process.execPath,
@@ -61,20 +88,14 @@ async function main() {
   const { ctx } = await application;
   // Fail before readiness if an incompatible runtime ignores our final overlay.
   if (ctx.get('schedule') !== undefined) throw Error('Background scheduling was not disabled');
-  const [officeSkills, workspaceDependencies] = await Promise.all([
-    fromRuntime('@deepseek-ai/dsh-skill-office'), fromRuntime('@deepseek-ai/dsh-tool-workspace-dependencies'),
-  ]);
-  await ctx.plugin(workspaceDependencies, {
-    runtimeDir, source: primaryRuntime, root: join(resolveDshHome(), 'dsh-runtimes/dsh-primary-runtime'),
-  });
-  const archive = dirname(realpathSync(runtimeDir));
-  const manifest = requireRuntime.resolve('@deepseek-ai/libreoffice-kit/package.json');
-  const packageRoot = dirname(join(`${archive}.unpacked`, relative(archive, manifest)));
-  await ctx.plugin(officeSkills, {
-    assetRoot: join(dirname(primaryRuntime), 'office-skills'),
-    node: join(primaryRuntime, 'dependencies/node/bin', process.platform === 'win32' ? 'node.exe' : 'node'),
-    cli: join(packageRoot, 'lib/cli.js'),
-  });
+  if (profileProvidesOffice) {
+    const officeKit = ctx.get('officeKit');
+    if (officeKit && officeKit.outputDirectory !== join(stateDir, 'office-outputs')) {
+      throw Error('Office outputs were not isolated');
+    }
+  } else {
+    await mountLegacyOffice(ctx);
+  }
   if (process.connected) process.send({ type: 'ready', profile: 'desktop', backgroundScheduling: false,
     url: ctx.connection.authenticatedUrl(`${ctx.webServer.protocol}//127.0.0.1:${ctx.webServer.port}`) });
 }

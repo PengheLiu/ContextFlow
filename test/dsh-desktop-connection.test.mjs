@@ -224,7 +224,9 @@ appendFileSync(${JSON.stringify(guardMarker)}, String(process.pid) + '\\n');
   assert.equal(calls.length, beforeTimeout + 1, 'the real provider must be reached before testing timeout');
   assert.equal(await readFile(patch, 'utf8'), originalPatch, 'testing must not edit model configuration');
 
-  const accountPatch = `- id: agent-default-model\n  config:\n    provider: deepseek-account\n    model: deepseek-flash\n- id: deepseek-account\n  config:\n    platformOrigin: ${provider}\n    inferenceOrigin: ${provider}\n    allowLoopbackHttp: true\n- id: llm-deepseek-account\n  config:\n    baseURL: ${provider}\n    thinking: disabled\n    reasoningEffort: off\n    maxTokens: 128\n    modelsTimeoutMs: 3000\n`;
+  const accountPackage = realVersion === '0.2.2-rc.2'
+    ? '@deepseek-ai/dsh-deepseek-account' : '@deepseek-ai/dsh-deepseek-account-platform';
+  const accountPatch = `- id: agent-default-model\n  config:\n    provider: deepseek-account\n    model: deepseek-flash\n- id: deepseek-account\n  name: '${accountPackage}'\n  config:\n    platformOrigin: ${provider}\n    inferenceOrigin: ${provider}\n    allowLoopbackHttp: true\n- id: llm-deepseek-account\n  config:\n    baseURL: ${provider}\n    thinking: disabled\n    reasoningEffort: off\n    maxTokens: 128\n    modelsTimeoutMs: 3000\n`;
   await writeFile(patch, accountPatch);
   mode = 'account';
   const beforeAccount = calls.length, beforeListings = modelListings;
