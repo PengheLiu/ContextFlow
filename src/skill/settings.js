@@ -965,9 +965,10 @@ export class Settings {
     badge.textContent=this.agentWorking ? '测试中' : result?.ok ? passedLabel : result ? result.canceled ? '已取消' : '需处理' : selected?.available ? '待测试' : '待检测';
     badge.dataset.state=result && !this.agentWorking ? result.ok ? 'ok' : result.canceled ? '' : 'bad' : '';
     const readingIncompatible = isDsh && selected?.readingRuntimeSupported === false;
+    const readingCheckedOnUse = isDsh && selected?.connectionTestSupported && selected.readingRuntimeSupported === null;
     this.modelFeedback('s-agentRuntimeStatus', readingIncompatible
       ? '当前 ContextFlow 尚未适配检测到的 DeepSeek Harness 版本。使用网页解释和速览前，请更新 ContextFlow，或将回答方式切换为 LLM。'
-      : '', readingIncompatible ? true : null);
+      : readingCheckedOnUse ? '使用网页解释或速览时，会检查 DSH 的阅读会话接口。' : '', readingIncompatible ? true : null);
     const button=this.$('s-testAgent');
     const outdated=this.service?.agentTestSupported===false || this.service?.agentDraftTestSupported===false && this.agentChoiceChanged();
     const explicit=!!this.$('s-agentExecutable').value.trim();

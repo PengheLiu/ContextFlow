@@ -9,8 +9,7 @@ import { createDshRuntime } from '../server/dsh-runtime.mjs';
 // Exercise the real adapter with HTTP Response bodies and WebSocket messages,
 // without loading user profiles, starting a browser, or calling a model.
 function fixture({ handler, version = '0.1.0-rc.6', idleMs = 1000, timeoutMs = 1000,
-  ignoreTerm = false, maxSessions = 32, onSpawn, connectFailure = false } = {}) {
-  const modern = ['0.2.1-rc.2', '0.2.1-rc.5', '0.2.2-rc.2'].includes(version);
+  ignoreTerm = false, maxSessions = 32, onSpawn, connectFailure = false, modern = version.startsWith('0.2.'), isolatedState = true } = {}) {
   const children = [], requests = [], sockets = [], versions = [];
   const options = { bin: modern ? '/fixture/DeepSeek Harness.app/Contents/Resources/runtime/cli/bin/dsh' : '/fixture/dsh', env: {}, profile: 'full', contextKey: 'article-A',
     prompt: 'full history', continuationPrompt: 'next question', timeoutMs,
@@ -32,7 +31,7 @@ function fixture({ handler, version = '0.1.0-rc.6', idleMs = 1000, timeoutMs = 1
     children.push(child);
     setImmediate(() => {
       onSpawn?.(child);
-      if (modern) child.emit('message', { type: 'ready', profile: 'desktop', backgroundScheduling: false, url: `http://127.0.0.1:${child.port}/?token=fixture_owned_token` });
+      if (modern) child.emit('message', { type: 'ready', profile: 'desktop', contract: 1, isolatedState, backgroundScheduling: false, url: `http://127.0.0.1:${child.port}/?token=fixture_owned_token` });
       else child.stdout.write(`dsh web: http://127.0.0.1:${child.port}\n`);
     });
     return child;
@@ -120,6 +119,9 @@ function fixture({ handler, version = '0.1.0-rc.6', idleMs = 1000, timeoutMs = 1
   };
   const runtime = createDshRuntime({ spawnProcess, fetcher, createSocket,
     checkVersion: async id => { versions.push(id); return version; },
+    resolveDesktop: appPath => ({ executable: join(appPath, 'Contents/MacOS/DeepSeek Harness'),
+      runtimeDir: join(appPath, 'Contents/Resources/app.asar/dsh'), primaryRuntime: '/fixture/primary-runtime',
+      pnpm: '/fixture/pnpm.mjs', nodeBin: '/fixture/runtime/bin' }),
     idleMs, rpcTimeoutMs: 150, startupMs: 200, interruptMs: 20, maxSessions });
   return { runtime, options, children, requests, sockets, versions, publish };
 }
@@ -390,9 +392,9 @@ await test('concurrent submissions serialize and shutdown waits for SIGKILL esca
   await assert.rejects(f.runtime.run(f.options), e => e.code === 'DSH_DISCONNECTED');
 });
 
-await test('desktop Host uses its bundled runtime and profile, private IPC, API authentication, and reusable streams', async () => {
-  for (const version of ['0.2.1-rc.2', '0.2.1-rc.5', '0.2.2-rc.2']) {
-  const f = fixture({ version });
+await test('desktop Host uses private IPC, API authentication, and reusable streams regardless of version', async () => {
+  for (const version of ['0.2.1-rc.2', '0.2.1-rc.5', '0.2.2-rc.2', '0.2.2-rc.3', '3.0.0-next']) {
+  const f = fixture({ version, modern: true });
   try {
     const events = [], first = await f.runtime.run({ ...f.options, onEvent: e => events.push(e) });
     const second = await f.runtime.run({ ...f.options, expectedSessionId: first.sessionId });
@@ -412,6 +414,16 @@ await test('desktop Host uses its bundled runtime and profile, private IPC, API 
   } finally { await f.runtime.close(); }
   assert.ok(!existsSync(f.children[0].spawnOptions.env.CONTEXTFLOW_DSH_STATE_DIR));
   }
+});
+
+await test('desktop workers must attest private storage before receiving a session or article', async () => {
+  const f = fixture({ version: '3.0.0-next', modern: true, isolatedState: false });
+  try {
+    await assert.rejects(f.runtime.run(f.options), e => e.code === 'DSH_DESKTOP_START' && e.submitted === false);
+    assert.equal(f.requests.length, 0);
+    assert.equal(f.sockets.length, 0);
+    assert.equal(f.runtime.getSession(f.options), null);
+  } finally { await f.runtime.close(); }
 });
 
 await test('desktop API authentication failure cannot submit a prompt or fall back', async () => {

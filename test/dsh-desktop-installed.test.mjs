@@ -130,7 +130,8 @@ appendFileSync(${JSON.stringify(guardMarker)}, String(process.pid) + '\\n');
       ...options, env: { ...options.env, ELECTRON_RUN_AS_NODE: '1' },
     }); children.push(child);
     child.on('message', message => {
-      if (message?.type === 'ready') readiness.push({ profile: message.profile, backgroundScheduling: message.backgroundScheduling });
+      if (message?.type === 'ready') readiness.push({ profile: message.profile, contract: message.contract,
+        isolatedState: message.isolatedState, backgroundScheduling: message.backgroundScheduling });
     });
     child.stderr.on('data', chunk => { childErr = (childErr + chunk).slice(-4000); });
     return child;
@@ -147,7 +148,7 @@ appendFileSync(${JSON.stringify(guardMarker)}, String(process.pid) + '\\n');
   assert.equal(first.resumed, false);
   assert.equal(first.persistent, false, 'ContextFlow Desktop sessions must stay in private temporary storage');
   assert.ok(events.some(event => event.type === 'answer' && event.text === '隔离'));
-  assert.deepEqual(readiness, [{ profile: 'desktop', backgroundScheduling: false }]);
+  assert.deepEqual(readiness, [{ profile: 'desktop', contract: 1, isolatedState: true, backgroundScheduling: false }]);
   assert.equal(bodies[0].max_tokens, 128, 'the owned worker must inherit Desktop profile model overrides');
   assert.ok(!bodies[0].tools.some(tool => tool.name.startsWith('schedule_')), 'the model must not receive scheduling tools');
   assert.ok(bodies[0].tools.some(tool => tool.name === 'load_workspace_dependencies'), 'the worker must retain the bundled Office dependency tool');

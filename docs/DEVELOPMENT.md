@@ -1,8 +1,6 @@
 # 开发与发布
 
-**公开版与候选源码分开管理。** [Chrome 商店](https://chromewebstore.google.com/detail/contextflow/aemncphfnlpbhlddifhohpgegejjejfm) 1.0.0 已于 2026-10-21 上线；GitHub v1.0.0 是冻结的既有扩展 / CLI 发行。当前源码正在准备 **1.1.0 候选版**，包含桌面端和新增 `nativeMessaging` 连接流程，尚无签名桌面安装包公开发行，不能覆盖 1.0 附件来发布这些更改。
-
-版本、渠道和各平台状态以 [`product/release.json`](../product/release.json) 为当前机器可核对来源；历史过程见 [1.0 发行说明](./RELEASE_1_0.md)与 [store/REVIEW.md](../store/REVIEW.md)，历史“待审核”记录不等于当前商店状态。
+当前源码、GitHub Release、桌面安装包和 Chrome 商店公开版本记录在 [`product/release.json`](../product/release.json)。每次改动按[版本更新指南](./UPDATES.md#发布维护)同步受影响的发布入口。
 
 普通用户请先看[安装与使用指南](./GETTING_STARTED.md)。这里面向修改源码、运行测试或维护发行包的开发者。
 
@@ -46,7 +44,7 @@ npm run build:ext
 
 ## 发布
 
-同步维护根目录和 `desktop/` 的 `package.json` / 锁文件，以及 `product/release.json` 的候选版本与发布状态，再测试和构建。当前候选为 1.1.0。已经上传过商店或公开发行的版本不能用新内容覆盖；新版本号、本地 ZIP、Git tag 与商店上线是四种不同证据。
+同步维护根目录和 `desktop/` 的 `package.json`、锁文件和 `product/release.json`，再测试和构建。已经上传到商店或公开发行的版本应保留原附件，新构建使用新版本号。
 
 商店 ZIP 根目录必须是 manifest.json 及扩展文件，不能混入 Node 服务、开发者配置或个人数据。使用已有商店条目更新，保持 ID `aemncphfnlpbhlddifhohpgegejjejfm`。
 
@@ -62,9 +60,9 @@ npm run build:ext
 2. 为本次明确开放的平台验证安装、运行与覆盖升级的数据保留，公开匹配安装包和校验文件。独立未签名分发如实说明缺少签名 / 公证及实际验收范围；若按正式签名渠道发行，还必须完成目标平台签名、公证（适用时）与干净目标机验收。未开放平台保持明确状态，不制造下载链接，也不降低严格签名发行门禁。
 3. 部署包含 `download.html`、支持与隐私说明的静态官网。用未登录访问核对实际下载、签名与版本，不把本地 `release/website` 当成线上成功。
 4. 若保留高级 CLI 路径，先公开同版本 companion；运行 `npm run check:release-links -- --website` 核对候选版本服务包 / SHA、隐私及四个官网入口。默认不加 `--website` 只检查 companion / SHA 与隐私。`npm run check:public-surface` 则检查已公开冻结版本与官网，不能混成候选已发布；以上均不代替签名 / 实机证据。
-5. 在原 Chrome 条目上传新版本，核对新增 `nativeMessaging` 权限、数据用途、真实截图及完整安装路径，再提交审核。通过后从公开商店核对实际版本，不能只依据 GitHub Release 或后台草稿宣称上线。
+5. 扩展包有改动时，在原 Chrome 条目上传新版本，核对实际权限变化、数据用途、真实截图及完整安装路径，再提交审核。通过后从公开商店核对实际版本，同步官网更新清单。
 
-扩展连接页按自身版本生成服务包链接，不允许已公开界面指向 404。支持站点与旧版兼容指南可独立更新，不冒充扩展运行时更新。新版桌面主流程与旧版 CLI 文档必须同时可辨，不能把源码预览当成商店 1.0 用户已有能力。
+扩展连接页按自身版本生成服务包链接。发布前请验证对应下载可用。官网提供桌面安装主流程，使用指南记录 CLI 安装步骤。
 
 正式发行证据核对使用 `npm run check:product -- --release --manifest /path/to/release-manifest.json`。它要求源码 / tag / 安装包与逐目标验收报告绑定，检查文件、哈希及实际命令结果，不接受 `signed=true` 或 `tested=true` 替代证据。该只读门禁不替你执行签名、公证、安装、升级、部署或商店送审；默认离线状态检查通过、模拟测试通过都不能当作正式可发布。真实性仍须维护者审查。
 
@@ -101,17 +99,17 @@ Codex 默认通过本地 `codex app-server` 的 stdio JSON-RPC 接口运行。�
 
 Safe 保持只读沙箱和禁止提升权限。由于 app-server 没有 `exec --ignore-rules` 的等效开关，此路径关闭内置 shell、代码执行、子 Agent 和电脑操作，通过 `contextflow_search_notes` / `contextflow_read_note` 读取显式授权目录中的文本笔记；工具检查路径、符号链接、文件大小与返回内容上限。既有 Codex 服务配置仍用于认证；Full 继承用户沙箱配置，本版没有交互审批界面，不自动批准额外授权请求。
 
-DSH 以桌面版为主要接入目标。macOS DeepSeek Harness `0.2.1-rc.2`、`0.2.1-rc.5` 和 `0.2.2-rc.2` 已验证完整阅读会话。检测和实际调用共用安装发现逻辑，默认优先 `/Applications/DeepSeek Harness.app`，其次 `~/Applications/DeepSeek Harness.app`，最后才是 PATH 中的独立 CLI。设置页会显示当前使用的来源和版本。`CONTEXTFLOW_DSH_BIN`（或 `agent.env.CONTEXTFLOW_DSH_BIN`）可指定自定义安装入口。显式入口不存在时会报告安装不可用。
+DSH 以 macOS 桌面版为主要接入目标。检测和实际调用共用安装发现逻辑，默认优先 `/Applications/DeepSeek Harness.app`，其次 `~/Applications/DeepSeek Harness.app`，最后才是 PATH 中的独立 CLI。设置页显示当前使用的来源和版本。`CONTEXTFLOW_DSH_BIN`（或 `agent.env.CONTEXTFLOW_DSH_BIN`）可指定自定义安装入口。显式入口不存在时会报告安装不可用。
 
 桌面版使用应用包内的 Electron/Node 和 profile-boot 接口启动独立后台进程，继承原 `desktop` profile 的账号、模型与工具配置。ContextFlow 的小型启动入口仅追加工作进程隔离设置：禁用定时任务与产品遥测，将会话、存储和索引放入独立临时目录/内存；不会修改原 profile。后台在 `127.0.0.1` 随机端口提供认证 HTTP 请求和 WebSocket 事件；连接使用该子进程提供的认证信息。同一配置复用进程，同一文章复用会话，不会连接、操控或关闭用户正在使用的桌面窗口。DSH 仍仅支持 Full；连接不提供额外交互授权。会话映射只在 ContextFlow 内存中保存，工作进程退出时清理临时状态；空闲五分钟或异常退出后，从 ContextFlow 阅读记录重建新会话。
 
-DSH 的连接测试独立于阅读权限：已验证的桌面版本可直接测试登录和默认模型回答，普通 Safe 阅读仍未开放。测试只加载内置认证/模型组件并发送固定短消息，不启动 Agent loop、工具、MCP、技能或用户自定义插件，不携带文章、笔记路径或阅读会话；收到工具调用就报告失败。只接受可安全解析的官方模型配置，不执行配置中的 JavaScript，也不会静默替换默认模型。该测试使用独立进程，45 秒超时，可取消，结束后清理；不会回退到 Full 或旧 CLI。
+DSH 的连接测试独立于阅读权限。检测到桌面安装后即可测试登录和默认模型回答。测试从安装包内寻找支持的官方认证组件，检查接口后发送固定短消息，无需提前登记版本。测试进程禁用工具，不携带文章或笔记路径，收到工具调用时结束测试。配置解析仅接受官方模型所需的普通数据。该测试使用独立进程，45 秒超时，可取消，结束后清理。
 
 Agent 的结构化事件进入作业队列，经带认证的 `GET /jobs/:id/stream` SSE 推送。扩展通过 Service Worker 内的 fetch 和 runtime Port 转发，配对令牌不进入页面或 URL。答案预览仅保存在界面内存中；只有成功终态才提交阅读记录。事件流不可用时转回轮询，绝不重新提交任务。
 
 升级 Codex 后应验证本机 app-server 协议；只有明确不兼容且尚未提交模型任务时才允许回退到原 `exec` 路径。超时、认证失败和执行中断不会自动重放。`CODEX_HOME` 会传给 Codex 子进程，macOS 服务安装也会记录安装时显式指定的该变量；已安装服务需重新运行安装命令，或在本地配置的 `agent.env.CODEX_HOME` 中指定配置目录。
 
-独立 DSH CLI `0.1.0-rc.6` 保留旧 Web 协议兼容，旧协议仍按原机制在 DSH_HOME 保存会话；独立 CLI 仅在明确不支持协议且尚未提交提问时回退到一次性的 headless 调用。未验证的桌面版本直接报告兼容性问题，不会自动切换到旧 CLI；认证失败、流中断或提交状态不明时也不会重放任务。`DSH_HOME` 与 `CONTEXTFLOW_DSH_BIN` 会传给子进程，并由服务安装脚本保留，也可在 `agent.env` 中显式指定。桌面版升级后需重新验证其启动 API 和会话协议。
+桌面阅读会话按安装组件、启动接口、隔离状态和实际会话协议判断兼容性。DSH 升级更换安装包后，下一次阅读任务会用新安装重新检查。接口发生不兼容的变更时，错误提示会指引用户切换到模型 API 或其他 Agent，保留原请求供用户重试。独立 CLI `0.1.0-rc.6` 保留旧 Web 协议和原有的 DSH_HOME 会话存储。独立 CLI 仅在明确不支持协议且尚未提交提问时回退到 headless 调用。`DSH_HOME` 与 `CONTEXTFLOW_DSH_BIN` 会传给子进程，服务安装脚本也会保留这两个变量。
 
 相关测试使用临时目录、模拟 app-server 和模拟 HTTP 服务，不读取个人登录凭据或请求真实模型：
 

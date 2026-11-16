@@ -5,15 +5,25 @@ import { realpathSync } from 'node:fs';
 import { join, sep } from 'node:path';
 import { homedir } from 'node:os';
 import { pathToFileURL } from 'node:url';
-import { DSH_CONNECTION_PROMPT, dshProbeAccountPackage, readDshProbeConfig } from './dsh-probe-config.mjs';
+import { DSH_ACCOUNT_PACKAGES, DSH_CONNECTION_PROMPT, readDshProbeConfig } from './dsh-probe-config.mjs';
 
 const runtimeDir = process.argv[2];
 const requireRuntime = createRequire(join(runtimeDir, 'package.json'));
-const fromRuntime = name => {
+const resolveRuntimeEntry = name => {
   // Missing bundled components must not fall back to a user-installed package
   // outside this Desktop runtime while determining probe compatibility.
-  const root = realpathSync(runtimeDir), entry = realpathSync(requireRuntime.resolve(name));
-  if (!entry.startsWith(root + sep)) throw fail('DSH_DESKTOP_UNSUPPORTED');
+  const root = realpathSync(runtimeDir);
+  try {
+    const entry = realpathSync(requireRuntime.resolve(name));
+    return entry.startsWith(root + sep) ? entry : null;
+  } catch (cause) {
+    if (cause?.code !== 'MODULE_NOT_FOUND') throw cause;
+    return null;
+  }
+};
+const fromRuntime = name => {
+  const entry = resolveRuntimeEntry(name);
+  compatible(entry);
   return import(pathToFileURL(entry).href);
 };
 const controller = new AbortController();
@@ -27,7 +37,7 @@ const send = message => new Promise(resolve => {
 const fail = code => Object.assign(new Error(code), { code });
 const compatible = value => { if (!value) throw fail('DSH_DESKTOP_UNSUPPORTED'); };
 const ensureIsolation = () => {
-  if (['agent', 'tools', 'skill', 'schedule'].some(name => context.get(name))) throw fail('DSH_TEST_ISOLATION');
+  if (['agent', 'tools', 'skill', 'skills', 'schedule'].some(name => context.get(name))) throw fail('DSH_TEST_ISOLATION');
 };
 const readonly = () => { throw fail('AGENT_AUTH'); };
 const stop = () => controller.abort();
@@ -69,8 +79,7 @@ async function main() {
   compatible(typeof Context === 'function' && typeof llm.createUserMessage === 'function'
     && typeof yaml.parseDocument === 'function');
   const dshHome = process.env.DSH_HOME || join(process.env.HOME || homedir(), '.dsh');
-  const desktopVersion = process.env.DSH_CLIENT_VERSION;
-  const config = readDshProbeConfig({ dshHome, desktopVersion, parseYaml: yaml.parseDocument });
+  const config = readDshProbeConfig({ dshHome, parseYaml: yaml.parseDocument });
   // Match the desktop credential fallback without reading any project .env.
   const { loadLayeredEnv } = await fromRuntime('@deepseek-ai/dsh-app-boot');
   compatible(typeof loadLayeredEnv === 'function');
@@ -87,11 +96,17 @@ async function main() {
     Object.defineProperty(context.credentials, method, { value: readonly, writable: false, configurable: false });
   }
   if (config.selection.provider === 'deepseek-account') {
+    // An explicit provider must match an installed official package. With no
+    // explicit name, require one unambiguous, bundled implementation.
+    const packages = config.accountPackage ? [config.accountPackage] : DSH_ACCOUNT_PACKAGES;
+    const entries = packages.map(resolveRuntimeEntry).filter(Boolean);
+    compatible(entries.length === 1);
     await context.plugin(authorization.default);
     const [account, adapter] = await Promise.all([
-      fromRuntime(dshProbeAccountPackage(desktopVersion)), fromRuntime('@deepseek-ai/dsh-llm-deepseek-account'),
+      import(pathToFileURL(entries[0]).href), fromRuntime('@deepseek-ai/dsh-llm-deepseek-account'),
     ]);
     await context.plugin(account.default, { desktopPlatform: process.platform, ...config.configs['deepseek-account'] });
+    compatible(typeof context.get('deepseekAccount')?.resolveToken === 'function');
     await context.plugin(adapter, config.configs['llm-deepseek-account']);
   } else {
     const adapter = await fromRuntime('@deepseek-ai/dsh-llm-deepseek-api-key');

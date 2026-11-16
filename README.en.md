@@ -124,4 +124,4 @@ Export or sync regularly. Uninstalling the extension clears its browser records,
 
 See the [update guide (Chinese)](./docs/UPDATES.md) for version checks and preserving drafts during upgrades.
 
-The current source and desktop download are v1.1.4. Check the Chrome Web Store page for the installable extension version.
+The source version is v1.1.5. The desktop download is v1.1.4. Check the Chrome Web Store page for the installable extension version.

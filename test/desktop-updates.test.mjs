@@ -48,12 +48,17 @@ async function fixture(updates = { state: 'idle', currentVersion: '1.1.2', check
   };
 }
 
-test('desktop update icon appears on a published matching version and opens review without starting an install', async () => {
+test('desktop update entry is always visible and only highlights a matching published version', async () => {
   const f = await fixture();
   try {
-    assert.equal(f.$('update-prompt').hidden, true);
-    await f.push(available());
     assert.equal(f.$('update-prompt').hidden, false);
+    assert.equal(f.$('update-prompt').getAttribute('aria-label'), '应用更新');
+    assert.equal(f.$('update-prompt').querySelector('.update-dot').hidden, true);
+    f.$('update-prompt').click(); await tick();
+    assert.equal(f.dom.window.document.activeElement.id, 'updates-card');
+    assert.equal(f.$('check-updates').disabled, false);
+    await f.push(available());
+    assert.equal(f.$('update-prompt').querySelector('.update-dot').hidden, false);
     assert.match(f.$('update-prompt').getAttribute('aria-label'), /1\.2\.0/);
     f.$('update-prompt').click(); await tick();
     assert.equal(f.dom.window.document.querySelector('[data-view=support]').hidden, false);
@@ -64,7 +69,8 @@ test('desktop update icon appears on a published matching version and opens revi
     f.$('download-update').click(); await tick();
     assert.deepEqual(f.calls, ['download'], 'only an explicit download action invokes the narrow main-process updater');
     await f.push({ state: 'current', latestVersion: '1.1.2', checkedAt: Date.now(), message: '当前已是最新版本。' });
-    assert.equal(f.$('update-prompt').hidden, true);
+    assert.equal(f.$('update-prompt').hidden, false);
+    assert.equal(f.$('update-prompt').querySelector('.update-dot').hidden, true);
     assert.equal(f.$('download-update').hidden, true);
     assert.equal(f.$('update-badge').textContent, '已是最新');
   } finally { f.close(); }
@@ -92,6 +98,7 @@ test('manual check gives immediate progress, merges a result and offers retry fo
     assert.equal(f.$('update-badge').textContent, '检查未完成');
     assert.doesNotMatch(f.$('update-status').textContent, /已是最新/);
     await f.push({ state: 'error', message: '暂时无法检查更新，请稍后重试。', checking: false });
+    assert.equal(f.$('update-prompt').getAttribute('aria-label'), '应用更新');
     assert.equal(f.$('download-update').hidden, true);
     assert.equal(f.$('check-updates').disabled, false);
     assert.match(f.$('update-status').textContent, /暂时无法检查/);

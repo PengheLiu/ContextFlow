@@ -331,10 +331,13 @@ export function startDesktopUI({ desktop = window.contextflowDesktop, serviceAPI
     const updates = current?.updates || {}, available = updates.state === 'available';
     const checking = !!updates.checking, failed = updates.state === 'error' || !!updates.checkError;
     const version = updates.currentVersion || current?.version || '';
-    $('update-prompt').hidden = !available;
-    $('update-prompt-label').textContent = `更新至 v${updates.latestVersion || ''}`;
-    $('update-prompt').setAttribute('aria-label', `发现 ContextFlow 新版本 ${updates.latestVersion || ''}，查看更新`);
-    $('update-prompt').title = `发现新版本 ${updates.latestVersion || ''}，点击查看更新方式`;
+    const prompt = $('update-prompt');
+    prompt.dataset.available = String(available);
+    prompt.querySelector('.update-dot').hidden = !available;
+    $('update-prompt-label').textContent = available ? `更新至 v${updates.latestVersion}` : '应用更新';
+    const label = available ? `发现 ContextFlow 新版本 ${updates.latestVersion}，查看更新` : '应用更新';
+    prompt.setAttribute('aria-label', label);
+    prompt.title = label;
     $('update-versions').textContent = `当前 v${version}${updates.latestVersion ? ` · 已发布 v${updates.latestVersion}` : ''}`;
     badge('update-badge', available ? '有新版本' : checking ? '正在检查' : failed ? '检查未完成' : updates.state === 'current' ? '已是最新' : updates.state === 'unsupported' ? '暂无匹配版本' : '尚未检查', available ? 'ok' : failed ? 'bad' : '');
     $('update-status').textContent = checking && !available ? '正在检查已发布版本…' : updates.stale && !available ? '暂时无法确认最新版本，请稍后重新检查。' : updates.message || '会定期检查官网发布的新版本；也可以手动检查。';

@@ -623,18 +623,24 @@ await t('扩展阅读库入口先等待当前编辑保存；公开脚本不出�
   p.h.canOpenLibrary=()=>false;p.renderStatus();assert.equal(p.$('library').hidden,true);
 });
 
-await t('可用更新在右上角显示，不因打开更新页丢失或强制提交当前草稿', async () => {
+await t('扩展更新入口常驻右上角，有新版才高亮，打开时保留当前草稿', async () => {
   let state = { state: 'current' }, opened = 0;
-  const p = mk({ getUpdateState: () => state, onOpenUpdate: () => { opened++; } });
-  p.renderStatus(); assert.equal(p.$('update').hidden, true);
+  const p = mk({ canOpenUpdate: () => true, getUpdateState: () => state, onOpenUpdate: () => { opened++; } });
+  p.renderStatus(); assert.equal(p.$('update').hidden, false);
+  assert.equal(p.$('update').getAttribute('aria-label'), '应用更新');
+  assert.equal(p.sh.querySelector('.title').classList.contains('has-update'), false);
   p.noteComposer.setValue('未保存的阅读想法');
   p.flushEdits = () => { throw new Error('update details must not require a save'); };
   state = { state: 'available', latestVersion: '1.10.0', stale: true, checkError: '暂时无法检查' };
   p.renderUpdates(); assert.equal(p.$('update').hidden, false);
+  assert.equal(p.sh.querySelector('.title').classList.contains('has-update'), true);
   assert.equal(p.$('update').getAttribute('aria-label'), '查看可用更新 v1.10.0');
   p.$('update').click(); await new Promise(resolve => setTimeout(resolve, 0));
   assert.equal(opened, 1); assert.equal(p.noteComposer.value(), '未保存的阅读想法');
-  state = { state: 'error' }; p.renderUpdates(); assert.equal(p.$('update').hidden, true);
+  state = { state: 'error' }; p.renderUpdates(); assert.equal(p.$('update').hidden, false);
+  assert.equal(p.$('update').getAttribute('aria-label'), '应用更新');
+  p.h.canOpenUpdate = () => false;
+  p.renderUpdates(); assert.equal(p.$('update').hidden, true);
   p.dispose();
 });
 

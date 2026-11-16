@@ -1,11 +1,23 @@
-// Reading workers use a private session protocol, qualified separately from
-// the model-only connection probe. Passing the latter grants no tool access.
-export const DSH_PROFILE_OFFICE_VERSION = '0.2.2-rc.2';
-export const DSH_LEGACY_WEB_VERSION = '0.1.0-rc.6';
-const DESKTOP_VERSIONS = new Set(['0.2.1-rc.2', '0.2.1-rc.5', DSH_PROFILE_OFFICE_VERSION]);
+import { accessSync, constants, statSync } from 'node:fs';
+import { isAbsolute, join } from 'node:path';
 
-export function supportsDshDesktop(version) {
-  return DESKTOP_VERSIONS.has(version);
+export const DSH_LEGACY_WEB_VERSION = '0.1.0-rc.6';
+
+// The bundle layout is only eligibility to start a worker. The child verifies
+// its boot and isolation contracts, then the parent validates the session API.
+export function dshDesktopResources(appPath) {
+  if (typeof appPath !== 'string' || !isAbsolute(appPath)) return null;
+  const resources = join(appPath, 'Contents/Resources');
+  const executable = join(appPath, 'Contents/MacOS/DeepSeek Harness');
+  const archive = join(resources, 'app.asar');
+  const primaryRuntime = join(resources, 'runtime/primary-runtime');
+  const pnpm = join(primaryRuntime, 'dependencies/pnpm/bin/pnpm.mjs');
+  const nodeBin = join(resources, 'runtime/bin');
+  try {
+    accessSync(executable, constants.X_OK);
+    if (![executable, archive, pnpm].every(path => statSync(path).isFile()) || !statSync(nodeBin).isDirectory()) return null;
+  } catch { return null; }
+  return { executable, runtimeDir: join(archive, 'dsh'), primaryRuntime, pnpm, nodeBin };
 }
 
 // Eligibility to attempt a probe is an installation property, not a version

@@ -52,10 +52,12 @@ try {
     env: { ...process.env, CONTEXTFLOW_DIR: config, CONTEXTFLOW_EXT_DIR: extension }, stdio: 'pipe' });
   const version = JSON.parse(readFileSync(join(extension, 'manifest.json'), 'utf8')).version;
   const workerFile = join(extension, 'sw.js');
+  const initialFeed = { ...feed, extension: { ...feed.extension, version, releaseNotesUrl: notes(version) } };
   const intercept = `globalThis.__publicUpdateRequests=[];globalThis.__blockedWorkerFetches=[];
+    globalThis.__publicUpdateFeed=${JSON.stringify(initialFeed)};
     globalThis.fetch=async(input,init={})=>{const url=String(input?.url||input);
       if(url===${JSON.stringify(UPDATE_FEED_URL)}){globalThis.__publicUpdateRequests.push({url,credentials:init.credentials,hasBody:!!init.body,hasAuthorization:new Headers(init.headers||{}).has('authorization')});
-        return new Response(${JSON.stringify(JSON.stringify(feed))},{status:200,headers:{'Content-Type':'application/json'}});}
+        return new Response(JSON.stringify(globalThis.__publicUpdateFeed),{status:200,headers:{'Content-Type':'application/json'}});}
       globalThis.__blockedWorkerFetches.push(url);throw new Error('Isolated browser refuses external/service fetch');};\n`;
   writeFileSync(workerFile, intercept + readFileSync(workerFile, 'utf8'));
   context = await chromium.launchPersistentContext(join(temporary, 'profile'), {
@@ -78,7 +80,7 @@ try {
   await article.getByRole('button', { name: '展开 ContextFlow', exact: true }).click();
   const update = panel.locator('#update');
   await update.waitFor({ state: 'visible' });
-  assert.match(await update.getAttribute('aria-label'), /1\.2\.0/);
+  assert.equal(await update.getAttribute('aria-label'), '应用更新');
   await article.locator('#selection').evaluate(element => {
     const range = document.createRange(); range.selectNodeContents(element);
     const selection = getSelection(); selection.removeAllRanges(); selection.addRange(range);
@@ -94,15 +96,18 @@ try {
   options.on('pageerror', error => errors.push(error.message));
   await options.waitForURL(`chrome-extension://${extensionId}/options.html#updates`);
   await options.locator('#updates').waitFor({ state: 'visible' });
-  await waitFor(() => options.locator('#update-latest').textContent(), value => value === 'v1.2.0', 'options must read the real worker update RPC');
+  await waitFor(() => options.locator('#update-latest').textContent(), value => value === `v${version}`, 'options must read the real worker update RPC');
   assert.equal(await options.locator('#update-current').textContent(), `v${version}`);
   await waitFor(() => options.locator('#update-message').textContent(), value => /开发版/.test(value), 'unpacked test copy must not promise store auto-update');
   assert.match(await options.locator('#update-install-help').textContent(), /开发版.*Chrome 商店不会替换/);
   assert.equal(await options.locator('#update-manage').isVisible(), false);
-  assert.equal(await options.locator('#update-indicator').isVisible(), true);
+  assert.equal(await options.locator('#update-indicator').isVisible(), false);
+  await worker.evaluate(next => { globalThis.__publicUpdateFeed = next; }, feed);
   await options.locator('#check-updates').click();
   await waitFor(() => worker.evaluate(() => globalThis.__publicUpdateRequests.length), value => value >= 2, 'explicit check must fetch the public feed again');
   await options.locator('#check-updates:not([disabled])').waitFor();
+  await options.locator('#update-indicator').waitFor({ state: 'visible' });
+  await waitFor(() => update.getAttribute('aria-label'), value => /1\.2\.0/.test(value), 'published update must highlight the reading panel entry');
   assert.equal(await comment.inputValue(), draft);
   assert.deepEqual(await article.evaluate(() => ({ identity: window.fixtureIdentity, url: location.href, hostDraft: document.getElementById('host-draft').value })), before,
     'opening/rechecking updates cannot refresh the article, replace the draft or edit a host form');

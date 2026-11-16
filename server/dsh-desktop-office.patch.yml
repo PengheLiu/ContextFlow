@@ -1,4 +1,4 @@
-# Keep converted Office documents in the ContextFlow-owned worker.
+# Keep the Desktop profile's converted Office documents in the owned worker.
 - id: office-kit
   name: '@deepseek-ai/dsh-office-kit'
   config:

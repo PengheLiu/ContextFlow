@@ -59,7 +59,7 @@ try {
   const desktopRow = desktopRows.find(row=>row.id==='dsh');
   assert.equal(desktopRow.source,'desktop');
   assert.equal(desktopRow.connectionTestSupported,true);
-  assert.equal(desktopRow.readingRuntimeSupported,true);
+  assert.equal(desktopRow.readingRuntimeSupported,null);
   const checks = new ConnectionChecks(join(root, 'checks'), 'isolated-fixture-secret');
   const checkConfig = {translate:{provider:'openai'},agent:{id:'dsh',profile:'full',env:{}}};
   checks.finish(checks.begin(checks.agentKey({...desktopRow,profile:'full',env:{}})),true);
@@ -69,7 +69,7 @@ try {
   const updated=await detect(false,desktopConfig);
   assert.equal(updated.find(row=>row.id==='dsh').version,'0.2.1-rc.5');
   assert.equal(updated.find(row=>row.id==='dsh').connectionTestSupported,true,'rc.5 支持连接测试，不能因旧版本白名单禁用按钮');
-  assert.equal(updated.find(row=>row.id==='dsh').readingRuntimeSupported,true);
+  assert.equal(updated.find(row=>row.id==='dsh').readingRuntimeSupported,null);
   assert.notEqual(updated.find(row=>row.id==='dsh').identity,desktopRow.identity);
   assert.equal(checks.view(checkConfig,updated).agents.dsh,undefined,'升级后旧成功测试不可继续显示为可用');
   assert.equal(readFileSync(desktop,'utf8'),wrapper,'只升级桌面运行时，不改 CLI 包装器');
@@ -78,7 +78,7 @@ try {
   const futureRows = await detect(false,desktopConfig), future = futureRows.find(row=>row.id==='dsh');
   assert.equal(future.version,'0.2.2-unverified');
   assert.equal(future.connectionTestSupported,true,'未知版本仍允许尝试隔离连接测试，能力兼容性由测试实际验证');
-  assert.equal(future.readingRuntimeSupported,false,'已检测但未适配的桌面版应显示网页回答兼容性提示');
+  assert.equal(future.readingRuntimeSupported,null,'桌面阅读会话由启动能力确认，不按版本号预先拦截');
   assert.equal(checks.view(checkConfig,futureRows).agents.dsh,undefined);
   const beforeHostUpgrade = future.identity;
   writeFileSync(host,'fixture upgraded desktop executable, unchanged CLI');

@@ -6,7 +6,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync
 import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
-import { DSH_CONNECTION_PROMPT } from '../server/dsh-probe-config.mjs';
+import { DSH_ACCOUNT_PACKAGES, DSH_CONNECTION_PROMPT } from '../server/dsh-probe-config.mjs';
 
 const carrier = fileURLToPath(new URL('../server/dsh-connection-child.mjs', import.meta.url));
 const root = mkdtempSync(join(tmpdir(), 'contextflow-dsh-contract-'));
@@ -51,7 +51,7 @@ const packageAt = (directory, name, code) => {
   writeFileSync(join(path, 'index.mjs'), code);
 };
 
-async function runFixture({ overrides = {}, ancestorModule, beforeRun } = {}) {
+async function runFixture({ overrides = {}, ancestorModule, profilePatch, beforeRun } = {}) {
   const directory = mkdtempSync(join(root, 'case-'));
   const runtime = join(directory, 'runtime'), home = join(directory, 'home'), dshHome = join(home, '.dsh');
   const marker = join(directory, 'model-request.json'), imported = join(directory, 'outside-module-imported');
@@ -60,6 +60,7 @@ async function runFixture({ overrides = {}, ancestorModule, beforeRun } = {}) {
   writeFileSync(join(dshHome, 'profiles/desktop/package.json'), JSON.stringify({
     dsh: { profile: { bundles: ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app'] } },
   }));
+  if (profilePatch) writeFileSync(join(dshHome, 'profiles/desktop/cordis.patch.yml'), JSON.stringify(profilePatch));
   for (const [name, code] of Object.entries({ ...modules, ...overrides })) {
     if (code !== null) packageAt(runtime, name, code);
   }
@@ -135,6 +136,29 @@ try {
     rejectedBeforeRequest(fallback, 'DSH_DESKTOP_UNSUPPORTED');
     assert.equal(fallback.outsideImported, false);
   });
+  await test('bundled official account probes resolve by installed capability and reject ambiguous or external packages', async () => {
+    const [current, legacy] = DSH_ACCOUNT_PACKAGES;
+    const profilePatch = [{ id: 'agent-default-model', config: { provider: 'deepseek-account', model: 'account-model' } }];
+    const adapter = { '@deepseek-ai/dsh-llm-deepseek-account': 'export function apply() {}' };
+    const account = 'export default context => context.provide("deepseekAccount", { resolveToken() {} });';
+    for (const name of [current, legacy]) {
+      const result = await runFixture({ overrides: { ...adapter, [name]: account }, profilePatch });
+      assert.equal(result.code, 0, JSON.stringify(result.messages));
+      assert.equal(result.request.provider, 'deepseek-account');
+    }
+    const both = { ...adapter, [current]: account, [legacy]: 'throw new Error("Unexpected account package");' };
+    rejectedBeforeRequest(await runFixture({ overrides: both, profilePatch }), 'DSH_DESKTOP_UNSUPPORTED');
+    const explicit = [...profilePatch, { id: 'deepseek-account', name: current }];
+    const selected = await runFixture({ overrides: both, profilePatch: explicit });
+    assert.equal(selected.code, 0, JSON.stringify(selected.messages));
+    const external = await runFixture({ overrides: { ...adapter, [legacy]: account }, ancestorModule: current, profilePatch: explicit });
+    rejectedBeforeRequest(external, 'DSH_DESKTOP_UNSUPPORTED');
+    assert.equal(external.outsideImported, false);
+    rejectedBeforeRequest(await runFixture({ overrides: both,
+      profilePatch: [...profilePatch, { id: 'deepseek-account', name: '/unsafe/replacement.mjs' }],
+    }), 'DSH_PROBE_UNSUPPORTED');
+    rejectedBeforeRequest(await runFixture({ overrides: { ...adapter, [current]: 'export default () => {}' }, profilePatch }), 'DSH_DESKTOP_UNSUPPORTED');
+  });
   await test('changed Context, message, parser and environment APIs report compatibility errors before model use', async () => {
     for (const overrides of [
       { '@deepseek-ai/cordis': 'export const Context = null;' },
@@ -181,8 +205,8 @@ try {
       } }), 'AGENT_AUTH');
     }
   });
-  await test('unexpected agent, tools, skill or schedule services cannot reach a model request', async () => {
-    for (const service of ['agent', 'tools', 'skill', 'schedule']) {
+  await test('unexpected agent, tools, skills or schedule services cannot reach a model request', async () => {
+    for (const service of ['agent', 'tools', 'skill', 'skills', 'schedule']) {
       rejectedBeforeRequest(await runFixture({ overrides: {
         '@deepseek-ai/dsh-llm-deepseek-api-key': `export function apply(context) { context.provide(${JSON.stringify(service)}, {}); }`,
       } }), 'DSH_TEST_ISOLATION');

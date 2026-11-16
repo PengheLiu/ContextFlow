@@ -129,7 +129,10 @@ export function setupUpdatePage({ root = document, request, version, runtime = g
     state = value || state || {};
     $('update-current').textContent = `v${version}`;
     $('update-latest').textContent = state.latestVersion ? `v${state.latestVersion}` : '尚未确认';
-    $('update-message').textContent = state.checkError ? `${state.message} ${state.checkError}` : state.message || '尚未检查更新';
+    const message = state.message || '尚未检查更新';
+    $('update-message').textContent = state.checkError
+      ? state.available ? `${message} ${state.checkError}` : state.checkError
+      : message;
     $('update-message').dataset.error = String(state.state === 'error' || !!state.checkError);
     $('update-checked').textContent = state.checkedAt ? new Date(state.checkedAt).toLocaleString('zh-CN') : '尚未检查';
     $('check-updates').disabled = working || !!state.checking;

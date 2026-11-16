@@ -225,6 +225,7 @@ export class App {
       canOpenLibrary: () => typeof this.openReadingLibrary==='function',
       onOpenLibrary: () => this.openReadingLibrary?.(),
       getUpdateState: () => this.getExtensionUpdates?.(),
+      canOpenUpdate: () => typeof this.openUpdateSettings === 'function',
       onOpenUpdate: () => this.openUpdateSettings?.(),
       onConfigurationSaved: () => this.refreshConnection(),
       outbox: () => this.pendingCount,

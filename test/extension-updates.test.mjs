@@ -107,6 +107,9 @@ test('settings show availability and retry feedback without claiming an update w
     request: async message => { sent.push(message); if (message.type === 'cf-check-updates') return new Promise(resolve => { release = resolve; }); return { state: 'current', available: false, latestVersion: '1.1.1', message: '当前已是最新公开版本。' }; } });
   try {
     await tick(); assert.equal(document.getElementById('update-indicator').hidden, true);
+    listener({ type: 'cf-update-state', updates: { state: 'current', available: false, latestVersion: '1.1.1',
+      message: '当前已是最新公开版本。', checkError: '暂时无法检查更新', stale: true } });
+    assert.equal(document.getElementById('update-message').textContent, '暂时无法检查更新');
     listener({ type: 'cf-update-state', updates: { state: 'available', available: true, latestVersion: '1.2.0', message: '发现新版本。', checkedAt: 1793760000000 } });
     assert.equal(document.getElementById('update-indicator').hidden, false);
     assert.equal(document.getElementById('update-latest').textContent, 'v1.2.0');

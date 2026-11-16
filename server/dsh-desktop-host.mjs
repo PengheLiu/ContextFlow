@@ -1,15 +1,20 @@
-// Version-pinned launcher for the runtime bundled with DeepSeek Harness Desktop.
+// Launcher for the runtime bundled with DeepSeek Harness Desktop.
 // It keeps the desktop profile, model selection, authentication and tools, while
 // excluding background scheduling from this ContextFlow-owned worker.
 import { createRequire, registerHooks } from 'node:module';
-import { basename, delimiter, dirname, isAbsolute, join, relative } from 'node:path';
+import { basename, delimiter, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { realpathSync } from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { DSH_PROFILE_OFFICE_VERSION } from './dsh-compatibility.mjs';
 
 const [runtimeDir, projectDir, primaryRuntime, pnpm, nodeBin] = process.argv.slice(2);
 const requireRuntime = createRequire(join(runtimeDir, 'package.json'));
-const fromRuntime = name => import(pathToFileURL(requireRuntime.resolve(name)).href);
+const incompatible = () => Object.assign(new Error('Incompatible bundled Desktop reading worker'), { code: 'DSH_DESKTOP_UNSUPPORTED' });
+function bundledEntry(name) {
+  const entry = realpathSync(requireRuntime.resolve(name));
+  if (!entry.startsWith(realpathSync(runtimeDir) + sep)) throw incompatible();
+  return entry;
+}
+const fromRuntime = name => import(pathToFileURL(bundledEntry(name)).href);
 
 // Native Office executables must retain the physical resource paths provided by
 // the desktop bundle, rather than paths inside Electron's app.asar archive.
@@ -42,7 +47,7 @@ async function mountLegacyOffice(ctx) {
     runtimeDir, source: primaryRuntime, root: join(resolveDshHome(), 'dsh-runtimes/dsh-primary-runtime'),
   });
   const archive = dirname(realpathSync(runtimeDir));
-  const manifest = requireRuntime.resolve('@deepseek-ai/libreoffice-kit/package.json');
+  const manifest = bundledEntry('@deepseek-ai/libreoffice-kit/package.json');
   const packageRoot = dirname(join(`${archive}.unpacked`, relative(archive, manifest)));
   await ctx.plugin(officeSkills, {
     assetRoot: join(dirname(primaryRuntime), 'office-skills'),
@@ -54,20 +59,25 @@ async function mountLegacyOffice(ctx) {
 async function main() {
   const stateDir = process.env.CONTEXTFLOW_DSH_STATE_DIR;
   if (!stateDir || !isAbsolute(stateDir)) throw Error('Missing private worker storage');
-  const profileProvidesOffice = process.env.DSH_CLIENT_VERSION === DSH_PROFILE_OFFICE_VERSION;
-  const patchFiles = [fileURLToPath(new URL('./dsh-desktop.patch.yml', import.meta.url))];
-  if (profileProvidesOffice) {
-    // The newer Desktop profile registers its own Office skills and dependency
-    // tool. Supply the bundled runtime before boot so it uses the same Python.
-    process.env.DSH_PRIMARY_RUNTIME = primaryRuntime;
-    patchFiles.push(fileURLToPath(new URL('./dsh-desktop-0.2.2.patch.yml', import.meta.url)));
-  }
+  process.env.DSH_PRIMARY_RUNTIME = primaryRuntime;
+  process.env.DSH_TELEMETRY_DISABLED = '1';
   installOfficeResolution();
-  const [{ loadLayeredEnv, loadProfileDirectory, reportSkippedBundles }, { runProfile }] = await Promise.all([
+  const [{ loadLayeredEnv, loadProfileDirectory, composeEntries, reportSkippedBundles }, { runProfile }] = await Promise.all([
     fromRuntime('@deepseek-ai/dsh-app-boot'), fromRuntime('@deepseek-ai/dsh/profile-boot'),
-  ]);
-  const installAnchor = requireRuntime.resolve('@deepseek-ai/dsh/package.json');
+  ]).catch(() => { throw incompatible(); });
+  if (![loadLayeredEnv, loadProfileDirectory, composeEntries, reportSkippedBundles, runProfile].every(fn => typeof fn === 'function')) throw incompatible();
+  const installAnchor = bundledEntry('@deepseek-ai/dsh/package.json');
   const profile = loadProfileDirectory('dsh', projectDir, installAnchor);
+  if (!Array.isArray(profile?.layers) || profile.layers.some(layer => !Array.isArray(layer.patches))) throw incompatible();
+  const rows = composeEntries(profile.layers.map(layer => layer.patches));
+  const hasPlugin = (id, name) => rows.some(row => row.id === id && row.name === `@deepseek-ai/${name}`);
+  if (!hasPlugin('session-persistence-jsonl', 'dsh-session-persistence-jsonl')
+    || !hasPlugin('storage-json', 'dsh-storage-json')
+    || !hasPlugin('session-query-sqlite', 'dsh-session-query-sqlite')
+    || !hasPlugin('attachment-local', 'dsh-attachment-local')) throw incompatible();
+  const patchFiles = [fileURLToPath(new URL('./dsh-desktop.patch.yml', import.meta.url))];
+  if (hasPlugin('office-kit', 'dsh-office-kit')) patchFiles.push(fileURLToPath(new URL('./dsh-desktop-office.patch.yml', import.meta.url)));
+  const profileProvidesOffice = hasPlugin('skill-office', 'dsh-skill-office');
   reportSkippedBundles('dsh', profile);
   const application = runProfile({
     environment: loadLayeredEnv('dsh'), profile: 'desktop', resolvedProfile: { profile, installAnchor },
@@ -86,23 +96,27 @@ async function main() {
   process.once('disconnect', stop);
   process.on('message', message => { if (message?.type === 'shutdown') void stop(); });
   const { ctx } = await application;
-  // Fail before readiness if an incompatible runtime ignores our final overlay.
-  if (ctx.get('schedule') !== undefined) throw Error('Background scheduling was not disabled');
-  if (profileProvidesOffice) {
-    const officeKit = ctx.get('officeKit');
-    if (officeKit && officeKit.outputDirectory !== join(stateDir, 'office-outputs')) {
-      throw Error('Office outputs were not isolated');
-    }
-  } else {
-    await mountLegacyOffice(ctx);
-  }
-  if (process.connected) process.send({ type: 'ready', profile: 'desktop', backgroundScheduling: false,
+  // Verify the mounted service state before handing a URL to the parent. An
+  // updated host must never store article history in the user's Desktop data.
+  const query = ctx.get('sessionQuery');
+  const officeKit = ctx.get('officeKit');
+  const privateRoot = (path, ...parts) => typeof path === 'string' && resolve(path) === resolve(stateDir, ...parts);
+  if (ctx.get('schedule') !== undefined || ctx.get('productTelemetry') !== undefined
+    || !privateRoot(ctx.get('sessionPersistence')?.root, 'sessions')
+    || !privateRoot(ctx.get('storage.backend.json')?.root, 'storage')
+    || !privateRoot(ctx.get('attachments')?.root, 'attachments', 'v1')
+    || query?.config?.path !== ':memory:' || query.config.openAt !== 'never'
+    || officeKit && !privateRoot(officeKit.outputDirectory, 'office-outputs')
+    || typeof ctx.connection?.authenticatedUrl !== 'function' || ctx.webServer?.protocol !== 'http:'
+    || !Number.isInteger(ctx.webServer.port) || ctx.webServer.port < 1 || ctx.webServer.port > 65535) throw incompatible();
+  if (!profileProvidesOffice) await mountLegacyOffice(ctx);
+  if (process.connected) process.send({ type: 'ready', profile: 'desktop', contract: 1, isolatedState: true, backgroundScheduling: false,
     url: ctx.connection.authenticatedUrl(`${ctx.webServer.protocol}//127.0.0.1:${ctx.webServer.port}`) });
 }
 
-main().catch(() => {
+main().catch(error => {
   // Plugin diagnostics can contain configuration secrets. Send only a fixed
   // startup failure to the parent, which offers a user-facing recovery hint.
-  if (process.connected) process.send({ type: 'fatal' }, () => process.exit(1));
+  if (process.connected) process.send({ type: 'fatal', code: error?.code === 'DSH_DESKTOP_UNSUPPORTED' ? error.code : 'DSH_DESKTOP_START' }, () => process.exit(1));
   else process.exit(1);
 });

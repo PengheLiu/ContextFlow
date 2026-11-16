@@ -132,7 +132,7 @@ test('discovered Agent stays unselected until explicit click; selection fills bu
 });
 test('DSH can test and save an unsaved choice while showing separate reading compatibility', async () => {
   const state = initialStatus(), config = initialConfig(), tests = [];
-  const agent = { id: 'dsh', label: 'DeepSeek Harness', available: true, source: 'desktop', path: '/isolated/DeepSeek Harness.app/bin/dsh', version: '0.2.1-rc.5', safeSupport: 'unsupported', connectionTestSupported: true, readingRuntimeSupported: true };
+  const agent = { id: 'dsh', label: 'DeepSeek Harness', available: true, source: 'desktop', path: '/isolated/DeepSeek Harness.app/bin/dsh', version: '0.2.1-rc.5', safeSupport: 'unsupported', connectionTestSupported: true, readingRuntimeSupported: null };
   state.discovery.agents.items = [agent];
   Object.assign(config.agent, { fullWarningVersion: 1, fullWarningHash: 'fixture-warning-hash', fullWarning: 'fixture warning' });
   const f = await fixture({ state, config, serviceAPI: {
@@ -155,6 +155,7 @@ test('DSH can test and save an unsaved choice while showing separate reading com
     settings.$('s-profileFull').dispatchEvent(new Event('change', { bubbles: true }));
     settings.$('s-fullAck').checked = true;
     settings.$('s-fullAck').dispatchEvent(new Event('change', { bubbles: true }));
+    assert.match(settings.$('s-agentRuntimeStatus').textContent, /会检查 DSH 的阅读会话接口/);
     settings.$('s-testAgent').click(); await tick();
     assert.equal(tests.length, 1); assert.equal(tests[0].id, 'dsh'); assert.equal(tests[0].draft.profile, 'full');
     assert.equal(f.calls.length, 0, 'a successful probe must not save the draft');

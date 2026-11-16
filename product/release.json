@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "candidateVersion": "1.1.4",
+  "candidateVersion": "1.1.5",
   "channel": "preview",
   "publishedExtension": {
     "version": "1.1.4",

@@ -7,7 +7,7 @@ import { statSync, mkdtempSync, rmSync } from 'node:fs';
 import { rm } from 'node:fs/promises';
 import WebSocket from 'ws';
 import { resolveDshInstallation } from './dsh-installation.mjs';
-import { DSH_LEGACY_WEB_VERSION, supportsDshDesktop } from './dsh-compatibility.mjs';
+import { dshDesktopResources, DSH_LEGACY_WEB_VERSION } from './dsh-compatibility.mjs';
 import { createDshConnectionTester } from './dsh-connection-test.mjs';
 import { join, resolve } from 'node:path';
 import { homedir, tmpdir } from 'node:os';
@@ -80,16 +80,13 @@ class DshServer {
     this.death = deferred();
     this.controller = new AbortController();
     this.sockets = new Set();
-    const resources = this.appPath && join(this.appPath, 'Contents/Resources');
-    const bundle = resources && join(resources, 'app.asar/dsh');
-    const executable = this.modern ? join(this.appPath, 'Contents/MacOS/DeepSeek Harness') : this.bin;
+    const executable = this.desktop?.executable || this.bin;
     const argv = this.modern ? ['--expose-internals', fileURLToPath(new URL('./dsh-desktop-host.mjs', import.meta.url)),
-      bundle, join(this.dshHome, 'profiles/desktop'), join(resources, 'runtime/primary-runtime'),
-      join(resources, 'runtime/primary-runtime/dependencies/pnpm/bin/pnpm.mjs'), join(resources, 'runtime/bin')]
+      this.desktop.runtimeDir, join(this.dshHome, 'profiles/desktop'), this.desktop.primaryRuntime, this.desktop.pnpm, this.desktop.nodeBin]
       : ['--profile', 'web', '--host', '127.0.0.1', '--port', '0'];
     this.stateDir = this.modern ? mkdtempSync(join(tmpdir(), 'contextflow-dsh-worker-')) : null;
     try { this.child = runtime.spawnProcess(executable, argv, {
-      env: this.modern ? { ...this.env, ELECTRON_RUN_AS_NODE: '1', DSH_CLIENT_VERSION: this.version, CONTEXTFLOW_DSH_STATE_DIR: this.stateDir } : this.env,
+      env: this.modern ? { ...this.env, ELECTRON_RUN_AS_NODE: '1', DSH_CLIENT_VERSION: this.version || '', CONTEXTFLOW_DSH_STATE_DIR: this.stateDir } : this.env,
       cwd: this.cwd, stdio: ['ignore', 'pipe', 'pipe', ...(this.modern ? ['ipc'] : [])],
     }); } catch (error) {
       if (this.stateDir) rmSync(this.stateDir, { recursive: true, force: true });
@@ -97,12 +94,14 @@ class DshServer {
     }
     if (this.modern) this.child.on('message', message => {
       if (message?.type === 'ready') {
-        if (message.profile !== 'desktop' || message.backgroundScheduling !== false) {
+        if (message.profile !== 'desktop' || message.contract !== 1 || message.isolatedState !== true || message.backgroundScheduling !== false) {
           this.destroy(fail('DSH 桌面工作进程未确认配置隔离', 'DSH_DESKTOP_START')); return;
         }
         this.readEndpoint(message.url);
       }
-      else if (message?.type === 'fatal') this.destroy(fail('DSH 桌面运行时启动失败，请先打开桌面版完成配置', 'DSH_DESKTOP_START'));
+      else if (message?.type === 'fatal') this.destroy(message.code === 'DSH_DESKTOP_UNSUPPORTED'
+        ? fail('DSH 桌面版的阅读接口与当前 ContextFlow 不兼容，可切换为模型 API 或其他本地 Agent', 'DSH_DESKTOP_UNSUPPORTED')
+        : fail('DSH 桌面运行时启动失败，请确认桌面版能正常打开并完成配置', 'DSH_DESKTOP_START'));
       // Platform-session IPC may contain credentials for the desktop UI. Ignore
       // it completely: the backend resolves its own login without our handling it.
     });
@@ -252,8 +251,8 @@ class DshServer {
         signal: AbortSignal.any([this.controller.signal, controller.signal]),
       });
       if ([401, 403].includes(response.status)) throw fail('DSH 拒绝了本地连接，请检查认证与访问设置', 'AGENT_AUTH');
-      if (response.status === 404 && path === '/api/session.create') {
-        throw fail('当前 DSH 缺少所需的会话接口', 'DSH_UNSUPPORTED', { submitted: false });
+      if (response.status === 404 && ['/api/session.create', '/api/session/create'].includes(path)) {
+        throw fail('当前 DSH 缺少所需的会话接口', this.modern ? 'DSH_DESKTOP_UNSUPPORTED' : 'DSH_UNSUPPORTED', { submitted: false });
       }
       if (!response.ok) throw fail(`DSH 请求失败（HTTP ${response.status}）`, 'DSH_RPC');
       const reader = response.body?.getReader();
@@ -336,6 +335,7 @@ class DshServer {
 
 export function createDshRuntime({ spawnProcess = spawnAgent, fetcher = fetch,
   createSocket = (url, options) => new WebSocket(url, options), checkVersion = probeVersion,
+  resolveDesktop = dshDesktopResources,
   idleMs = 5 * 60 * 1000, startupMs = 30000, rpcTimeoutMs = 30000,
   interruptMs = 2000, maxServers = 3, maxSessions = 32,
 } = {}) {
@@ -391,17 +391,20 @@ export function createDshRuntime({ spawnProcess = spawnAgent, fetcher = fetch,
       server = runtime.servers.get(id.key);
       if (server && server.createdSessions >= maxSessions && !server.sessions.has(options.contextKey)) { server.destroy(); server = null; }
       if (!server) {
-        // Desktop's bundled Host and the legacy Web profile use different
-        // protocols. Verify the release before launching either carrier.
-        const checking = Promise.resolve().then(() => runtime.checkVersion(id, versionController.signal));
+        // Desktop workers attest the actual boot and session contract. The
+        // version remains metadata, with the legacy CLI Web protocol pinned.
+        id.desktop = id.appPath ? resolveDesktop(id.appPath) : null;
+        id.modern = !!id.desktop;
+        if (id.appPath && !id.modern) throw fail('DSH 桌面版缺少阅读会话所需的运行组件，请检查桌面安装', 'DSH_DESKTOP_UNSUPPORTED');
+        const checking = Promise.resolve().then(() => runtime.checkVersion(id, versionController.signal)).catch(error => {
+          if (!id.modern) throw error;
+          return '';
+        });
         const probe = { promise: checking, stop: () => stop(fail('DSH 服务已关闭', 'DSH_DISCONNECTED')) };
         runtime.probes.add(probe);
         checking.then(() => runtime.probes.delete(probe), () => runtime.probes.delete(probe));
-        const version = await Promise.race([checking, interrupted.promise]);
-        id.version = version;
-        id.modern = supportsDshDesktop(version);
-        if (version !== DSH_LEGACY_WEB_VERSION && !id.modern) throw fail('当前 ContextFlow 尚未适配此 DeepSeek Harness 版本，请更新 ContextFlow 后重新检测安装', id.source === 'desktop' ? 'DSH_DESKTOP_UNSUPPORTED' : 'DSH_UNSUPPORTED', { submitted: false });
-        if (id.modern && !id.appPath) throw fail('请安装并选择 DeepSeek Harness 桌面版', 'DSH_DESKTOP_UNSUPPORTED', { submitted: false });
+        id.version = await Promise.race([checking, interrupted.promise]);
+        if (!id.modern && id.version !== DSH_LEGACY_WEB_VERSION) throw fail('当前 DSH 命令行版本缺少已验证的常驻接口', 'DSH_UNSUPPORTED');
         if (runtime.closed || options.signal?.aborted) throw fail('已取消', 'ABORTED');
         for (const old of runtime.servers.values()) {
           if (runtime.servers.size < maxServers) break;

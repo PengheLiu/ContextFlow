@@ -5,6 +5,8 @@
   disabled: true
 - id: product-analytics
   disabled: true
+- id: session-telemetry-otel
+  disabled: true
 # Keep session logs and whole-document workspace metadata out of the desktop store.
 - id: storage-json
   config:
@@ -12,6 +14,9 @@
 - id: session-persistence-jsonl
   config:
     root: !!js "process.env.CONTEXTFLOW_DSH_STATE_DIR + '/sessions'"
+- id: attachment-local
+  config:
+    dshHome: !!js process.env.CONTEXTFLOW_DSH_STATE_DIR
 - id: session-query-sqlite
   config:
     path: ':memory:'
