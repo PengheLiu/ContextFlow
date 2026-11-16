@@ -7,9 +7,9 @@
   },
   "desktop": {
     "darwin-arm64": {
-      "version": "1.1.4",
+      "version": "1.1.5",
       "url": "https://pengheliu.github.io/ContextFlow/download.html",
-      "releaseNotesUrl": "https://github.com/PengheLiu/ContextFlow/releases/tag/v1.1.4"
+      "releaseNotesUrl": "https://github.com/PengheLiu/ContextFlow/releases/tag/v1.1.5"
     }
   }
 }

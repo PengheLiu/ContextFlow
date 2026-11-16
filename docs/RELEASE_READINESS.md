@@ -1,10 +1,16 @@
 # 1.1 独立桌面分发与当前状态
 
+## 1.1.5 发布核对（2026-11-16）
+
+- [1.1.5 更新说明](./RELEASE_1_1_5.md)记录 DSH 的接口检测和两端常驻更新入口。GitHub 版本标签对应提交 `63d35fe3aa5bed4750bbf354d47d4d312e8aa2c8`。
+- GitHub Release 的六个附件均与本地大小和 SHA-256 一致。Mac ARM64 DMG 经只读挂载验证，由安装包内置服务和本机 DSH `0.2.2-rc.3` 完成隔离模拟模型测试。官网已核对桌面下载、校验文件及公开更新清单。
+- Chrome 扩展 1.1.5 已在原条目提交，后台显示待审核，通过后自动发布。公开商店和更新清单当前记录 1.1.4。见[审核回执与测试说明](../store/REVIEW_INSTRUCTIONS.zh-CN.md)。
+
 ## 1.1.4 发布核对（2026-11-13）
 
 - [1.1.4 更新说明](./RELEASE_1_1_4.md)记录 DeepSeek Harness `0.2.2-rc.2` 的阅读会话和连接测试修复。GitHub 发行标签对应提交 `6917096ba37d4311ba9f81c792eff2a2c7506c32`。
 - 已核对 Mac ARM64 DMG 及包内服务，并用已安装的 DSH 和本地模拟模型验证流式回答、续问、取消、API Key 和官方账号连接。送审 ZIP 在隔离 Chromium 中通过批注保存与恢复、阅读库、Markdown 导出和本机连接回归。
-- 扩展 **1.1.4** 于 2026-11-13 提交并启用审核通过后自动发布，2026-11-16 核实已在 Chrome 商店公开。两个版本的 manifest 除版本号外一致。见[审核回执与测试说明](../store/REVIEW_INSTRUCTIONS.zh-CN.md)。
+- 扩展 **1.1.4** 于 2026-11-13 提交并启用审核通过后自动发布，2026-11-16 核实已在 Chrome 商店公开。与 1.1.3 的 manifest 除版本号外一致。见[1.1.4 审核回执](https://github.com/PengheLiu/ContextFlow/blob/856f0ffbdb38f35d28b7716654887e25bc3fac88/store/REVIEW_INSTRUCTIONS.zh-CN.md)。
 
 ## 1.1.3 历史发布核对（2026-11-04）
 
